@@ -3,7 +3,7 @@
 
 using namespace std;
 
-class dict {
+class static_dict {
 
   private:
     bit_vector louds;
@@ -15,11 +15,11 @@ class dict {
     Vector<uint8_t> payloads;
     size_t size;
 
-    dict(dict const&);
-    dict& operator=(dict const&);
+    static_dict(static_dict const&);
+    static_dict& operator=(static_dict const&);
 
   public:
-    dict();
+    static_dict();
     template <typename T>
     string operator[](uint32_t id) const {
     }
