@@ -1,10 +1,17 @@
+#ifndef VAR_ARRAY_H
+#define VAR_ARRAY_H
+
+#include <stdlib.h>
+#include <stdint.h>
+
 using namespace std;
+
+namespace amphisbaena {
 
 class var_array {
 
   private:
-    Vector<uint32_t> idx;
-    Vector<uint8_t> bytes;
+    char *buf;
     size_t size;
 
     var_array(var_array const&);
@@ -15,11 +22,16 @@ class var_array {
     uint32_t operator[](size_t i) const {
       return get(i);
     }
-    uint32_t get(size_t i) {
+    uint32_t get(size_t i) const {
+      return 0;
     }
     void set(size_t i, uint32_t val) {
     }
     void append(uint32_t val, size_t size) {
     }
 
+};
+
 }
+
+#endif
