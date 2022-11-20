@@ -4,6 +4,8 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <math.h>
 
 #include "var_array.h"
 #include "bit_vector.h"
@@ -13,7 +15,7 @@ using namespace std;
 
 enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHAR};
 
-namespace amphisbaena {
+namespace squeezed {
 
 class node {
   public:
@@ -40,11 +42,6 @@ class static_dict_builder {
     vector<node *> all_nodes;
     string prev_key;
 
-    char *buf;
-    bit_vector louds;
-    bit_vector is_leaf;
-    bit_vector is_ptr;
-    vector<uint8_t> nodes;
     bitset_vector ptrs;
     vector<uint8_t> suffixes;
     bitset_vector payloads;
@@ -59,8 +56,32 @@ class static_dict_builder {
       return node;
     }
 
-  public:
+    node *find_next_sibling_having_same_level(node *n, int level) {
+        node *parent = n;
+        n = NULL;
+        while (parent != root) {
+          node *next_sibling = parent->next_sibling;
+          while (next_sibling != NULL) {
+            node *first_child = next_sibling->first_child;
+            while (first_child != NULL) {
+              if (first_child->level == level) {
+                n = first_child;
+                break;
+              }
+              first_child = first_child->first_child;
+            }
+            if (n != NULL)
+              break;
+            next_sibling = next_sibling->next_sibling;
+          }
+          if (n != NULL)
+            break;
+          parent = parent->parent;
+        }
+        return n;
+    }
 
+  public:
     static_dict_builder() {
       root = new node;
       node_count = 0;
@@ -83,7 +104,7 @@ class static_dict_builder {
       delete root;
     }
 
-    void append(string& key) {
+    void append(string key) {
       if (key == prev_key)
          return;
       key_count++;
@@ -167,6 +188,59 @@ class static_dict_builder {
         }
         last_child = get_last_child(last_child);
       } while (last_child != NULL);
+    }
+
+    string build() {
+      int node_count = all_nodes.size();
+      int total_suffix_count = 0;
+      int total_suffix_len = 0;
+      for (int i = 0; i < node_count; i++) {
+        int val_len = all_nodes[i]->val.length();
+        total_suffix_len += val_len;
+        if (val_len > 0)
+          total_suffix_count++;
+      }
+      int total_len = node_count + 1 + node_count / 2; // trie
+      total_suffix_len += total_suffix_count; // assuming each suffix < 255 bytes in len
+      total_len += total_suffix_len;
+      total_len += total_suffix_count * 3;
+      string ret(total_len, 0);
+      node *start_node = root->first_child;
+      node *n = start_node;
+      int level = 1;
+      cout << level << ": ";
+      while (start_node != NULL) {
+        node *next_sibling = n;
+        if (level != next_sibling->level)
+          cout << "Level mismatch" << endl;
+        while (next_sibling != NULL) {
+          cout << next_sibling->val << ", ";
+          next_sibling = next_sibling->next_sibling;
+        }
+        // find next sibling having same level
+        // 1. find parent, loop on next_sibling
+        // 2. keep going down until first_child having same level found
+        // 3. if not goto 1
+        // when no more n, try setting start_node
+        n = find_next_sibling_having_same_level(n, level);
+        if (n == NULL) {
+          level++;
+          if (start_node->first_child != NULL) {
+            start_node = start_node->first_child;
+            n = start_node;
+          } else {
+            start_node = find_next_sibling_having_same_level(start_node, level);
+            if (start_node != NULL)
+              n = start_node;
+          }
+          cout << endl;
+          cout << level << ": ";
+        } else {
+          cout << ",, ";
+        }
+      }
+      cout << endl;
+      return ret;
     }
 
 };

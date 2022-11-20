@@ -6,7 +6,7 @@
 
 using namespace std;
 
-namespace amphisbaena {
+namespace squeezed {
 
 class bitset_vector {
 
@@ -18,7 +18,8 @@ class bitset_vector {
     bitset_vector& operator=(bitset_vector const&);
 
   public:
-    bitset_vector();
+    bitset_vector() {
+    }
     void init(int bit_count, char *buf, size_t size) {
     }
     uint32_t get(int pos) {

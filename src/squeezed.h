@@ -9,7 +9,7 @@
 
 using namespace std;
 
-namespace amphisbaena {
+namespace squeezed {
 
 class static_dict {
 

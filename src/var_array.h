@@ -6,7 +6,7 @@
 
 using namespace std;
 
-namespace amphisbaena {
+namespace squeezed {
 
 class var_array {
 
