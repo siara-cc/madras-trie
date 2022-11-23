@@ -191,16 +191,18 @@ class static_dict_builder {
     }
 
     string build() {
-      int node_count = all_nodes.size();
-      int total_suffix_count = 0;
-      int total_suffix_len = 0;
+      uint32_t node_count = all_nodes.size();
+      uint32_t total_suffix_count = 0;
+      uint32_t total_suffix_len = 0;
       for (int i = 0; i < node_count; i++) {
         int val_len = all_nodes[i]->val.length();
         total_suffix_len += val_len;
-        if (val_len > 0)
+        if (val_len > 1)
           total_suffix_count++;
       }
-      int total_len = node_count + 1 + node_count / 2; // trie
+      int ext_louds_len = node_count / 2;
+      ext_louds_len++;
+      int total_len = node_count + ext_louds_len; // trie
       total_suffix_len += total_suffix_count; // assuming each suffix < 255 bytes in len
       total_len += total_suffix_len;
       total_len += total_suffix_count * 3;
@@ -208,20 +210,41 @@ class static_dict_builder {
       node *start_node = root->first_child;
       node *n = start_node;
       int level = 1;
-      cout << level << ": ";
+      int ext_louds_pos = 0;
+      int node_pos = ext_louds_len;
+      int ptr_pos = ext_louds_len + node_count;
+      int suffix_pos = total_len - total_suffix_len;
+      cout << "Node count: " << node_count << endl;
+      cout << "Suffix count: " << total_suffix_count << endl;
+      cout << "Suffix len: " << total_suffix_len - total_suffix_count << endl;
+      //cout << level << ": ";
       while (start_node != NULL) {
         node *next_sibling = n;
-        if (level != next_sibling->level)
-          cout << "Level mismatch" << endl;
+        //if (level != next_sibling->level)
+        //  cout << "Level mismatch" << endl;
         while (next_sibling != NULL) {
-          cout << next_sibling->val << ", ";
+          //cout << next_sibling->val << ", ";
+          uint32_t ptr = node_pos << 2;
+          string val = next_sibling->val;
+          ret[node_pos++] = val.length() > 1 ? (ptr >> 24) : val[0];
+          ret[ptr_pos++] = (ptr >> 16) & 0xFF;
+          ret[ptr_pos++] = (ptr >> 8) & 0xFF;
+          ret[ptr_pos++] = ptr & 0xFF;
+          int suffix_len = val.length() - 1;
+          ret[suffix_pos++] = suffix_len;
+          for (int i = 1; i <= suffix_len; i++)
+            ret[suffix_pos++] = val[i];
+          uint8_t flags = val.length() > 1 ? 0x08 : 0; // ptr
+          flags += next_sibling->is_leaf ? 0x04 : 0;                 // leaf
+          flags += next_sibling->first_child == NULL ? 0 : 0x02;     // child
+          flags += next_sibling->next_sibling == NULL ? 0 : 0x01;    // is_last
+          if (node_pos & 0x01)
+            flags <<= 4;
+          ret[ext_louds_pos] |= flags;
+          if ((node_pos & 0x01) == 0)
+            ext_louds_pos++;
           next_sibling = next_sibling->next_sibling;
         }
-        // find next sibling having same level
-        // 1. find parent, loop on next_sibling
-        // 2. keep going down until first_child having same level found
-        // 3. if not goto 1
-        // when no more n, try setting start_node
         n = find_next_sibling_having_same_level(n, level);
         if (n == NULL) {
           level++;
@@ -233,13 +256,13 @@ class static_dict_builder {
             if (start_node != NULL)
               n = start_node;
           }
-          cout << endl;
-          cout << level << ": ";
+          //cout << endl;
+          //cout << level << ": ";
         } else {
-          cout << ",, ";
+          //cout << ",, ";
         }
       }
-      cout << endl;
+      //cout << endl;
       return ret;
     }
 

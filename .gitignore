@@ -1,4 +1,4 @@
 *.o
 run_tests*
+!run_tests.cpp
 a.out*
-
