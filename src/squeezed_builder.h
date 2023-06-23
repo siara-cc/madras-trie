@@ -218,6 +218,8 @@ class static_dict_builder {
       uint32_t total_suffix_len = 0;
       uint32_t total_uniq_suffix_len = 0;
       uint32_t total_uniq_prefix_len = 0;
+      uint32_t uniq_suffix_len_lt5 = 0;
+      uint32_t uniq_prefix_len_lt5 = 0;
       //set<string> uniq_suffix;
       //set<string> uniq_prefix;
       map<string, int> uniq_map;
@@ -241,12 +243,17 @@ class static_dict_builder {
           if (!all_nodes[i]->is_leaf)
               total_prefix_count++;
           //map<string, int>& uniq_map = all_nodes[i]->is_leaf ? uniq_suffix : uniq_prefix;
-          if (uniq_map.find(suffix.substr(1)) == uniq_map.end()) {
-            uniq_map.insert(pair<string, int>(suffix.substr(1), 0));
-            if (all_nodes[i]->is_leaf)
+          if (uniq_map.find(suffix) == uniq_map.end()) {
+            uniq_map.insert(pair<string, int>(suffix, 0));
+            if (all_nodes[i]->is_leaf) {
               total_uniq_suffix_len += suffix.length();
-            else
+              if (suffix.length() < 5)
+                uniq_suffix_len_lt5 += suffix.length();
+            } else {
               total_uniq_prefix_len += suffix.length();
+              if (suffix.length() < 5)
+                uniq_prefix_len_lt5 += suffix.length();
+            }
           }
         }
       }
@@ -254,7 +261,6 @@ class static_dict_builder {
       int ext_louds_len = node_count / 2;
       ext_louds_len++;
       int total_len = node_count + ext_louds_len; // trie
-      total_suffix_len += total_suffix_count; // assuming each suffix < 255 bytes in len
       total_len += total_suffix_len;
       total_len += total_suffix_count * 3;
       string ret(total_len, 0);
@@ -275,10 +281,22 @@ class static_dict_builder {
       cout << "2 byte Suffix count: " << two_byte_suffix_count << endl;
       cout << "3 byte Suffix count: " << three_byte_suffix_count << endl;
       cout << "4 byte Suffix count: " << four_byte_suffix_count << endl;
-      //cout << "Uniq Prefix count: " << uniq_prefix.size() << endl;
       cout << "Uniq Prefix len: " << total_uniq_prefix_len << endl;
-      //cout << "Uniq Suffix count: " << uniq_suffix.size() << endl;
       cout << "Uniq Suffix len: " << total_uniq_suffix_len << endl;
+      cout << "Uniq Prefix len lt 5: " << uniq_prefix_len_lt5 << endl;
+      cout << "Uniq Suffix len lt 5: " << uniq_suffix_len_lt5 << endl;
+                    // trie_chars   bitmaps          pointers                                                   tails
+      int total_size = node_count + node_count / 2 + uniq_map.size() + total_uniq_prefix_len + total_uniq_suffix_len
+                       + total_suffix_count * (ceil(log2(total_uniq_prefix_len + total_uniq_suffix_len))-8)/8;
+      cout << "Estimated size: " << total_size << endl;
+      uint32_t gt5_count = total_suffix_count - two_byte_suffix_count - three_byte_suffix_count - four_byte_suffix_count;
+      uint32_t gt5_uniq_len = total_suffix_len - (uniq_prefix_len_lt5 + uniq_suffix_len_lt5);
+      uint32_t lt5_count = two_byte_suffix_count + three_byte_suffix_count + four_byte_suffix_count;
+      uint32_t lt5_uniq_len = (uniq_prefix_len_lt5 + uniq_suffix_len_lt5);
+      total_size = node_count + node_count / 2 +  uniq_map.size() + total_uniq_prefix_len + total_uniq_suffix_len
+                       + gt5_count * (ceil(log2(gt5_uniq_len))-8)/8
+                       + lt5_count * (ceil(log2(lt5_uniq_len))-8)/8;
+      cout << "Estimated size 2: " << total_size << endl;
       string octrie;
       for (int i = 0; i < level_nodes.size(); i++) {
         vector<node *> cur_lvl_nodes = level_nodes[i];
