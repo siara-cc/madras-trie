@@ -29,8 +29,7 @@ int main(int argc, char *argv[]) {
   }
   infile.close();
 
-  string s = sb.build();
-  cout << s.length() << endl;
+  sb.build();
 
   return 0;
 

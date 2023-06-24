@@ -11,8 +11,6 @@
 #include "bit_vector.h"
 #include "bitset_vector.h"
 
-using namespace std;
-
 enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHAR};
 
 namespace squeezed {
@@ -22,7 +20,7 @@ class node {
     node *first_child;
     node *parent;
     node *next_sibling;
-    string val;
+    std::string val;
     bool is_leaf;
     int level;
     node() {
@@ -40,13 +38,9 @@ class static_dict_builder {
     int node_count;
     double oct_node_count;
     int key_count;
-    vector<node *> all_nodes;
-    vector<vector<node *> > level_nodes;
-    string prev_key;
-
-    bitset_vector ptrs;
-    vector<uint8_t> suffixes;
-    bitset_vector payloads;
+    std::vector<node *> all_nodes;
+    std::vector<vector<node *> > level_nodes;
+    std::string prev_key;
 
     static_dict_builder(static_dict_builder const&);
     static_dict_builder& operator=(static_dict_builder const&);
@@ -207,178 +201,144 @@ class static_dict_builder {
       } while (last_child != NULL);
     }
 
-    string build() {
-      uint32_t node_count = all_nodes.size();
-      uint32_t two_byte_suffix_count = 0;
-      uint32_t three_byte_suffix_count = 0;
-      uint32_t four_byte_suffix_count = 0;
-      uint32_t one_byte_leaf_count = 0;
-      uint32_t total_suffix_count = 0;
-      uint32_t total_prefix_count = 0;
-      uint32_t total_suffix_len = 0;
-      uint32_t total_uniq_suffix_len = 0;
-      uint32_t total_uniq_prefix_len = 0;
-      uint32_t uniq_suffix_len_lt5 = 0;
-      uint32_t uniq_prefix_len_lt5 = 0;
-      //set<string> uniq_suffix;
-      //set<string> uniq_prefix;
-      map<string, int> uniq_map;
-      FILE *fout = fopen("tails.txt", "w+");
+    int append_bits(std::vector<uint8_t>& ptr_str, std::vector<uint32_t>& tail_ptr_counts, int addl_bit_count, bool is_next, int last_byte_bits, int ptr) {
+      if (is_next)
+        tail_ptr_counts.push_back(1);
+      else {
+        int last_idx = tail_ptr_counts.size() - 1;
+        tail_ptr_counts[last_idx] = tail_ptr_counts[last_idx] + 1;
+      }
+      if (addl_bit_count == 0)
+        return last_byte_bits;
+      if (is_next) {
+        ptr_str.push_back(0);
+        last_byte_bits = 0;
+      }
+      int last_idx = ptr_str.size() - 1;
+      int remaining_bits = 8 - last_byte_bits;
+      int bits_to_append = addl_bit_count;
+      while (bits_to_append > 0) {
+        ptr_str[last_idx] |= ptr & ((1 << remaining_bits) -1);
+        ptr >>= remaining_bits;
+        if (bits_to_append > remaining_bits) {
+          bits_to_append -= remaining_bits;
+          remaining_bits = 8;
+        } else {
+          remaining_bits -= bits_to_append;
+          bits_to_append = 0;
+        }
+        if (bits_to_append) {
+          ptr_str.push_back(0);
+          last_idx++;
+        }
+      }
+      last_byte_bits = 8 - remaining_bits;
+      return last_byte_bits;
+    }
+
+    void build() {
+      std::cout << std::endl;
+      std::map<string, int> uniq_map;
       for (int i = 0; i < node_count; i++) {
         string& suffix = all_nodes[i]->val;
         int val_len = suffix.length();
-        total_suffix_len += val_len;
-        if (all_nodes[i]->is_leaf && all_nodes[i]->first_child == NULL)
-          one_byte_leaf_count++;
         if (val_len > 1) {
-          if (val_len == 2)
-            two_byte_suffix_count++;
-          if (val_len == 3)
-            three_byte_suffix_count++;
-          if (val_len == 4)
-            four_byte_suffix_count++;
-          fwrite(suffix.c_str(), suffix.length(), 1, fout);
-          fwrite("\n", 1, 1, fout);
-          total_suffix_count++;
-          if (!all_nodes[i]->is_leaf)
-              total_prefix_count++;
-          //map<string, int>& uniq_map = all_nodes[i]->is_leaf ? uniq_suffix : uniq_prefix;
           if (uniq_map.find(suffix) == uniq_map.end()) {
-            uniq_map.insert(pair<string, int>(suffix, 0));
-            if (all_nodes[i]->is_leaf) {
-              total_uniq_suffix_len += suffix.length();
-              if (suffix.length() < 5)
-                uniq_suffix_len_lt5 += suffix.length();
-            } else {
-              total_uniq_prefix_len += suffix.length();
-              if (suffix.length() < 5)
-                uniq_prefix_len_lt5 += suffix.length();
-            }
+            uniq_map.insert(pair<string, int>(suffix, -1));
           }
         }
       }
-      fclose(fout);
-      int ext_louds_len = node_count / 2;
-      ext_louds_len++;
-      int total_len = node_count + ext_louds_len; // trie
-      total_len += total_suffix_len;
-      total_len += total_suffix_count * 3;
-      string ret(total_len, 0);
-      node *start_node = root->first_child;
-      node *n = start_node;
-      int level = 1;
-      int ext_louds_pos = 0;
-      int node_pos = ext_louds_len;
-      int ptr_pos = ext_louds_len + node_count;
-      int suffix_pos = total_len - total_suffix_len;
-      cout << "Node count: " << node_count << endl;
-      cout << "Oct Node count: " << oct_node_count << endl;
-      cout << "One byte leaf count: " << one_byte_leaf_count << endl;
-      cout << "Tail count: " << total_suffix_count << endl;
-      cout << "Tail len: " << total_suffix_len - total_suffix_count << endl;
-      cout << "Prefix count: " << total_prefix_count << endl;
-      cout << "Suffix count: " << total_suffix_count - total_prefix_count << endl;
-      cout << "2 byte Suffix count: " << two_byte_suffix_count << endl;
-      cout << "3 byte Suffix count: " << three_byte_suffix_count << endl;
-      cout << "4 byte Suffix count: " << four_byte_suffix_count << endl;
-      cout << "Uniq Prefix len: " << total_uniq_prefix_len << endl;
-      cout << "Uniq Suffix len: " << total_uniq_suffix_len << endl;
-      cout << "Uniq Prefix len lt 5: " << uniq_prefix_len_lt5 << endl;
-      cout << "Uniq Suffix len lt 5: " << uniq_suffix_len_lt5 << endl;
-                    // trie_chars   bitmaps          pointers                                                   tails
-      int total_size = node_count + node_count / 2 + uniq_map.size() + total_uniq_prefix_len + total_uniq_suffix_len
-                       + total_suffix_count * (ceil(log2(total_uniq_prefix_len + total_uniq_suffix_len))-8)/8;
-      cout << "Estimated size: " << total_size << endl;
-      uint32_t gt5_count = total_suffix_count - two_byte_suffix_count - three_byte_suffix_count - four_byte_suffix_count;
-      uint32_t gt5_uniq_len = total_suffix_len - (uniq_prefix_len_lt5 + uniq_suffix_len_lt5);
-      uint32_t lt5_count = two_byte_suffix_count + three_byte_suffix_count + four_byte_suffix_count;
-      uint32_t lt5_uniq_len = (uniq_prefix_len_lt5 + uniq_suffix_len_lt5);
-      total_size = node_count + node_count / 2 +  uniq_map.size() + total_uniq_prefix_len + total_uniq_suffix_len
-                       + gt5_count * (ceil(log2(gt5_uniq_len))-8)/8
-                       + lt5_count * (ceil(log2(lt5_uniq_len))-8)/8;
-      cout << "Estimated size 2: " << total_size << endl;
-      string octrie;
+      std::vector<uint8_t> trie;
+      std::vector<uint8_t> tail_ptrs;
+      std::vector<uint32_t> tail_ptr_counts;
+      std::vector<uint8_t> tails;
+      uint32_t node_count = 0;
+      uint8_t pending_byte = 0;
+      int addl_bit_count = 0;
+      int last_byte_bits = 0;
+      tail_ptr_counts.push_back(0);
+      tail_ptrs.push_back(0);
       for (int i = 0; i < level_nodes.size(); i++) {
-        vector<node *> cur_lvl_nodes = level_nodes[i];
-        uint8_t oct = 0;
-        uint8_t leaf_bm = 0;
-        uint8_t child_bm = 0;
-        string leaf_tails;
+        std::vector<node *> cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          uint8_t cur_byte = cur_node->val[0];
-          if ((oct >> 3) != (cur_byte >> 3)) {
-            if (j != 0) {
-              if (child_bm != 0)
-                  oct |= 0x02;
-              if (cur_node->next_sibling == NULL)
-                  oct |= 0x04;
-              octrie.append(1, oct);
-              if (child_bm != 0)
-                octrie.append(1, child_bm);
-              octrie.append(1, leaf_bm);
+          uint8_t flags = 0;
+          uint8_t node_val;
+          std::string& val = cur_node->val;
+          if (val.length() == 1)
+            node_val = cur_node->val[0];
+          else {
+            std::map<std::string, int>::iterator it = uniq_map.find(val);
+            if (it == uniq_map.end())
+              std::cout << "Unexpected value not found" << std::endl;
+            else {
+              uint32_t ptr = 0;
+              if (it->second == -1) {
+                ptr = tails.size();
+                for (int k = 0; k < val.length(); k++)
+                  tails.push_back(val[k]);
+                tails.push_back(0);
+                it->second = ptr;
+                if (val.length() > 2) {
+                  int suffix_count = val.length() - 2;
+                  for (int k = 0; k < suffix_count; k++) {
+                    std::string suffix = val.substr(k + 1);
+                    std::map<std::string, int>::iterator it1 = uniq_map.find(suffix);
+                    if (it1 == uniq_map.end())
+                      uniq_map.insert(std::pair<std::string, int>(suffix, ptr + k + 1));
+                    else {
+                      if (it1->second == -1)
+                        it1->second = ptr + k + 1;
+                    }
+                  }
+                }
+              } else {
+                ptr = it->second;
+              }
+              node_val = ptr & 0xFF;
+              ptr >>= 8;
+              if (tails.size() >= (1 << (8 + addl_bit_count))) {
+                std::cout << "Tail size: " << tails.size() << std::endl;
+                addl_bit_count++;
+                last_byte_bits = append_bits(tail_ptrs, tail_ptr_counts, addl_bit_count, true, 0, ptr);
+              } else {
+                last_byte_bits = append_bits(tail_ptrs, tail_ptr_counts, addl_bit_count, false, last_byte_bits, ptr);
+              }
             }
-            oct = leaf_bm = child_bm = 0;
           }
-          node *parent = cur_node->parent;
-          if (parent != NULL && parent->first_child == cur_node && parent->val.length() > 1)
-            append_tail(uniq_map, octrie, parent->val.substr(1), false, octrie.length());
-          oct = cur_byte & 0xF8;
-          uint8_t mask = 1 << (cur_byte & 0x07);
-          if (cur_node->first_child != NULL)
-            child_bm |= mask;
-          if (cur_node->is_leaf) {
-            leaf_bm |= mask;
-            append_tail(uniq_map, leaf_tails, cur_node->val.substr(1), true, octrie.length());
+          if (cur_node->is_leaf)
+            flags |= 0x01;
+          if (cur_node->next_sibling == NULL)
+            flags |= 0x08;
+          if (cur_node->first_child == NULL)
+            flags |= 0x04;
+          if (cur_node->val.length() > 1)
+            flags |= 0x02;
+          if ((node_count % 2) == 0) {
+            trie.push_back(node_val);
+            pending_byte = flags << 4;
+          } else {
+            trie.push_back(pending_byte | flags);
+            trie.push_back(node_val);
+            pending_byte = 0;
           }
+          node_count++;
         }
-        if (!(oct == 0 && leaf_bm == 0 && child_bm == 0)) {
-            if (child_bm != 0)
-                oct |= 0x02;
-            oct |= 0x04;
-            octrie.append(1, oct);
-            if (child_bm != 0)
-              octrie.append(1, child_bm);
-            octrie.append(1, leaf_bm);
+        if ((node_count % 2) == 1) {
+          trie.push_back(pending_byte);
         }
-        octrie.append(leaf_tails);
       }
-      cout << "Octire len: " << octrie.length() << endl;
-      return ret;
-    }
-
-    void append_tail(map<string, int>& uniq_map, string& tail_str, string tail, bool is_leaf, int pos) {
-      if (tail.length() == 0) {
-        tail_str.append(1, (char) 1);
-        return;
+      int total = 0;
+      for (int i = 0; i < tail_ptr_counts.size(); i++) {
+        std::cout << "Counts for bit " << i + 8 << ": " << tail_ptr_counts[i] << std::endl;
+        total += tail_ptr_counts[i];
       }
-      map<string, int>::iterator it = uniq_map.find(tail);
-      if (it == uniq_map.end()) {
-        append_vint(tail_str, tail.length());
-        tail_str.append(tail);
-        uniq_map[tail] = pos;
-        return;
-      }
-      append_vint(tail_str, it->second);
-    }
-
-    void append_vint(string& tail_str, int i) {
-      if (i < 8) {
-        tail_str.append(1, (char) (i << 5) + 1);
-        return;
-      } else if (i < 1024) {
-        tail_str.append(1, (char) (i << 5) + 1);
-        tail_str.append(1, (char) (i >> 3));
-      } else if (i < 131072) {
-        tail_str.append(1, (char) (i << 5) + 1);
-        tail_str.append(1, (char) ((i >> 3) & 0x7F) + 0x80);
-        tail_str.append(1, (char) (i >> 10));
-      } else {
-        tail_str.append(1, (char) (i << 5) + 1);
-        tail_str.append(1, (char) ((i >> 3) & 0x7F) + 0x80);
-        tail_str.append(1, (char) ((i >> 10) & 0x7F) + 0x80);
-        tail_str.append(1, (char) (i >> 17));
-      }
+      std::cout << "Total ptrs: " << total << std::endl;
+      std::cout << "Trie size: " << trie.size() << std::endl;
+      std::cout << "Tail size: " << tails.size() << std::endl;
+      std::cout << "Tail Ptrs size: " << tail_ptrs.size() << std::endl;
+      std::cout << "Tail Ptr Counts size: " << tail_ptr_counts.size() << std::endl;
+      std::cout << "Total size: " << trie.size()+tails.size()+tail_ptrs.size()+tail_ptr_counts.size()*4 << std::endl;
     }
 
 };
