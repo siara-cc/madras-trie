@@ -239,19 +239,62 @@ class static_dict_builder {
     void build() {
       std::cout << std::endl;
       std::map<string, int> uniq_map;
+      std::map<string, int> uniq_map_c;
+      std::map<string, int> uniq_map_l;
       for (int i = 0; i < node_count; i++) {
-        string& suffix = all_nodes[i]->val;
-        int val_len = suffix.length();
+        node *cur_node = all_nodes[i];
+        string& val = cur_node->val;
+        int val_len = val.length();
         if (val_len > 1) {
-          if (uniq_map.find(suffix) == uniq_map.end()) {
-            uniq_map.insert(pair<string, int>(suffix, -1));
+          std::map<std::string, int>::iterator it = uniq_map.find(val);
+          if (it == uniq_map.end()) {
+            uniq_map.insert(pair<string, int>(val, -1));
+          } else {
+            it->second--;
+          }
+          if (cur_node->first_child != NULL) {
+            it = uniq_map_c.find(val);
+            if (it == uniq_map_c.end()) {
+              uniq_map_c.insert(pair<string, int>(val, -1));
+            } else {
+              it->second--;
+            }
+          }
+          if (cur_node->is_leaf && cur_node->first_child == NULL) {
+            it = uniq_map_l.find(val);
+            if (it == uniq_map_l.end()) {
+              uniq_map_l.insert(pair<string, int>(val, -1));
+            } else {
+              it->second--;
+            }
           }
         }
       }
+      FILE *fout = fopen("tail_freq_c.txt", "w+");
+      for (std::map<std::string, int>::iterator it = uniq_map_c.begin(); it != uniq_map_c.end(); it++) {
+        char print_str[200];
+        sprintf(print_str, "%d\t[%s]\n", -it->second, it->first.c_str());
+        fwrite(print_str, strlen(print_str), 1, fout);
+      }
+      fclose(fout);
+      fout = fopen("tail_freq_l.txt", "w+");
+      for (std::map<std::string, int>::iterator it = uniq_map_l.begin(); it != uniq_map_l.end(); it++) {
+        char print_str[200];
+        sprintf(print_str, "%d\t[%s]\n", -it->second, it->first.c_str());
+        fwrite(print_str, strlen(print_str), 1, fout);
+      }
+      fclose(fout);
       std::vector<uint8_t> trie;
       std::vector<uint8_t> tail_ptrs;
       std::vector<uint32_t> tail_ptr_counts;
       std::vector<uint8_t> tails;
+      uint32_t tail_entry_count = 0;
+      uint32_t flag_counts[8];
+      uint32_t val_len_counts[8];
+      memset(flag_counts, '\0', sizeof(uint32_t) * 8);
+      memset(val_len_counts, '\0', sizeof(uint32_t) * 8);
+      uint32_t found_ptr_len = 0;
+      uint32_t lower_bound_count = 0;
       uint32_t node_count = 0;
       uint8_t pending_byte = 0;
       int addl_bit_count = 0;
@@ -265,6 +308,10 @@ class static_dict_builder {
           uint8_t flags = 0;
           uint8_t node_val;
           std::string& val = cur_node->val;
+          // if (val.length() < 4)
+          //   continue;
+          // if (cur_node->first_child != NULL)
+          //    continue;
           if (val.length() == 1)
             node_val = cur_node->val[0];
           else {
@@ -273,11 +320,16 @@ class static_dict_builder {
               std::cout << "Unexpected value not found" << std::endl;
             else {
               uint32_t ptr = 0;
-              if (it->second == -1) {
+              if (it->second < 0) {
+                std::map<std::string, int>::iterator it2 = uniq_map.lower_bound(val);
+                it2++;
+                if (it2 != uniq_map.end() && it2->first.substr(0, val.length()).compare(val.c_str()) == 0 && it2->second >= 0)
+                  lower_bound_count += val.length();
                 ptr = tails.size();
                 for (int k = 0; k < val.length(); k++)
                   tails.push_back(val[k]);
                 tails.push_back(0);
+                tail_entry_count++;
                 it->second = ptr;
                 if (val.length() > 2) {
                   int suffix_count = val.length() - 2;
@@ -287,8 +339,13 @@ class static_dict_builder {
                     if (it1 == uniq_map.end())
                       uniq_map.insert(std::pair<std::string, int>(suffix, ptr + k + 1));
                     else {
-                      if (it1->second == -1)
+                      if (it1->second < 0)
                         it1->second = ptr + k + 1;
+                      else {
+                        if (tails[it1->second - 1] == 0)
+                          found_ptr_len += suffix.length() + 1;
+                        it1->second = ptr + k + 1;
+                      }
                     }
                   }
                 }
@@ -297,23 +354,29 @@ class static_dict_builder {
               }
               node_val = ptr & 0xFF;
               ptr >>= 8;
+              //  std::cout << ceil(log2(ptr)) << " ";
               if (tails.size() >= (1 << (8 + addl_bit_count))) {
-                std::cout << "Tail size: " << tails.size() << std::endl;
+                //std::cout << "Tail size: " << tails.size() << std::endl;
                 addl_bit_count++;
                 last_byte_bits = append_bits(tail_ptrs, tail_ptr_counts, addl_bit_count, true, 0, ptr);
               } else {
                 last_byte_bits = append_bits(tail_ptrs, tail_ptr_counts, addl_bit_count, false, last_byte_bits, ptr);
               }
             }
+            if (val.length() < 9)
+              val_len_counts[val.length() - 2]++;
+            else
+              val_len_counts[7]++;
           }
           if (cur_node->is_leaf)
             flags |= 0x01;
+          if (cur_node->first_child != NULL)
+            flags |= 0x02;
+          if (cur_node->val.length() > 1)
+            flags |= 0x04;
           if (cur_node->next_sibling == NULL)
             flags |= 0x08;
-          if (cur_node->first_child == NULL)
-            flags |= 0x04;
-          if (cur_node->val.length() > 1)
-            flags |= 0x02;
+          flag_counts[flags & 0x07]++;
           if ((node_count % 2) == 0) {
             trie.push_back(node_val);
             pending_byte = flags << 4;
@@ -328,13 +391,22 @@ class static_dict_builder {
           trie.push_back(pending_byte);
         }
       }
+      std::cout << std::endl;
       int total = 0;
       for (int i = 0; i < tail_ptr_counts.size(); i++) {
         std::cout << "Counts for bit " << i + 8 << ": " << tail_ptr_counts[i] << std::endl;
         total += tail_ptr_counts[i];
       }
+      for (int i = 0; i < 8; i++)
+        std::cout << "Flag " << i << ": " << flag_counts[i] << std::endl;
+      // for (int i = 0; i < 8; i++)
+      //   std::cout << "Val lens " << i << ": " << val_len_counts[i] << std::endl;
       std::cout << "Total ptrs: " << total << std::endl;
+      std::cout << "Found ptr len: " << found_ptr_len << std::endl;
+      std::cout << "Lower bound count: " << lower_bound_count << std::endl;
       std::cout << "Trie size: " << trie.size() << std::endl;
+      std::cout << "Node count: " << all_nodes.size() << std::endl;
+      std::cout << "Tail entry count: " << tail_entry_count << std::endl;
       std::cout << "Tail size: " << tails.size() << std::endl;
       std::cout << "Tail Ptrs size: " << tail_ptrs.size() << std::endl;
       std::cout << "Tail Ptr Counts size: " << tail_ptr_counts.size() << std::endl;
