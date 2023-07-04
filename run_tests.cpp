@@ -7,7 +7,7 @@ using namespace std;
 
 int main(int argc, char *argv[]) {
 
-  squeezed::static_dict_builder sb;
+  squeezed::builder sb;
 
   fstream infile;
   infile.open(argv[1], ios::in);
