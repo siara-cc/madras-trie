@@ -315,8 +315,12 @@ class builder {
                 std::string suffix = appended_val.substr(k);
                 tail_map::iterator it1 = uniq_map.find(suffix);
                 if (it1 != uniq_map.end()) {
-                   if (it1->second < 0x8000000000000000)
+                   if (it1->second < 0x8000000000000000) {
+                     uint32_t link_id = it1->second >> 32;
                      it1->second |= (sw == 0 ? 0x8000000000000000 : 0xC000000000000000);
+                     uniq_link_map.erase(link_id);
+                     uniq_link_map.insert(pair<uint32_t, std::string>(link_id, appended_val));
+                   }
                 }
               }
             }
@@ -406,7 +410,7 @@ class builder {
       std::cout << "Uniq map size: " << uniq_map.size() << std::endl;
       std::cout << "Uniq freq map size: " << uniq_freq_map.size() << std::endl;
       assign_tail_bucket(uniq_map, uniq_link_map0, uniq_freq_map, 126);
-      assign_tail_bucket(uniq_map, uniq_link_map1, uniq_freq_map, 4094);
+      assign_tail_bucket(uniq_map, uniq_link_map1, uniq_freq_map, 4093);
       build_tail_link_map2(uniq_map, uniq_link_map2, uniq_freq_map, max_freq);
       tail_map::iterator it_tails = uniq_map.begin();
       while (it_tails != uniq_map.end()) {
@@ -450,6 +454,8 @@ class builder {
             if (it2 == uniq_map.end())
               std::cout << "Unexpected linked value not found" << std::endl;
             else {
+              if ((it2->second >> 62) != which)
+                std::cout << "WARN: " << which << ", " << (it2->second >> 62) << ", [" << it1->second << "], [" << it->first << std::endl;
               if ((it2->second & 0xFFFFFFFF) == 0) {
                 it2->second = (it2->second & 0xFFFFFFFF00000000) + tails.size();
                 ptr = tails.size() + it1->second.length() - val.length();
@@ -467,13 +473,20 @@ class builder {
         }
         int node_val_bits = (which == 2 ? 7 : 6);
         node_val = ptr & ((1 << node_val_bits) - 1);
+        node_val |= (which << 6);
+        // if (which == 2 || which == 3)
+        //   std::cout << "Ptr: " << ptr << " " << which << std::endl;
+        if (which == 2 && ptr > 127)
+          std::cout << "ERROR: ptr > 127" << ptr << std::endl;
+        if (which == 3 && ptr > 4095)
+          std::cout << "ERROR: ptr > 4095" << ptr << std::endl;
         ptr >>= node_val_bits;
         //  std::cout << ceil(log2(ptr)) << " ";
-        if (which == 2)
+        if (which == 2) {
           tail_ptr_counts0++;
-        else {
-          if (tails.size() >= (1 << (node_val_bits + addl_bit_count))) {
-            //std::cout << "Tail size: " << tails.size() << std::endl;
+        } else {
+          if (ptr >= (1 << addl_bit_count)) {
+            std::cout << "Tail ptr: " << ptr << " " << which << std::endl;
             addl_bit_count++;
             last_byte_bits = append_bits(tail_ptrs, tail_ptr_counts, addl_bit_count, true, 0, ptr);
           } else {
