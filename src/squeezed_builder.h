@@ -215,26 +215,49 @@ class builder {
       return last_byte_bits;
     }
 
-    void assign_tail_bucket(tail_map& uniq_map, tail_link_map& uniq_link_map, tail_freq_map& uniq_freq_map, int limit) {
-      std::cout << "Limit: " << limit << ", Link map size: " << uniq_link_map.size() << endl;
+    const static uint32_t part1 = 128;
+    const static uint32_t part2 = 4096;
+    const static uint32_t part3 = (1 << 31);
+    void assign_tail_bucket(tail_map& uniq_map, tail_link_map& uniq_link_map, tail_freq_map& uniq_freq_map) {
       tail_freq_map::iterator it_freq = uniq_freq_map.end();
-      int tails_len = 0;
-      do {
-        if (tails_len > limit)
-          break;
+      uint32_t tails_len = 0;
+      uint32_t total_tails_len = 0;
+      uint32_t tails_count = 0;
+      uint32_t tails_freq_count = 0;
+      uint32_t part = (1 << 7);
+      uint32_t s_no = 0;
+      while (it_freq != uniq_freq_map.begin()) {
         it_freq--;
+        s_no++;
         tail_map::iterator it_tails = uniq_map.find(it_freq->second);
         if (it_tails == uniq_map.end())
           std::cout << "Unexpected" << std::endl;
         else {
           uint32_t link_id = it_tails->second >> 32;
-          if (link_id >= 0x80000000)
+          if (part == part1 && link_id >= 0x40000000) {
+            std::cout << s_no << "*\t" << tails_count << "*\t" << it_freq->first << "\t[";
+            std::cout << it_freq->second << "]\t" << 0 << "\t[" << 1 << "]" << std::endl;
+          }
+          if (link_id >= 0x40000000)
             continue;
           tail_link_map::iterator it_link = uniq_link_map.find(link_id);
           if (it_link != uniq_link_map.end())
             continue;
+          if (part == part1) {
+            std::cout << s_no << "\t" << tails_count << "\t" << it_freq->first << "\t[";
+            std::cout << it_freq->second << "]\t" << 0 << "\t[" << (it_link == uniq_link_map.end() ? "-" : it_link->second) << "]\t" << tails_len << std::endl;
+          }
+          if ((tails_len + it_freq->second.length() + 1) > part) {
+            std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
+            part = (part == part1 ? part2 : part3);
+            total_tails_len += tails_len;
+            tails_len = tails_count = tails_freq_count = 0;
+          }
           tails_len += it_freq->second.length();
           tails_len++;
+          tails_count++;
+          tails_freq_count += it_freq->first;
+          it_tails->second |= (part == part1 ? 0x4000000000000000 : (part == part2 ? 0x8000000000000000 : 0xC000000000000000));
           std::string& val = it_freq->second;
           if (val.length() > 2) {
             int suffix_count = val.length() - 2;
@@ -242,99 +265,38 @@ class builder {
               std::string suffix = val.substr(k);
               tail_map::iterator it1 = uniq_map.find(suffix);
               if (it1 != uniq_map.end()) {
-                uint32_t link_id = it1->second >> 32;
-                if (link_id >= 0x80000000)
+                uint8_t marked_part = (it1->second >> 62);
+                uint8_t part_mark = (part == part1 ? 0x01 : (part == part2 ? 0x02 : 0x03));
+                if (marked_part != 0 && marked_part != part_mark)
                   continue;
+                uint32_t link_id = (it1->second >> 32) & 0x3FFFFFFF;
                 uint32_t freq = it1->second & 0xFFFFFFFF;
-                if ((it1->second >> 62) == 0) {
+                if (true) {
                   bool is_added = add2_link_map(link_id, uniq_link_map, val);
-                  if (is_added)
-                    std::cout << it_freq->first << ", suffix: " << suffix << ", val: " << val << std::endl;
-                  if (is_added && freq > it_freq->first) {
+                  if (is_added) {
+                    if (part == part1) {
+                      std::cout << s_no << "\t" << tails_count << "*\t" << freq << "\t[";
+                      std::cout << suffix << "]\t" << 0 << "\t[" << val << "]" << (freq > it_freq->first ? "**" : "") << "\t" << tails_len << std::endl;
+                    }
+                    it1->second |= (part == part1 ? 0x4000000000000000 : (part == part2 ? 0x8000000000000000 : 0xC000000000000000));
+                    tails_count++;
+                    tails_freq_count += freq;
+                  }
+                  if (is_added && marked_part != 0) {
                     tails_len -= suffix.length();
                     tails_len--;
+                    tails_freq_count -= freq;
+                    tails_count--;
                   }
                 }
               }
             }
           }
         }
-      } while (it_freq != uniq_freq_map.begin());
-      it_freq = uniq_freq_map.end();
-      tails_len = 0;
-      int tail_count = 0;
-      it_freq--;
-      do {
-        if (tails_len > limit)
-          break;
-        int sw = (limit == 126 ? 0 : 1);
-        tail_map::iterator it_tails = uniq_map.find(it_freq->second);
-        if (it_tails == uniq_map.end())
-          std::cout << "Unexpected" << std::endl;
-        else {
-          uint32_t link_id = (it_tails->second >> 32) & 0x3FFFFFFF;
-          if (it_tails->second < 0x8000000000000000) {
-            it_tails->second |= (sw == 0 ? 0x8000000000000000 : 0xC000000000000000);
-            std::string& appended_val = it_freq->second;
-            tail_link_map::iterator it_link = uniq_link_map.find(link_id);
-            if (it_link == uniq_link_map.end()) {
-              std::cout << tail_count << "\t" << it_freq->first << "\t[";
-              std::cout << it_freq->second << "]" << std::endl;
-              tails_len += it_freq->second.length();
-              tails_len++;
-            } else {
-              tail_map::iterator it_tails2 = uniq_map.find(it_link->second);
-              if (it_tails2 == uniq_map.end())
-                std::cout << "Unexpected" << std::endl;
-              else {
-                if (it_tails2->second < 0x8000000000000000) {
-                  if (tails_len + it_link->second.length() < limit) {
-                    tails_len += it_link->second.length();
-                    tails_len++;
-                    appended_val = it_link->second;
-                    it_tails2->second |= (sw == 0 ? 0x8000000000000000 : 0xC000000000000000);
-                    std::cout << tail_count << "\t" << it_freq->first << "\t[";
-                    std::cout << it_freq->second << "]\t" << (it_tails2->second & 0xFFFFFFFF) << "\t[" << it_link->second << "]" << std::endl;
-                  } else {
-                    tails_len += it_freq->second.length();
-                    tails_len++;
-                    uniq_link_map.erase(link_id);
-                    std::cout << tail_count << "\t" << it_freq->first << "\t[";
-                    std::cout << it_freq->second << "]" << std::endl;
-                  }
-                } else {
-                    std::cout << tail_count << "\t" << it_freq->first << "\t[";
-                    std::cout << it_freq->second << "]*" << std::endl;
-                    appended_val = string("a");
-                }
-              }
-            }
-            if (appended_val.length() > 2) {
-              int suffix_count = appended_val.length() - 2;
-              for (int k = 1; k <= suffix_count; k++) {
-                std::string suffix = appended_val.substr(k);
-                tail_map::iterator it1 = uniq_map.find(suffix);
-                if (it1 != uniq_map.end()) {
-                   if (it1->second < 0x8000000000000000) {
-                     uint32_t link_id = it1->second >> 32;
-                     it1->second |= (sw == 0 ? 0x8000000000000000 : 0xC000000000000000);
-                     uniq_link_map.erase(link_id);
-                     uniq_link_map.insert(pair<uint32_t, std::string>(link_id, appended_val));
-                   }
-                }
-              }
-            }
-          } else {
-            tail_link_map::iterator it_link = uniq_link_map.find(link_id);
-            std::cout << tail_count << "\t" << it_freq->first << "\t[";
-            std::cout << it_freq->second << "]\t?\t[" << (it_link == uniq_link_map.end() ? "?" : it_link->second) << "]" << std::endl;
-          }
-        }
-        uniq_freq_map.erase(it_freq--);
-        tail_count++;
-      } while (tail_count < uniq_freq_map.size());
-      std::cout << "Tail count: " << tail_count << ", len: " << tails_len << std::endl;
-
+      }
+      std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
+      total_tails_len += tails_len;
+      std::cout << "Total len: " << total_tails_len << std::endl;
     }
 
     void add2_uniq_map(tail_map& uniq_map, std::string& val, uint32_t& max_freq) {
@@ -353,9 +315,11 @@ class builder {
     bool add2_link_map(uint32_t link_id, tail_link_map& uniq_link_map, std::string& val) {
       tail_link_map::iterator it_link = uniq_link_map.find(link_id);
       bool to_ins = false;
+      bool exists = false;
       if (it_link == uniq_link_map.end())
         to_ins = true;
       else {
+        exists = true;
         if (it_link->second.length() < val.length())
           to_ins = true;
       }
@@ -364,31 +328,10 @@ class builder {
         //std::cout << "Added link: " << (unsigned long) &uniq_link_map << " " << link_id << " " << val << std::endl;
         uniq_link_map.insert(pair<uint32_t, std::string>(link_id, val));
       }
-      return to_ins;
+      return !exists;
     }
 
-    void build_tail_link_map2(tail_map& uniq_map, tail_link_map& uniq_link_map2, tail_freq_map& uniq_freq_map, uint32_t max_freq) {
-      tail_map::iterator it;
-      for (it = uniq_map.begin(); it != uniq_map.end(); it++) {
-        if (it->second >> 62)
-          continue;
-        std::string val = it->first;
-        if (val.length() > 2) {
-          int suffix_count = val.length() - 2;
-          for (int k = 1; k <= suffix_count; k++) {
-            std::string suffix = val.substr(k);
-            tail_map::iterator it1 = uniq_map.find(suffix);
-            if (it1 != uniq_map.end()) {
-              uint32_t link_id = it1->second >> 32;
-              if (link_id < 0x80000000)
-                add2_link_map(link_id, uniq_link_map2, val);
-            }
-          }
-        }
-      }
-    }
-
-    void build_tail_maps(tail_map& uniq_map, tail_link_map& uniq_link_map0, tail_link_map& uniq_link_map1, tail_link_map& uniq_link_map2) {
+    void build_tail_maps(tail_map& uniq_map, tail_link_map& uniq_link_map) {
       uint32_t max_freq = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
@@ -403,15 +346,15 @@ class builder {
       }
       tail_freq_map uniq_freq_map;
       tail_map::iterator it;
+      uint32_t tail_freq_count = 0;
       for (it = uniq_map.begin(); it != uniq_map.end(); it++) {
         std::string val = it->first;
-        uniq_freq_map.insert(pair<uint32_t, std::string>(it->second & 0xFFFFFFFF, val));
+        uint32_t freq = it->second & 0xFFFFFFFF;
+        uniq_freq_map.insert(pair<uint32_t, std::string>(freq, val));
+        tail_freq_count += freq;
       }
-      std::cout << "Uniq map size: " << uniq_map.size() << std::endl;
-      std::cout << "Uniq freq map size: " << uniq_freq_map.size() << std::endl;
-      assign_tail_bucket(uniq_map, uniq_link_map0, uniq_freq_map, 126);
-      assign_tail_bucket(uniq_map, uniq_link_map1, uniq_freq_map, 4093);
-      build_tail_link_map2(uniq_map, uniq_link_map2, uniq_freq_map, max_freq);
+      std::cout << "Total Freq: " << tail_freq_count << std::endl;
+      assign_tail_bucket(uniq_map, uniq_link_map, uniq_freq_map);
       tail_map::iterator it_tails = uniq_map.begin();
       while (it_tails != uniq_map.end()) {
         it_tails->second &= 0xFFFFFFFF00000000;
@@ -419,12 +362,10 @@ class builder {
       }
     }
 
-    uint8_t get_tail_ptr(std::string& val, tail_map& uniq_map, tail_link_map& uniq_link_map0,
-             tail_link_map& uniq_link_map1, tail_link_map& uniq_link_map2,
-             std::vector<uint8_t>& tails0, std::vector<uint8_t>& tails1, 
-             std::vector<uint8_t>& tails2, std::vector<uint8_t>& tail_ptrs1,
-             std::vector<uint8_t>& tail_ptrs2, uint32_t& tail_ptr_counts0,
-             std::vector<uint32_t>& tail_ptr_counts1, std::vector<uint32_t>& tail_ptr_counts2,
+    uint8_t get_tail_ptr(std::string& val, tail_map& uniq_map, tail_link_map& uniq_link_map,
+             std::vector<uint8_t>& tails0, std::vector<uint8_t>& tails1, std::vector<uint8_t>& tails2,
+             std::vector<uint8_t>& tail_ptrs1, std::vector<uint8_t>& tail_ptrs2,
+             uint32_t& tail_ptr_counts0, std::vector<uint32_t>& tail_ptr_counts1, std::vector<uint32_t>& tail_ptr_counts2,
              int& addl_bit_count1, int& last_byte_bits1,
              int& addl_bit_count2, int& last_byte_bits2) {
       uint8_t node_val;
@@ -436,12 +377,13 @@ class builder {
         uint32_t link_id = (it->second >> 32);
         uint64_t which = link_id >> 30;
         link_id &= 0x3FFFFFFF;
-        std::vector<uint8_t>& tails = (which == 2 ? tails0 : (which == 3 ? tails1 : tails2));
-        std::vector<uint8_t>& tail_ptrs = (which == 2 ? tail_ptrs1 : (which == 3 ? tail_ptrs1 : tail_ptrs2));
-        int& addl_bit_count = (which == 2 ? addl_bit_count1 : (which == 3 ? addl_bit_count1 : addl_bit_count2));
-        int& last_byte_bits = (which == 2 ? last_byte_bits1 : (which == 3 ? last_byte_bits1 : last_byte_bits2));
-        tail_link_map& uniq_link_map = (which == 2 ? uniq_link_map0 : (which == 3 ? uniq_link_map1 : uniq_link_map2));
-        std::vector<uint32_t>& tail_ptr_counts = (which == 2 ? tail_ptr_counts1 : (which == 3 ? tail_ptr_counts1 : tail_ptr_counts2));
+        if (which == 0)
+          std::cout << "ERROR: not marked: " << it->first << std::endl;
+        std::vector<uint8_t>& tails = (which == 1 ? tails0 : (which == 2 ? tails1 : tails2));
+        std::vector<uint8_t>& tail_ptrs = (which == 1 ? tail_ptrs1 : (which == 2 ? tail_ptrs1 : tail_ptrs2));
+        int& addl_bit_count = (which == 1 ? addl_bit_count1 : (which == 2 ? addl_bit_count1 : addl_bit_count2));
+        int& last_byte_bits = (which == 1 ? last_byte_bits1 : (which == 2 ? last_byte_bits1 : last_byte_bits2));
+        std::vector<uint32_t>& tail_ptr_counts = (which == 1 ? tail_ptr_counts1 : (which == 2 ? tail_ptr_counts1 : tail_ptr_counts2));
         if ((it->second & 0xFFFFFFFF) == 0) {
           tail_link_map::iterator it1 = uniq_link_map.find(link_id);
           if (it1 == uniq_link_map.end()) {
@@ -471,18 +413,18 @@ class builder {
         } else {
           ptr = it->second & 0xFFFFFFFF;
         }
-        int node_val_bits = (which == 2 ? 7 : 6);
+        int node_val_bits = (which == 1 ? 7 : 6);
         node_val = ptr & ((1 << node_val_bits) - 1);
         node_val |= (which << 6);
         // if (which == 2 || which == 3)
         //   std::cout << "Ptr: " << ptr << " " << which << std::endl;
-        if (which == 2 && ptr > 127)
+        if (which == 1 && ptr > 127)
           std::cout << "ERROR: ptr > 127" << ptr << std::endl;
-        if (which == 3 && ptr > 4095)
+        if (which == 2 && ptr > 4095)
           std::cout << "ERROR: ptr > 4095" << ptr << std::endl;
         ptr >>= node_val_bits;
         //  std::cout << ceil(log2(ptr)) << " ";
-        if (which == 2) {
+        if (which == 1) {
           tail_ptr_counts0++;
         } else {
           if (ptr >= (1 << addl_bit_count)) {
@@ -499,10 +441,11 @@ class builder {
 
     void build() {
       std::cout << std::endl;
-      byte_vec trie, tails0, tails1, tails2, tail_ptrs1, tail_ptrs2;
+      byte_vec trie, tails0, tails1, tails2;
+      byte_vec tail_ptrs1, tail_ptrs2;
       tail_map uniq_map;
-      tail_link_map uniq_link_map0, uniq_link_map1, uniq_link_map2;
-      build_tail_maps(uniq_map, uniq_link_map0, uniq_link_map1, uniq_link_map2);
+      tail_link_map uniq_link_map;
+      build_tail_maps(uniq_map, uniq_link_map);
       uint32_t tail_ptr_counts0;
       std::vector<uint32_t> tail_ptr_counts1, tail_ptr_counts2;
       //std::vector<uint8_t> tails;
@@ -536,8 +479,9 @@ class builder {
           if (val.length() == 1) {
             node_val = cur_node->val[0];
           } else {
-            node_val = get_tail_ptr(val, uniq_map, uniq_link_map0, uniq_link_map1, uniq_link_map2, tails0, tails1, tails2,
-                         tail_ptrs1, tail_ptrs2, tail_ptr_counts0, tail_ptr_counts1, tail_ptr_counts2,
+            node_val = get_tail_ptr(val, uniq_map, uniq_link_map, tails0, tails1, tails2,
+                         tail_ptrs1, tail_ptrs2, 
+                         tail_ptr_counts0, tail_ptr_counts1, tail_ptr_counts2,
                          addl_bit_count1, last_byte_bits1,
                          addl_bit_count2, last_byte_bits2);
           }
