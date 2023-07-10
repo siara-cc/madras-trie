@@ -236,8 +236,7 @@ class builder {
 
     const static uint32_t part1 = 128;
     const static uint32_t part2 = 4096;
-    const static uint32_t part3 = 8192;
-    const static uint32_t part4 = (1 << 31);
+    const static uint32_t part3 = (1 << 31);
     void assign_tail_bucket(tail_map& uniq_map, tail_link_map& uniq_link_map, tail_freq_map& uniq_freq_map) {
       tail_freq_map::iterator it_freq = uniq_freq_map.end();
       uint32_t tails_len = 0;
@@ -254,11 +253,11 @@ class builder {
           std::cout << "Unexpected" << std::endl;
         else {
           uint32_t link_id = it_tails->second >> 32;
-          if (part == part1 && link_id >= 0x20000000) {
+          if (part == part1 && link_id >= 0x40000000) {
             std::cout << s_no << "*\t" << tails_count << "*\t" << it_freq->first << "\t[";
             std::cout << it_freq->second << "]\t" << 0 << "\t[" << 1 << "]" << std::endl;
           }
-          if (link_id >= 0x20000000)
+          if (link_id >= 0x40000000)
             continue;
           tail_link_map::iterator it_link = uniq_link_map.find(link_id);
           if (it_link != uniq_link_map.end())
@@ -269,7 +268,7 @@ class builder {
           // }
           if ((tails_len + it_freq->second.length() + 1) > part) {
             std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
-            part = (part == part1 ? part2 : (part == part2 ? part3 : part4));
+            part = (part == part1 ? part2 : part3);
             total_tails_len += tails_len;
             tails_len = tails_count = tails_freq_count = 0;
           }
@@ -277,8 +276,7 @@ class builder {
           tails_len++;
           tails_count++;
           tails_freq_count += it_freq->first;
-          it_tails->second |= (part == part1 ? 0x2000000000000000
-                   : (part == part2 ? 0x4000000000000000 : (part == part3 ? 0x6000000000000000 : 0x8000000000000000)));
+          it_tails->second |= (part == part1 ? 0x4000000000000000 : (part == part2 ? 0x8000000000000000 : 0xC000000000000000));
           std::string& val = it_freq->second;
           if (val.length() > 2) {
             int suffix_count = val.length() - 2;
@@ -286,11 +284,11 @@ class builder {
               std::string suffix = val.substr(k);
               tail_map::iterator it1 = uniq_map.find(suffix);
               if (it1 != uniq_map.end()) {
-                uint8_t marked_part = (it1->second >> 61);
-                uint8_t part_mark = (part == part1 ? 0x01 : (part == part2 ? 0x02 : (part == part3 ? 0x03 : 0x04)));
+                uint8_t marked_part = (it1->second >> 62);
+                uint8_t part_mark = (part == part1 ? 0x01 : (part == part2 ? 0x02 : 0x03));
                 if (marked_part != 0 && marked_part != part_mark)
                   continue;
-                uint32_t link_id = (it1->second >> 32) & 0x1FFFFFFF;
+                uint32_t link_id = (it1->second >> 32) & 0x3FFFFFFF;
                 uint32_t freq = it1->second & 0xFFFFFFFF;
                 if (true) {
                   bool is_added = add2_link_map(link_id, uniq_link_map, val);
@@ -299,8 +297,7 @@ class builder {
                       std::cout << s_no << "\t" << tails_count << "*\t" << freq << "\t[";
                       std::cout << suffix << "]\t" << 0 << "\t[" << val << "]" << (freq > it_freq->first ? "**" : "") << "\t" << tails_len << std::endl;
                     }
-                    it1->second |= (part == part1 ? 0x2000000000000000
-                            : (part == part2 ? 0x4000000000000000 : (part == part3 ? 0x6000000000000000 : 0x8000000000000000)));
+                    it1->second |= (part == part1 ? 0x4000000000000000 : (part == part2 ? 0x8000000000000000 : 0xC000000000000000));
                     tails_count++;
                     tails_freq_count += freq;
                   }
@@ -366,13 +363,11 @@ class builder {
     }
 
     uint8_t get_tail_ptr(std::string& val, tail_map& uniq_map, tail_link_map& uniq_link_map,
-             std::vector<uint8_t>& tails0, std::vector<uint8_t>& tails1, std::vector<uint8_t>& tails2, std::vector<uint8_t>& tails3,
-             std::vector<uint8_t>& tail_ptrs1, std::vector<uint8_t>& tail_ptrs2, std::vector<uint8_t>& tails_ptrs3,
+             std::vector<uint8_t>& tails0, std::vector<uint8_t>& tails1, std::vector<uint8_t>& tails2,
+             std::vector<uint8_t>& tail_ptrs1, std::vector<uint8_t>& tail_ptrs2,
              uint32_t& tail_ptr_counts0, std::vector<uint32_t>& tail_ptr_counts1, std::vector<uint32_t>& tail_ptr_counts2,
-             std::vector<uint32_t>& tail_ptr_counts3,
              int& addl_bit_count1, int& last_byte_bits1,
-             int& addl_bit_count2, int& last_byte_bits2,
-             int& addl_bit_count3, int& last_byte_bits3) {
+             int& addl_bit_count2, int& last_byte_bits2) {
       uint8_t node_val;
       tail_map::iterator it = uniq_map.find(val);
       if (it == uniq_map.end())
@@ -380,15 +375,15 @@ class builder {
       else {
         uint32_t ptr = 0;
         uint32_t link_id = (it->second >> 32);
-        uint64_t which = link_id >> 29;
-        link_id &= 0x1FFFFFFF;
+        uint64_t which = link_id >> 30;
+        link_id &= 0x3FFFFFFF;
         if (which == 0)
           std::cout << "ERROR: not marked: " << it->first << std::endl;
-        std::vector<uint8_t>& tails = (which == 1 ? tails0 : (which == 2 ? tails1 : (which == 3 ? tails2 : tails3)));
-        std::vector<uint8_t>& tail_ptrs = (which == 1 ? tail_ptrs1 : (which == 2 ? tail_ptrs1 : (which == 3 ? tail_ptrs2 : tails_ptrs3)));
-        int& addl_bit_count = (which == 1 ? addl_bit_count1 : (which == 2 ? addl_bit_count1 : (which == 3 ? addl_bit_count2 : addl_bit_count3)));
-        int& last_byte_bits = (which == 1 ? last_byte_bits1 : (which == 2 ? last_byte_bits1 : (which == 3 ? last_byte_bits2 : last_byte_bits3)));
-        std::vector<uint32_t>& tail_ptr_counts = (which == 1 ? tail_ptr_counts1 : (which == 2 ? tail_ptr_counts1 : (which == 3 ? tail_ptr_counts2 : tail_ptr_counts3)));
+        std::vector<uint8_t>& tails = (which == 1 ? tails0 : (which == 2 ? tails1 : tails2));
+        std::vector<uint8_t>& tail_ptrs = (which == 1 ? tail_ptrs1 : (which == 2 ? tail_ptrs1 : tail_ptrs2));
+        int& addl_bit_count = (which == 1 ? addl_bit_count1 : (which == 2 ? addl_bit_count1 : addl_bit_count2));
+        int& last_byte_bits = (which == 1 ? last_byte_bits1 : (which == 2 ? last_byte_bits1 : last_byte_bits2));
+        std::vector<uint32_t>& tail_ptr_counts = (which == 1 ? tail_ptr_counts1 : (which == 2 ? tail_ptr_counts1 : tail_ptr_counts2));
         if ((it->second & 0xFFFFFFFF) == 0) {
           tail_link_map::iterator it1 = uniq_link_map.find(link_id);
           if (it1 == uniq_link_map.end()) {
@@ -401,8 +396,8 @@ class builder {
             if (it2 == uniq_map.end())
               std::cout << "Unexpected linked value not found" << std::endl;
             else {
-              if ((it2->second >> 61) != which)
-                std::cout << "WARN: " << which << ", " << (it2->second >> 61) << ", [" << it1->second << "], [" << it->first << std::endl;
+              if ((it2->second >> 62) != which)
+                std::cout << "WARN: " << which << ", " << (it2->second >> 62) << ", [" << it1->second << "], [" << it->first << std::endl;
               if ((it2->second & 0xFFFFFFFF) == 0) {
                 it2->second = (it2->second & 0xFFFFFFFF00000000) + tails.size();
                 ptr = tails.size() + it1->second.length() - val.length();
@@ -418,17 +413,15 @@ class builder {
         } else {
           ptr = it->second & 0xFFFFFFFF;
         }
-        int node_val_bits = (which == 1 ? 7 : (which == 2 ? 6 : 5));
+        int node_val_bits = (which == 1 ? 7 : 6);
         node_val = ptr & ((1 << node_val_bits) - 1);
-        node_val |= (which << (which > 2 ? 5 : 6));
+        node_val |= (which << 6);
         // if (which == 2 || which == 3)
         //   std::cout << "Ptr: " << ptr << " " << which << std::endl;
         if (which == 1 && ptr > 127)
           std::cout << "ERROR: ptr > 127" << ptr << std::endl;
         if (which == 2 && ptr > 4095)
           std::cout << "ERROR: ptr > 4095" << ptr << std::endl;
-        if (which == 3 && ptr > 8191)
-          std::cout << "ERROR: ptr > 8191" << ptr << std::endl;
         ptr >>= node_val_bits;
         //  std::cout << ceil(log2(ptr)) << " ";
         if (which == 1) {
@@ -448,13 +441,13 @@ class builder {
 
     void build() {
       std::cout << std::endl;
-      byte_vec trie, tails0, tails1, tails2, tails3;
-      byte_vec tail_ptrs1, tail_ptrs2, tail_ptrs3;
+      byte_vec trie, tails0, tails1, tails2;
+      byte_vec tail_ptrs1, tail_ptrs2;
       tail_map uniq_map;
       tail_link_map uniq_link_map;
       build_tail_maps(uniq_map, uniq_link_map);
       uint32_t tail_ptr_counts0;
-      std::vector<uint32_t> tail_ptr_counts1, tail_ptr_counts2, tail_ptr_counts3;
+      std::vector<uint32_t> tail_ptr_counts1, tail_ptr_counts2;
       //std::vector<uint8_t> tails;
       uint32_t flag_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
@@ -464,20 +457,15 @@ class builder {
       int last_byte_bits1 = 0;
       int addl_bit_count2 = 0;
       int last_byte_bits2 = 0;
-      int addl_bit_count3 = 0;
-      int last_byte_bits3 = 0;
       trie.reserve(node_count + (node_count >> 1));
       tail_ptr_counts0 = 0;
       tail_ptr_counts1.push_back(0);
       tail_ptr_counts2.push_back(0);
-      tail_ptr_counts3.push_back(0);
       tail_ptrs1.push_back(0);
       tail_ptrs2.push_back(0);
-      tail_ptrs3.push_back(0);
       tails0.push_back(0); // waste 1 byte
       tails1.push_back(0); // waste 1 byte
       tails2.push_back(0); // waste 1 byte
-      tails3.push_back(0); // waste 1 byte
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
@@ -491,12 +479,11 @@ class builder {
           if (val.length() == 1) {
             node_val = cur_node->val[0];
           } else {
-            node_val = get_tail_ptr(val, uniq_map, uniq_link_map, tails0, tails1, tails2, tails3,
-                         tail_ptrs1, tail_ptrs2, tail_ptrs3,
-                         tail_ptr_counts0, tail_ptr_counts1, tail_ptr_counts2, tail_ptr_counts3,
+            node_val = get_tail_ptr(val, uniq_map, uniq_link_map, tails0, tails1, tails2,
+                         tail_ptrs1, tail_ptrs2, 
+                         tail_ptr_counts0, tail_ptr_counts1, tail_ptr_counts2,
                          addl_bit_count1, last_byte_bits1,
-                         addl_bit_count2, last_byte_bits2,
-                         addl_bit_count3, last_byte_bits3);
+                         addl_bit_count2, last_byte_bits2);
           }
           if ((node_count % 2) == 0) {
             trie.push_back(node_val);
@@ -522,12 +509,8 @@ class builder {
         total += tail_ptr_counts1[i];
       }
       for (int i = 0; i < tail_ptr_counts2.size(); i++) {
-        std::cout << "Counts for bit " << i + 5 << ": " << tail_ptr_counts2[i] << std::endl;
+        std::cout << "Counts for bit " << i + 6 << ": " << tail_ptr_counts2[i] << std::endl;
         total += tail_ptr_counts2[i];
-      }
-      for (int i = 0; i < tail_ptr_counts3.size(); i++) {
-        std::cout << "Counts for bit " << i + 5 << ": " << tail_ptr_counts3[i] << std::endl;
-        total += tail_ptr_counts3[i];
       }
       for (int i = 0; i < 8; i++)
         std::cout << "Flag " << i << ": " << flag_counts[i] << std::endl;
@@ -539,18 +522,15 @@ class builder {
       std::cout << "Tail0 size: " << tails0.size() << std::endl;
       std::cout << "Tail1 size: " << tails1.size() << std::endl;
       std::cout << "Tail2 size: " << tails2.size() << std::endl;
-      std::cout << "Tail3 size: " << tails3.size() << std::endl;
       std::cout << "Tail Ptrs1 size: " << tail_ptrs1.size() << std::endl;
       std::cout << "Tail Ptrs2 size: " << tail_ptrs2.size() << std::endl;
-      std::cout << "Tail Ptrs3 size: " << tail_ptrs3.size() << std::endl;
       std::cout << "Tail Ptr Counts 0: " << tail_ptr_counts0 << std::endl;
       std::cout << "Tail Ptr Counts 1: " << tail_ptr_counts1.size() << std::endl;
       std::cout << "Tail Ptr Counts 2: " << tail_ptr_counts2.size() << std::endl;
-      std::cout << "Tail Ptr Counts 3: " << tail_ptr_counts3.size() << std::endl;
       std::cout << "Total size: " << trie.size()
-          +tails0.size()+tails1.size()+tails2.size()+tails3.size()
-          +tail_ptrs1.size()+tail_ptrs2.size()+tail_ptrs3.size()
-          +(tail_ptr_counts1.size()+tail_ptr_counts2.size()+tail_ptr_counts3.size())*4 << std::endl;
+          +tails0.size()+tails1.size()+tails2.size()
+          +tail_ptrs1.size()+tail_ptrs2.size()
+          +tail_ptr_counts1.size()*4+tail_ptr_counts2.size()*4 << std::endl;
     }
 
 };
