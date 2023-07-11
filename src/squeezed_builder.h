@@ -245,8 +245,12 @@ class builder {
       uint32_t tails_freq_count = 0;
       uint32_t part = part1;
       uint32_t s_no = 0;
+      FILE *fp = fopen("uniq_tails.txt", "w+");
+      char buf[2000];
       while (it_freq != uniq_freq_map.begin()) {
         it_freq--;
+        sprintf(buf, "%d\t[%s]\n", it_freq->first, it_freq->second.c_str());
+        fwrite(buf, strlen(buf), 1, fp);
         s_no++;
         tail_map::iterator it_tails = uniq_map.find(it_freq->second);
         if (it_tails == uniq_map.end())
@@ -262,10 +266,10 @@ class builder {
           tail_link_map::iterator it_link = uniq_link_map.find(link_id);
           if (it_link != uniq_link_map.end())
             continue;
-          // if (part == part1) {
-          //   std::cout << s_no << "\t" << tails_count << "\t" << it_freq->first << "\t[";
-          //   std::cout << it_freq->second << "]\t" << 0 << "\t[" << (it_link == uniq_link_map.end() ? "-" : it_link->second) << "]\t" << tails_len << std::endl;
-          // }
+          if (part == part1) {
+            std::cout << s_no << "\t" << tails_count << "\t" << it_freq->first << "\t[";
+            std::cout << it_freq->second << "]\t" << 0 << "\t[" << (it_link == uniq_link_map.end() ? "-" : it_link->second) << "]\t" << tails_len << std::endl;
+          }
           if ((tails_len + it_freq->second.length() + 1) > part) {
             std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
             part = (part == part1 ? part2 : part3);
@@ -313,6 +317,7 @@ class builder {
           }
         }
       }
+      fclose(fp);
       std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
       total_tails_len += tails_len;
       std::cout << "Total len: " << total_tails_len << std::endl;
@@ -353,6 +358,7 @@ class builder {
         uniq_freq_map.insert(pair<uint32_t, std::string>(freq, val));
         tail_freq_count += freq;
       }
+      std::cout << "Total Uniq: " << uniq_map.size() << std::endl;
       std::cout << "Total Freq: " << tail_freq_count << std::endl;
       assign_tail_bucket(uniq_map, uniq_link_map, uniq_freq_map);
       tail_map::iterator it_tails = uniq_map.begin();
@@ -418,10 +424,10 @@ class builder {
         node_val |= (which << 6);
         // if (which == 2 || which == 3)
         //   std::cout << "Ptr: " << ptr << " " << which << std::endl;
-        if (which == 1 && ptr > 127)
-          std::cout << "ERROR: ptr > 127" << ptr << std::endl;
-        if (which == 2 && ptr > 4095)
-          std::cout << "ERROR: ptr > 4095" << ptr << std::endl;
+        if (which == 1 && ptr > (part1 - 1))
+          std::cout << "ERROR: " << ptr << " > " << part1 << std::endl;
+        if (which == 2 && ptr > (part2 - 1))
+          std::cout << "ERROR: " << ptr << " > " << part2 << std::endl;
         ptr >>= node_val_bits;
         //  std::cout << ceil(log2(ptr)) << " ";
         if (which == 1) {
@@ -528,9 +534,11 @@ class builder {
       std::cout << "Tail Ptr Counts 1: " << tail_ptr_counts1.size() << std::endl;
       std::cout << "Tail Ptr Counts 2: " << tail_ptr_counts2.size() << std::endl;
       std::cout << "Total size: " << trie.size()
-          +tails0.size()+tails1.size()+tails2.size()
-          +tail_ptrs1.size()+tail_ptrs2.size()
-          +tail_ptr_counts1.size()*4+tail_ptr_counts2.size()*4 << std::endl;
+          +(ceil(node_count/320)*11*4) // bit vectoors
+          +tails0.size()+tails1.size()+tails2.size() // tails
+          +tail_ptrs1.size()+tail_ptrs2.size()  // tail pointers
+          +tail_ptr_counts1.size()*4+tail_ptr_counts2.size()*4 // tail ptr info
+          << std::endl;
     }
 
 };
