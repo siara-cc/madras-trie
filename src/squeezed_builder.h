@@ -1,15 +1,20 @@
 #ifndef builder_H
 #define builder_H
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
 #include <iostream>
 #include <math.h>
+#include <time.h>
 
 #include "var_array.h"
 #include "bit_vector.h"
 #include "bitset_vector.h"
+#include "../../index_research/src/art.h"
+#include "../../index_research/src/basix.h"
+#include "../../index_research/src/univix_util.h"
 
 enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHAR};
 
@@ -19,6 +24,22 @@ typedef std::map<std::string, uint64_t> tail_map;
 typedef std::multimap<uint32_t, std::string> tail_freq_map;
 typedef std::map<uint32_t, std::string> tail_link_map;
 typedef std::vector<uint8_t> byte_vec;
+
+class entry {
+  public:
+    std::string key;
+    uint64_t tail;
+    entry(std::string _key, uint64_t _tail) {
+      key = _key;
+      tail = _tail;
+    }
+};
+
+typedef std::vector<entry> tail_vec;
+
+bool comparePairs(const entry& lhs, const entry& rhs) {
+  return lhs.key < rhs.key;
+}
 
 class node {
   public:
@@ -46,6 +67,10 @@ class builder {
     int key_count;
     std::vector<vector<node *> > level_nodes;
     std::string prev_key;
+    //dfox uniq_basix_map;
+    //basix uniq_basix_map;
+    //art_tree at;
+    tail_vec uniq_vec_map;
 
     builder(builder const&);
     builder& operator=(builder const&);
@@ -73,6 +98,8 @@ class builder {
       first_node->level = 1;
       add_to_level_nodes(first_node);
       root->first_child = first_node;
+      util::generate_bit_counts();
+      //art_tree_init(&at);
     }
 
     ~builder() {
@@ -245,12 +272,8 @@ class builder {
       uint32_t tails_freq_count = 0;
       uint32_t part = part1;
       uint32_t s_no = 0;
-      FILE *fp = fopen("uniq_tails.txt", "w+");
-      char buf[2000];
       while (it_freq != uniq_freq_map.begin()) {
         it_freq--;
-        sprintf(buf, "%d\t[%s]\n", it_freq->first, it_freq->second.c_str());
-        fwrite(buf, strlen(buf), 1, fp);
         s_no++;
         tail_map::iterator it_tails = uniq_map.find(it_freq->second);
         if (it_tails == uniq_map.end())
@@ -317,13 +340,30 @@ class builder {
           }
         }
       }
-      fclose(fp);
       std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
       total_tails_len += tails_len;
       std::cout << "Total len: " << total_tails_len << std::endl;
     }
 
     void add2_uniq_map(tail_map& uniq_map, std::string& val, uint32_t& max_freq) {
+
+      // uniq_vec_map.push_back(entry(val, 1));
+      // uint64_t *out = (uint64_t *) art_search(&at, (uint8_t *) val.c_str(), val.length());
+      // if (out == NULL) {
+      //   uint64_t *in_val = new uint64_t();
+      //   *in_val = 1;
+      //   art_insert(&at, (const uint8_t *) val.c_str(), val.length(), (void *) in_val);
+      // } else {
+      //   (*out)++;
+      // }
+
+      // uint64_t tail_val = 1;
+      // int tail_val_len = 8;
+      // bool is_present = uniq_basix_map.get((const char *) val.c_str(), val.length(), &tail_val_len, (char *) &tail_val);
+      // if (is_present)
+      //   tail_val++;
+      // uniq_basix_map.put(val.c_str(), val.length(), (const char *) &tail_val, tail_val_len);
+
       tail_map::iterator it = uniq_map.find(val);
       if (it == uniq_map.end()) {
         uint64_t val_id = uniq_map.size();
@@ -337,6 +377,10 @@ class builder {
     }
 
     void build_tail_maps(tail_map& uniq_map, tail_link_map& uniq_link_map) {
+
+      // clock_t t;
+      // t = clock();
+
       uint32_t max_freq = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
@@ -349,6 +393,20 @@ class builder {
           }
         }
       }
+
+      // t = clock() - t;
+      // double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      // std::cout << "Time taken to append vector: " << time_taken << std::endl;
+      // t = clock();
+
+      // std::sort(uniq_vec_map.begin(), uniq_vec_map.end(), comparePairs);
+      // t = clock() - t;
+      // time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      // std::cout << "Time taken for sort: " << time_taken << std::endl;
+
+      //uniq_basix_map.print_num_levels();
+      //uniq_basix_map.print_stats(uniq_basix_map.size());
+      std::cout << "Total Uniq: " << uniq_map.size() << std::endl;
       tail_freq_map uniq_freq_map;
       tail_map::iterator it;
       uint32_t tail_freq_count = 0;
@@ -358,10 +416,71 @@ class builder {
         uniq_freq_map.insert(pair<uint32_t, std::string>(freq, val));
         tail_freq_count += freq;
       }
-      std::cout << "Total Uniq: " << uniq_map.size() << std::endl;
       std::cout << "Total Freq: " << tail_freq_count << std::endl;
       assign_tail_bucket(uniq_map, uniq_link_map, uniq_freq_map);
-      tail_map::iterator it_tails = uniq_map.begin();
+      tail_map::iterator it_tails = uniq_map.end();
+      const std::string *prev_entry = NULL;
+      int prev_prefix_len = 0;
+      int group_len = 0;
+      int max_group_len = 0;
+      it_tails--;
+      uint32_t savings = 0;
+      FILE *fp = fopen("prefix_match.txt", "w+");
+      char buf[200];
+      do {
+        uint32_t link_id = (it_tails->second >> 32) & 0x3FFFFFFF;
+        tail_link_map::iterator it_link = uniq_link_map.find(link_id);
+        if (it_link != uniq_link_map.end()) {
+          it_tails--;
+          continue;
+        }
+        if (prev_entry == NULL) {
+          prev_entry = &it_tails->first;
+          // fwrite(it_tails->first.c_str(), it_tails->first.length(), 1, fp);
+          // fwrite("\n", 1, 1, fp);
+          group_len += it_tails->first.length();
+          it_tails--;
+          sprintf(buf, "[%s]", it_tails->first.c_str());
+          fwrite(buf, strlen(buf), 1, fp);
+          //std::cout << "[" << *prev_entry << "] ";
+          continue;
+        }
+        int prefix_len = 0;
+        int max_len = prev_entry->length() > it_tails->first.length() ? it_tails->first.length() : prev_entry->length();
+        for (int i = 0; i < max_len && (*prev_entry)[i] == it_tails->first[i]; i++)
+           prefix_len++;
+        //std::cout << *prev_entry << " " << it_tails->first << " " << prefix_len << std::endl;
+        if (prefix_len > 1 && group_len < 64) { // && (prefix_len >= prev_prefix_len || ((prev_prefix_len - prefix_len) < 4))) {
+          //std::cout << prefix_len << "[" << it_tails->first << "] ";
+          sprintf(buf, "%d{%s|%s}%lu ", prefix_len, it_tails->first.substr(0, prefix_len).c_str(), it_tails->first.substr(prefix_len).c_str(), it_tails->first.length()-prefix_len);
+          fwrite(buf, strlen(buf), 1, fp);
+          savings += prefix_len;
+          savings -= (prefix_len / 13);
+          savings--;
+          group_len += prefix_len;
+          prev_prefix_len = prefix_len;
+        } else {
+          // if (prefix_len > 1)
+          //   std::cout << std::endl;
+          if (group_len > max_group_len)
+            max_group_len = group_len;
+          prev_prefix_len = 0;
+          group_len = 0;
+          //std::cout << "[" << it_tails->first << "] ";
+          // fwrite(it_tails->first.c_str(), it_tails->first.length(), 1, fp);
+          fwrite("\n\n", 2, 1, fp);
+          sprintf(buf, "[%s] ", it_tails->first.c_str());
+          fwrite(buf, strlen(buf), 1, fp);
+        }
+        prev_entry = &it_tails->first;
+        it_tails--;
+      } while (it_tails != uniq_map.begin());
+      fwrite("\n", 1, 1, fp);
+      fclose(fp);
+      std::cout << std::endl;
+      std::cout << "Savings: " << savings << std::endl;
+      std::cout << "Max group len: " << max_group_len << std::endl;
+      it_tails = uniq_map.begin();
       while (it_tails != uniq_map.end()) {
         it_tails->second &= 0xFFFFFFFF00000000;
         it_tails++;
@@ -533,16 +652,20 @@ class builder {
       std::cout << "Tail Ptr Counts 0: " << tail_ptr_counts0 << std::endl;
       std::cout << "Tail Ptr Counts 1: " << tail_ptr_counts1.size() << std::endl;
       std::cout << "Tail Ptr Counts 2: " << tail_ptr_counts2.size() << std::endl;
-      std::cout << "Total size: " << trie.size()
+      uint32_t total_size = trie.size()
           +(ceil(node_count/320)*11*4) // bit vectoors
           +tails0.size()+tails1.size()+tails2.size() // tails
           +tail_ptrs1.size()+tail_ptrs2.size()  // tail pointers
-          +tail_ptr_counts1.size()*4+tail_ptr_counts2.size()*4 // tail ptr info
-          << std::endl;
+          +(tail_ptr_counts1.size()+tail_ptr_counts2.size())*4; // tail ptr info
+      std::cout << "Total size: " << total_size << std::endl;
     }
 
 };
 
 }
+
+// 1xxxxxxx 1xxxxxxx 1xxxxxxx 01xxxxxx
+// 16 - followed by pointer
+// 0 2-15/18-31 bytes 16 ptrs bytes 1
 
 #endif
