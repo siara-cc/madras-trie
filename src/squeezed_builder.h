@@ -24,6 +24,7 @@ typedef std::map<std::string, uint64_t> tail_map;
 typedef std::multimap<uint32_t, std::string> tail_freq_map;
 typedef std::map<uint32_t, std::string> tail_link_map;
 typedef std::vector<uint8_t> byte_vec;
+typedef std::vector<uint8_t> all_tails;
 
 class entry {
   public:
@@ -43,16 +44,17 @@ bool comparePairs(const entry& lhs, const entry& rhs) {
 
 class node {
   public:
-    uint32_t first_child;
-    uint32_t next_sibling;
+    node *first_child;
+    //node *parent;
+    node *next_sibling;
     uint32_t tail_pos;
     uint16_t tail_len;
     uint8_t is_leaf;
     uint8_t level;
     node() {
-      first_child = next_sibling = 0;
-      is_leaf = 0;
-      tail_pos = tail_len = 0;
+      //parent = NULL;
+      first_child = next_sibling = NULL;
+      is_leaf = false;
       level = 0;
     }
 };
@@ -60,27 +62,27 @@ class node {
 class builder {
 
   private:
-    uint32_t root;
-    uint32_t first;
+    node *root;
+    node *first_node;
     int node_count;
+    double oct_node_count;
     int key_count;
-    std::vector<node *> nodes;
-    std::vector<uint8_t> tails;
     std::vector<vector<node *> > level_nodes;
     std::string prev_key;
     //dfox uniq_basix_map;
     //basix uniq_basix_map;
     //art_tree at;
     tail_vec uniq_vec_map;
+    std::vector<uint8_t> tails;
 
     builder(builder const&);
     builder& operator=(builder const&);
 
-    uint32_t get_last_child(uint32_t node_pos) {
-      uint32_t n = nodes[node_pos]->first_child;
-      while (n != 0 && nodes[n]->next_sibling != 0)
-        n = nodes[n]->next_sibling;
-      return n;
+    node *get_last_child(node *node) {
+      node = node->first_child;
+      while (node != NULL && node->next_sibling != NULL)
+        node = node->next_sibling;
+      return node;
     }
 
     void append_tail_vec(std::string val, node *n) {
@@ -90,45 +92,38 @@ class builder {
         tails.push_back(val[i]);
     }
 
-    node *add_node(uint32_t& new_node_pos, uint8_t level) {
-      node *n = new node;
-      n->level = level;
-      new_node_pos = nodes.size();
-      nodes.push_back(n);
-      node *new_node = nodes[new_node_pos];
-      add_to_level_nodes(new_node_pos, new_node);
-      return new_node;
-    }
-
   public:
     builder() {
-      node *root_node = new node;
-      root = 0;
+      root = new node;
       node_count = 0;
+      oct_node_count = 1;
       key_count = 0;
       //root->parent = NULL;
-      root_node->next_sibling = 0;
-      root_node->is_leaf = 0;
-      root_node->level = 0;
-      first = 1;
-      root_node->first_child = first;
-      nodes.push_back(root_node);
-      //first->parent = root;
-      node *first_node = add_node(first, 1);
-      first_node->next_sibling = 0;
+      root->next_sibling = NULL;
+      root->is_leaf = false;
+      root->level = 0;
+      first_node = new node;
+      //first_node->parent = root;
+      first_node->next_sibling = NULL;
+      first_node->level = 1;
+      add_to_level_nodes(first_node);
+      root->first_child = first_node;
       util::generate_bit_counts();
       //art_tree_init(&at);
     }
 
     ~builder() {
+      for (int i = 0; i < level_nodes.size(); i++) {
+        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++)
+          delete cur_lvl_nodes[j];
+      }
+      delete root;
     }
 
-    void add_to_level_nodes(uint32_t new_node_pos, node *new_node) {
-        if (level_nodes.size() < new_node->level) {
-          vector<node *> new_empty_vec;
-          level_nodes.push_back(new_empty_vec);
-          std::cout << level_nodes.size() << std::endl;
-        }
+    void add_to_level_nodes(node *new_node) {
+        if (level_nodes.size() < new_node->level)
+          level_nodes.push_back(vector<node *>());
         level_nodes[new_node->level - 1].push_back(new_node);
     }
 
@@ -137,93 +132,91 @@ class builder {
          return;
       key_count++;
       if (node_count == 0) {
-        nodes[first]->tail_pos = 0;
-        nodes[first]->tail_len = key.length();
-        append_tail_vec(key, nodes[first]);
-        nodes[first]->is_leaf = 1;
+        append_tail_vec(key, first_node);
+        first_node->is_leaf = true;
         node_count++;
         return;
       }
       prev_key = key;
       int key_pos = 0;
-      uint32_t last_child_pos = get_last_child(root);
-      node *last_child = nodes[last_child_pos];
+      node *last_child = get_last_child(root);
       do {
-        uint32_t val_pos = last_child->tail_pos;
-        uint16_t val_len = last_child->tail_len;
+        std::string val((const char *) tails.data() + last_child->tail_pos, last_child->tail_len);
         int i = 0;
-        for (; i < val_len; i++) {
-          if (key[key_pos] != tails[val_pos + i]) {
+        for (; i < val.length(); i++) {
+          if (key[key_pos] != val[i]) {
             if (i == 0) {
-              uint32_t new_node_pos;
-              node *new_node = add_node(new_node_pos, last_child->level);
-              new_node->is_leaf = 1;
+              node *new_node = new node();
+              new_node->is_leaf = true;
+              new_node->level = last_child->level;
               //new_node->parent = last_child->parent;
-              new_node->next_sibling = 0;
+              new_node->next_sibling = NULL;
               append_tail_vec(key.substr(key_pos), new_node);
               //if (new_node->val == string(" discuss"))
               //  cout << "New node: " << key << endl;
-              last_child->next_sibling = new_node_pos;
+              add_to_level_nodes(new_node);
+              last_child->next_sibling = new_node;
               node_count++;
-              //if ((last_child->val[0] >> 3) != (new_node->val[0] >> 3))
-              //  oct_node_count++;
+              // if ((last_child->val[0] >> 3) != (new_node->val[0] >> 3))
+              //   oct_node_count++;
             } else {
-              //child1->parent = last_child;
-              uint32_t child1_pos, child2_pos;
-              node *child1 = add_node(child1_pos, last_child->level + 1);
-              node *child2 = add_node(child2_pos, child1->level);
+              node *child1 = new node();
+              node *child2 = new node();
               child1->is_leaf = last_child->is_leaf;
-              child1->next_sibling = child2_pos;
-              child1->tail_pos = val_pos + i;
-              child1->tail_len = val_len - i;
+              child1->level = last_child->level + 1;
+              //child1->parent = last_child;
+              child1->next_sibling = child2;
+              child1->tail_pos = last_child->tail_pos + i;
+              child1->tail_len = last_child->tail_len - i;
               //if (child1->val == string(" discuss"))
               //  cout << "Child1 node: " << key << endl;
-              if (last_child->first_child != 0) {
-                uint32_t node_pos = last_child->first_child;
-                node *n = nodes[node_pos];
-                child1->first_child = node_pos;
+              if (last_child->first_child != NULL) {
+                node *node = last_child->first_child;
+                child1->first_child = node;
                 do {
                   //node->parent = child1;
-                  n->level++;
-                  node_pos = n->next_sibling;
-                  n = nodes[node_pos];
-                } while (node_pos != 0);
+                  node->level++;
+                  node = node->next_sibling;
+                } while (node != NULL);
               }
-              child2->is_leaf = 1;
+              child2->is_leaf = true;
+              child2->level = last_child->level + 1;
               //child2->parent = last_child;
-              child2->next_sibling = 0;
+              child2->next_sibling = NULL;
               append_tail_vec(key.substr(key_pos), child2);
               //if (child2->val == string(" discuss"))
               //  cout << "Child2 node: " << key << endl;
-              last_child->first_child = child1_pos;
-              last_child->is_leaf = 0;
+              last_child->first_child = child1;
+              last_child->is_leaf = false;
               node_count += 2;
               // oct_node_count += ((child1->val[0] >> 3) == (child2->val[0] >> 3) ? 1 : 1.5);
-              last_child->tail_pos += i;
-              last_child->tail_len -= i;
+              add_to_level_nodes(child1);
+              add_to_level_nodes(child2);
+              //last_child->tail_pos += i;
+              last_child->tail_len = i;
             }
             return;
           }
           key_pos++;
         }
-        if (i == val_len && key_pos < key.length()
-            && last_child->is_leaf && last_child->first_child == 0) {
-          uint32_t child1_pos;
-          node *child1 = add_node(child1_pos, last_child->level + 1);
-          child1->is_leaf = 1;
+        if (i == val.length() && key_pos < key.length()
+            && last_child->is_leaf && last_child->first_child == NULL) {
+          node *child1 = new node();
+          child1->is_leaf = true;
+          child1->level = last_child->level + 1;
           //child1->parent = last_child;
-          child1->next_sibling = 0;
+          child1->next_sibling = NULL;
           append_tail_vec(key.substr(key_pos), child1);
           //    if (child1->val == string(" discuss"))
           //      cout << "Ext node: " << key << endl;
-          last_child->first_child = child1_pos;
+          last_child->first_child = child1;
           node_count++;
-          // oct_node_count++;
+          add_to_level_nodes(child1);
+          oct_node_count++;
           return;
         }
-        last_child_pos = get_last_child(last_child_pos);
-        last_child = nodes[last_child_pos];
-      } while (last_child_pos != 0);
+        last_child = get_last_child(last_child);
+      } while (last_child != NULL);
     }
 
     int append_bits(std::vector<uint8_t>& ptr_str, std::vector<uint32_t>& tail_ptr_counts, int addl_bit_count, bool is_next, int last_byte_bits, int ptr) {
@@ -405,7 +398,7 @@ class builder {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          std::string val((const char *)tails.data() + cur_node->tail_pos, cur_node->tail_len);
+          std::string val((const char *) tails.data() + cur_node->tail_pos, cur_node->tail_len);
           int val_len = val.length();
           if (val_len > 1) {
             add2_uniq_map(uniq_map, val, max_freq);
@@ -614,10 +607,10 @@ class builder {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          std::string val((const char *)tails.data() + cur_node->tail_pos, cur_node->tail_len);
+          std::string val((const char *) tails.data() + cur_node->tail_pos, cur_node->tail_len);
           uint8_t flags = (cur_node->is_leaf ? 1 : 0) +
-            (cur_node->first_child != 0 ? 2 : 0) + (val.length() > 1 ? 4 : 0) +
-            (cur_node->next_sibling == 0 ? 8 : 0);
+            (cur_node->first_child != NULL ? 2 : 0) + (val.length() > 1 ? 4 : 0) +
+            (cur_node->next_sibling == NULL ? 8 : 0);
           flag_counts[flags & 0x07]++;
           uint8_t node_val;
           if (val.length() == 1) {
