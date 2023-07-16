@@ -54,7 +54,7 @@ class node {
     node() {
       //parent = NULL;
       first_child = next_sibling = NULL;
-      is_leaf = false;
+      is_leaf = 0;
       level = 0;
     }
 };
@@ -65,7 +65,6 @@ class builder {
     node *root;
     node *first_node;
     int node_count;
-    double oct_node_count;
     int key_count;
     std::vector<vector<node *> > level_nodes;
     std::string prev_key;
@@ -85,6 +84,12 @@ class builder {
       return node;
     }
 
+    void add_to_level_nodes(node *new_node) {
+        if (level_nodes.size() < new_node->level)
+          level_nodes.push_back(vector<node *>());
+        level_nodes[new_node->level - 1].push_back(new_node);
+    }
+
     void append_tail_vec(std::string val, node *n) {
       n->tail_pos = tails.size();
       n->tail_len = val.length();
@@ -96,11 +101,10 @@ class builder {
     builder() {
       root = new node;
       node_count = 0;
-      oct_node_count = 1;
       key_count = 0;
       //root->parent = NULL;
       root->next_sibling = NULL;
-      root->is_leaf = false;
+      root->is_leaf = 0;
       root->level = 0;
       first_node = new node;
       //first_node->parent = root;
@@ -121,19 +125,13 @@ class builder {
       delete root;
     }
 
-    void add_to_level_nodes(node *new_node) {
-        if (level_nodes.size() < new_node->level)
-          level_nodes.push_back(vector<node *>());
-        level_nodes[new_node->level - 1].push_back(new_node);
-    }
-
     void append(string key) {
       if (key == prev_key)
          return;
       key_count++;
       if (node_count == 0) {
         append_tail_vec(key, first_node);
-        first_node->is_leaf = true;
+        first_node->is_leaf = 1;
         node_count++;
         return;
       }
@@ -147,7 +145,7 @@ class builder {
           if (key[key_pos] != val[i]) {
             if (i == 0) {
               node *new_node = new node();
-              new_node->is_leaf = true;
+              new_node->is_leaf = 1;
               new_node->level = last_child->level;
               //new_node->parent = last_child->parent;
               new_node->next_sibling = NULL;
@@ -157,8 +155,6 @@ class builder {
               add_to_level_nodes(new_node);
               last_child->next_sibling = new_node;
               node_count++;
-              // if ((last_child->val[0] >> 3) != (new_node->val[0] >> 3))
-              //   oct_node_count++;
             } else {
               node *child1 = new node();
               node *child2 = new node();
@@ -179,7 +175,7 @@ class builder {
                   node = node->next_sibling;
                 } while (node != NULL);
               }
-              child2->is_leaf = true;
+              child2->is_leaf = 1;
               child2->level = last_child->level + 1;
               //child2->parent = last_child;
               child2->next_sibling = NULL;
@@ -187,9 +183,8 @@ class builder {
               //if (child2->val == string(" discuss"))
               //  cout << "Child2 node: " << key << endl;
               last_child->first_child = child1;
-              last_child->is_leaf = false;
+              last_child->is_leaf = 0;
               node_count += 2;
-              // oct_node_count += ((child1->val[0] >> 3) == (child2->val[0] >> 3) ? 1 : 1.5);
               add_to_level_nodes(child1);
               add_to_level_nodes(child2);
               //last_child->tail_pos += i;
@@ -202,7 +197,7 @@ class builder {
         if (i == val.length() && key_pos < key.length()
             && last_child->is_leaf && last_child->first_child == NULL) {
           node *child1 = new node();
-          child1->is_leaf = true;
+          child1->is_leaf = 1;
           child1->level = last_child->level + 1;
           //child1->parent = last_child;
           child1->next_sibling = NULL;
@@ -212,7 +207,6 @@ class builder {
           last_child->first_child = child1;
           node_count++;
           add_to_level_nodes(child1);
-          oct_node_count++;
           return;
         }
         last_child = get_last_child(last_child);
@@ -301,7 +295,7 @@ class builder {
           tail_link_map::iterator it_link = uniq_link_map.find(link_id);
           if (it_link != uniq_link_map.end())
             continue;
-          if (part == part1) {
+          if (part < part2) {
             std::cout << s_no << "\t" << tails_count << "\t" << it_freq->first << "\t[";
             std::cout << it_freq->second << "]\t" << 0 << "\t[" << (it_link == uniq_link_map.end() ? "-" : it_link->second) << "]\t" << tails_len << std::endl;
           }
@@ -332,7 +326,7 @@ class builder {
                 if (true) {
                   bool is_added = add2_link_map(link_id, uniq_link_map, val);
                   if (is_added) {
-                    if (part == part1) {
+                    if (part < part2) {
                       std::cout << s_no << "\t" << tails_count << "*\t" << freq << "\t[";
                       std::cout << suffix << "]\t" << 0 << "\t[" << val << "]" << (freq > it_freq->first ? "**" : "") << "\t" << tails_len << std::endl;
                     }
@@ -438,7 +432,7 @@ class builder {
       it_tails--;
       uint32_t savings = 0;
       FILE *fp = fopen("prefix_match.txt", "w+");
-      char buf[200];
+      char buf[1000];
       do {
         uint32_t link_id = (it_tails->second >> 32) & 0x3FFFFFFF;
         tail_link_map::iterator it_link = uniq_link_map.find(link_id);
@@ -670,6 +664,7 @@ class builder {
           +tail_ptrs1.size()+tail_ptrs2.size()  // tail pointers
           +(tail_ptr_counts1.size()+tail_ptr_counts2.size())*4; // tail ptr info
       std::cout << "Total size: " << total_size << std::endl;
+      std::cout << "Node struct size: " << sizeof(node) << std::endl;
     }
 
 };
