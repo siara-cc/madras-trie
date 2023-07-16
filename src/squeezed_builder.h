@@ -24,23 +24,11 @@ typedef std::map<std::string, uint64_t> tail_map;
 typedef std::multimap<uint32_t, std::string> tail_freq_map;
 typedef std::map<uint32_t, std::string> tail_link_map;
 typedef std::vector<uint8_t> byte_vec;
-typedef std::vector<uint8_t> all_tails;
 
-class entry {
+class builder_abstract {
   public:
-    std::string key;
-    uint64_t tail;
-    entry(std::string _key, uint64_t _tail) {
-      key = _key;
-      tail = _tail;
-    }
+    std::vector<uint8_t> tails;
 };
-
-typedef std::vector<entry> tail_vec;
-
-bool comparePairs(const entry& lhs, const entry& rhs) {
-  return lhs.key < rhs.key;
-}
 
 class node {
   public:
@@ -48,9 +36,10 @@ class node {
     //node *parent;
     node *next_sibling;
     uint32_t tail_pos;
-    uint16_t tail_len;
+    uint32_t tail_len;
     uint8_t is_leaf;
     uint8_t level;
+    uint8_t v0;
     node() {
       //parent = NULL;
       first_child = next_sibling = NULL;
@@ -59,7 +48,44 @@ class node {
     }
 };
 
-class builder {
+int compare(const uint8_t *v1, int len1, const uint8_t *v2,
+        int len2, int k = 0) {
+    int lim = (len2 < len1 ? len2 : len1);
+    while (k < lim) {
+        uint8_t c1 = v1[k];
+        uint8_t c2 = v2[k];
+        k++;
+        if (c1 < c2)
+            return -k;
+        else if (c1 > c2)
+            return k;
+    }
+    if (len1 == len2)
+        return 0;
+    k++;
+    return (len1 < len2 ? -k : k);
+}
+
+int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
+        int len2) {
+    int lim = (len2 < len1 ? len2 : len1);
+    int k = lim - 1;
+    while (k >= 0) {
+        uint8_t c1 = v1[k];
+        uint8_t c2 = v2[k];
+        k--;
+        if (c1 < c2)
+            return -k;
+        else if (c1 > c2)
+            return k;
+    }
+    if (len1 == len2)
+        return 0;
+    k--;
+    return (len1 < len2 ? -k : k);
+}
+
+class builder : public builder_abstract {
 
   private:
     node *root;
@@ -71,8 +97,6 @@ class builder {
     //dfox uniq_basix_map;
     //basix uniq_basix_map;
     //art_tree at;
-    tail_vec uniq_vec_map;
-    std::vector<uint8_t> tails;
 
     builder(builder const&);
     builder& operator=(builder const&);
@@ -95,6 +119,11 @@ class builder {
       n->tail_len = val.length();
       for (int i = 0; i < val.length(); i++)
         tails.push_back(val[i]);
+    }
+
+    bool compareNodeTails(const node *lhs, const node *rhs) const {
+      return compare(tails.data() + lhs->tail_pos, lhs->tail_len,
+                     tails.data() + rhs->tail_pos, rhs->tail_len);
     }
 
   public:
@@ -384,8 +413,7 @@ class builder {
 
     void build_tail_maps(tail_map& uniq_map, tail_link_map& uniq_link_map) {
 
-      // clock_t t;
-      // t = clock();
+      clock_t t = clock();
 
       uint32_t max_freq = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
@@ -400,10 +428,10 @@ class builder {
         }
       }
 
-      // t = clock() - t;
-      // double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      // std::cout << "Time taken to append vector: " << time_taken << std::endl;
-      // t = clock();
+      t = clock() - t;
+      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << "Time taken to append vector: " << time_taken << std::endl;
+      t = clock();
 
       // std::sort(uniq_vec_map.begin(), uniq_vec_map.end(), comparePairs);
       // t = clock() - t;
@@ -570,8 +598,83 @@ class builder {
       return node_val;
     }
 
+    struct tails_sort_data {
+      uint8_t *tail_data;
+      uint32_t tail_len;
+      node *n;
+    };
+
+    byte_vec uniq_tails;
+    struct uniq_tails_info {
+      uint32_t tail_pos;
+      uint32_t tail_len;
+      uint32_t asc_pos;
+      uint32_t rev_pos;
+      uint32_t freq_count;
+    };
+    std::vector<uniq_tails_info> uniq_tails_asc;
+    std::vector<uniq_tails_info> uniq_tails_rev;
+
+    void process_tails() {
+      clock_t t = clock();
+      std::vector<tails_sort_data> nodes_for_sort;
+      for (int i = 0; i < level_nodes.size(); i++) {
+        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
+          node *n = cur_lvl_nodes[j];
+          if (n->tail_len > 1)
+            nodes_for_sort.push_back((struct tails_sort_data) { tails.data() + n->tail_pos, n->tail_len, n } );
+        }
+      }
+      t = clock() - t;
+      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << "Time taken to append vector: " << time_taken << std::endl;
+      t = clock();
+      std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct tails_sort_data& lhs, const struct tails_sort_data& rhs) -> bool {
+        return compare(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
+      });
+      t = clock() - t;
+      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << "Time taken to sort: " << time_taken << std::endl;
+      t = clock();
+      uint32_t vec_pos = 0;
+      uint32_t freq_count = 0;
+      std::vector<tails_sort_data>::iterator it = nodes_for_sort.begin();
+      uint8_t *prev_val = it->tail_data;
+      uint32_t prev_val_len = it->tail_len;
+      while (it != nodes_for_sort.end()) {
+        if (compare(it->tail_data, it->tail_len, prev_val, prev_val_len) == 0) {
+          freq_count++;
+          it->n->tail_pos = uniq_tails.size();
+        } else {
+          uniq_tails_asc.push_back((struct uniq_tails_info) {(uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count});
+          for (int i = 0; i < prev_val_len; i++)
+            uniq_tails.push_back(prev_val[i]);
+          freq_count = 1;
+          prev_val = it->tail_data;
+          prev_val_len = it->tail_len;
+        }
+        it++;
+      }
+      uniq_tails_asc.push_back((struct uniq_tails_info) {(uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count});
+      for (int i = 0; i < prev_val_len; i++)
+        uniq_tails.push_back(prev_val[i]);
+      t = clock() - t;
+      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << "Time taken for uniq_tails asc: " << time_taken << std::endl;
+      t = clock();
+      uniq_tails_rev = uniq_tails_asc;
+      std::sort(uniq_tails_rev.begin(), uniq_tails_rev.end(), [this](const struct uniq_tails_info& lhs, const struct uniq_tails_info& rhs) -> bool {
+        return compare_rev(uniq_tails.data() + lhs.tail_pos, lhs.tail_len, uniq_tails.data() + rhs.tail_pos, rhs.tail_len) < 0;
+      });
+      t = clock() - t;
+      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << "Time taken for uniq_tails rev: " << time_taken << std::endl;
+    }
+
     void build() {
       std::cout << std::endl;
+      process_tails();
       byte_vec trie, tails0, tails1, tails2;
       byte_vec tail_ptrs1, tail_ptrs2;
       tail_map uniq_map;
