@@ -20,10 +20,31 @@ enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHA
 
 namespace squeezed {
 
+class uniq_tails_info {
+  public:
+    uint32_t tail_pos;
+    uint32_t tail_len;
+    uint32_t fwd_pos;
+    uint32_t rev_pos;
+    uint32_t freq_count;
+    uint32_t link_fwd_idx;
+    uint8_t section_no;
+    uint8_t flags;
+    uniq_tails_info(uint32_t _tail_pos, uint32_t _tail_len, uint32_t _fwd_pos, uint32_t _rev_pos, uint32_t _freq_Count) {
+      tail_pos = _tail_pos; tail_len = _tail_len;
+      fwd_pos = _fwd_pos; rev_pos = _rev_pos;
+      freq_count = _freq_Count;
+      link_fwd_idx = 0;
+      section_no = 0;
+      flags = 0;
+    }
+};
+
 typedef std::map<std::string, uint64_t> tail_map;
 typedef std::multimap<uint32_t, std::string> tail_freq_map;
 typedef std::map<uint32_t, std::string> tail_link_map;
 typedef std::vector<uint8_t> byte_vec;
+typedef std::vector<uniq_tails_info *> uniq_tails_info_map;
 
 class builder_abstract {
   public:
@@ -69,11 +90,10 @@ int compare(const uint8_t *v1, int len1, const uint8_t *v2,
 int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
         int len2) {
     int lim = (len2 < len1 ? len2 : len1);
-    int k = lim - 1;
-    while (k >= 0) {
-        uint8_t c1 = v1[k];
-        uint8_t c2 = v2[k];
-        k--;
+    int k = 0;
+    while (k++ < lim) {
+        uint8_t c1 = v1[len1 - k];
+        uint8_t c2 = v2[len2 - k];
         if (c1 < c2)
             return -k;
         else if (c1 > c2)
@@ -81,7 +101,7 @@ int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
     }
     if (len1 == len2)
         return 0;
-    k--;
+    k++;
     return (len1 < len2 ? -k : k);
 }
 
@@ -151,6 +171,9 @@ class builder : public builder_abstract {
         for (int j = 0; j < cur_lvl_nodes.size(); j++)
           delete cur_lvl_nodes[j];
       }
+      // for (int i = 0; i < uniq_tails_fwd.size(); i++) {
+      //   delete uniq_tails_fwd[i];
+      // }
       delete root;
     }
 
@@ -307,8 +330,26 @@ class builder : public builder_abstract {
       uint32_t tails_freq_count = 0;
       uint32_t part = part1;
       uint32_t s_no = 0;
+      uint32_t pow_2 = 64;
+      uint32_t cumu_len = 0;
+      uint32_t freq_sum = 0;
+      uint32_t freq_count = 0;
+      FILE *fp = fopen("freq_dist.txt", "w+");
+      char buf[200];
       while (it_freq != uniq_freq_map.begin()) {
         it_freq--;
+        if (cumu_len < pow_2) {
+          freq_sum += it_freq->first;
+          cumu_len += it_freq->second.length();
+          cumu_len++;
+          freq_count++;
+        } else {
+          sprintf(buf, "%u\t%u\t%u\t%u\n", pow_2, cumu_len, freq_count, freq_sum);
+          fwrite(buf, strlen(buf), 1, fp);
+          freq_count = 0;
+          freq_sum = 0;
+          pow_2 <<= 1;
+        }
         s_no++;
         tail_map::iterator it_tails = uniq_map.find(it_freq->second);
         if (it_tails == uniq_map.end())
@@ -378,6 +419,9 @@ class builder : public builder_abstract {
       std::cout << log2(part) << "\t" << part << "\t" << tails_count << "\t" << tails_freq_count << "\t" << tails_len << std::endl;
       total_tails_len += tails_len;
       std::cout << "Total len: " << total_tails_len << std::endl;
+          sprintf(buf, "%u\t%u\t%u\t%u\n", pow_2, cumu_len, freq_count, freq_sum);
+          fwrite(buf, strlen(buf), 1, fp);
+          fclose(fp);
     }
 
     void add2_uniq_map(tail_map& uniq_map, std::string& val, uint32_t& max_freq) {
@@ -411,7 +455,7 @@ class builder : public builder_abstract {
       }
     }
 
-    void build_tail_maps(tail_map& uniq_map, tail_link_map& uniq_link_map) {
+    void build_tail_maps1(tail_map& uniq_map, tail_link_map& uniq_link_map) {
 
       clock_t t = clock();
 
@@ -604,39 +648,32 @@ class builder : public builder_abstract {
       node *n;
     };
 
-    byte_vec uniq_tails;
-    struct uniq_tails_info {
-      uint32_t tail_pos;
-      uint32_t tail_len;
-      uint32_t asc_pos;
-      uint32_t rev_pos;
-      uint32_t freq_count;
-    };
-    std::vector<uniq_tails_info> uniq_tails_asc;
-    std::vector<uniq_tails_info> uniq_tails_rev;
+    clock_t print_time_taken(clock_t t, const char *msg) {
+      t = clock() - t;
+      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << msg << time_taken << std::endl;
+      return clock();
+    }
 
-    void process_tails() {
+    uint32_t make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_map& uniq_tails_fwd) {
       clock_t t = clock();
+      uint32_t total_ptrs = 0;
       std::vector<tails_sort_data> nodes_for_sort;
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *n = cur_lvl_nodes[j];
-          if (n->tail_len > 1)
+          if (n->tail_len > 1) {
+            total_ptrs++;
             nodes_for_sort.push_back((struct tails_sort_data) { tails.data() + n->tail_pos, n->tail_len, n } );
+          }
         }
       }
-      t = clock() - t;
-      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      std::cout << "Time taken to append vector: " << time_taken << std::endl;
-      t = clock();
+      t = print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
       std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct tails_sort_data& lhs, const struct tails_sort_data& rhs) -> bool {
         return compare(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
       });
-      t = clock() - t;
-      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      std::cout << "Time taken to sort: " << time_taken << std::endl;
-      t = clock();
+      t = print_time_taken(t, "Time taken to sort: ");
       uint32_t vec_pos = 0;
       uint32_t freq_count = 0;
       std::vector<tails_sort_data>::iterator it = nodes_for_sort.begin();
@@ -647,7 +684,7 @@ class builder : public builder_abstract {
           freq_count++;
           it->n->tail_pos = uniq_tails.size();
         } else {
-          uniq_tails_asc.push_back((struct uniq_tails_info) {(uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count});
+          uniq_tails_fwd.push_back(new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count));
           for (int i = 0; i < prev_val_len; i++)
             uniq_tails.push_back(prev_val[i]);
           freq_count = 1;
@@ -656,30 +693,66 @@ class builder : public builder_abstract {
         }
         it++;
       }
-      uniq_tails_asc.push_back((struct uniq_tails_info) {(uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count});
+      uniq_tails_fwd.push_back(new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, vec_pos++, 0, freq_count));
       for (int i = 0; i < prev_val_len; i++)
         uniq_tails.push_back(prev_val[i]);
-      t = clock() - t;
-      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      std::cout << "Time taken for uniq_tails asc: " << time_taken << std::endl;
-      t = clock();
-      uniq_tails_rev = uniq_tails_asc;
-      std::sort(uniq_tails_rev.begin(), uniq_tails_rev.end(), [this](const struct uniq_tails_info& lhs, const struct uniq_tails_info& rhs) -> bool {
-        return compare_rev(uniq_tails.data() + lhs.tail_pos, lhs.tail_len, uniq_tails.data() + rhs.tail_pos, rhs.tail_len) < 0;
-      });
-      t = clock() - t;
-      time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      std::cout << "Time taken for uniq_tails rev: " << time_taken << std::endl;
+      t = print_time_taken(t, "Time taken for uniq_tails_fwd: ");
+      return total_ptrs;
     }
+
+    void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_map& uniq_tails_fwd, uniq_tails_info_map uniq_tails_rev) {
+      uint32_t total_ptrs = make_uniq_tails(uniq_tails, uniq_tails_fwd);
+      clock_t t = clock();
+      uniq_tails_rev = uniq_tails_fwd;
+      std::sort(uniq_tails_rev.begin(), uniq_tails_rev.end(), [uniq_tails](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return compare_rev(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
+      });
+      for (int i = 0; i < uniq_tails_rev.size(); i++)
+        uniq_tails_rev[i]->rev_pos = i;
+      t = print_time_taken(t, "Time taken for uniq_tails rev: ");
+      t = clock();
+      uniq_tails_info_map uniq_tails_freq = uniq_tails_fwd;
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return lhs->freq_count > rhs->freq_count;
+      });
+      t = print_time_taken(t, "Time taken for uniq_tails freq: ");
+      FILE *fp = fopen("uniq_tails_freq.txt", "w+");
+      for (int i = 0; i < uniq_tails_freq.size(); i++) {
+        uniq_tails_info *ti = uniq_tails_freq[i];
+        fprintf(fp, "%u\t%u\t%u\t%.*s\n", ti->freq_count, ti->fwd_pos, ti->rev_pos, ti->tail_len, uniq_tails.data() + ti->tail_pos);
+      }
+      fclose(fp);
+      // 1. build freq sort map - done
+      // 2. assign rev sort idx - done
+      // 3. Go through uniq_tails_freq desc, assign initial
+      //    3.1 Determine shape
+      //    3.2 Determine number of sections
+      //    3.3 Don't do greedy suffix matching for 10% of uniq_len or until last chunk reached
+      // 4. Match suffixes for rest
+      // 5. Match prefixes or suffixes for rest
+      // 6. Add rest to dict_fwd map and sort
+      //    6.1 Copy to dict_rev map and sort
+      //    6.2 Find longest prefix/suffix and add to freq_dict
+      //    6.3 Add encoded tail with pointers to uniq_tails and link it to uniq_tails_fwd
+      // 7. Discard dict_fwd and dict_rev map, crop special characters and repeat step 6 until no more
+      // 8. Go through freq_dict desc, make dict_fwd and dict_rev
+      // 9. Match suffixes, prefixes and link them to dict_fwd
+      // 10. Go through freq_dict desc, form dict_64, dict_8192, dict_1m, dict_128m byte_vecs, assign ptrs
+      // 11. Go through encoded strings in uniq_tails_fwd and assign ptrs from dict
+      // 12. Go through uniq_tails_freq form section tails, assign sections
+    } 
 
     void build() {
       std::cout << std::endl;
-      process_tails();
       byte_vec trie, tails0, tails1, tails2;
       byte_vec tail_ptrs1, tail_ptrs2;
+      byte_vec uniq_tails;
+      uniq_tails_info_map uniq_tails_fwd, uniq_tails_rev;
+      build_tail_maps(uniq_tails, uniq_tails_fwd, uniq_tails_rev);
+      return;
       tail_map uniq_map;
       tail_link_map uniq_link_map;
-      build_tail_maps(uniq_map, uniq_link_map);
+      //build_tail_maps1(uniq_map, uniq_link_map);
       uint32_t tail_ptr_counts0;
       std::vector<uint32_t> tail_ptr_counts1, tail_ptr_counts2;
       //std::vector<uint8_t> tails;
