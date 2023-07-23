@@ -35,10 +35,10 @@ class uniq_tails_info {
     uint32_t link_fwd_idx;
     uint8_t grp_no;
     uint8_t flags;
-    uniq_tails_info(uint32_t _tail_pos, uint32_t _tail_len, uint32_t _fwd_pos, uint32_t _cmp_fwd, uint32_t _freq_Count) {
+    uniq_tails_info(uint32_t _tail_pos, uint32_t _tail_len, uint32_t _fwd_pos, uint32_t _cmp_fwd, uint32_t _freq_count) {
       tail_pos = _tail_pos; tail_len = _tail_len;
       fwd_pos = _fwd_pos; cmp_fwd = _cmp_fwd;
-      freq_count = _freq_Count;
+      freq_count = _freq_count;
       link_fwd_idx = 0xFFFFFFFF;
       tail_ptr = 0;
       grp_no = 0;
@@ -52,9 +52,13 @@ typedef std::map<uint32_t, std::string> tail_link_map;
 typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uniq_tails_info *> uniq_tails_info_vec;
 
-class builder_abstract {
-  public:
-    std::vector<uint8_t> tails;
+struct freq_grp {
+    uint32_t grp_no;
+    uint8_t grp_log2;
+    uint32_t grp_limit;
+    uint32_t count;
+    uint32_t freq_count;
+    uint32_t grp_size;
 };
 
 class node {
@@ -71,13 +75,7 @@ class node {
     uint8_t level;
     uint8_t v0;
     node() {
-      //parent = NULL;
-      first_child = next_sibling = NULL;
-      is_leaf = 0;
-      level = 0;
-      tail_pos = 0;
-      tail_len = 0;
-      fwd_node_info_pos = 0;
+      memset(this, '\0', sizeof(node));
     }
 };
 
@@ -115,6 +113,11 @@ int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
         return 0;
     return (len1 < len2 ? -k : k);
 }
+
+class builder_abstract {
+  public:
+    std::vector<uint8_t> tails;
+};
 
 class builder : public builder_abstract {
 
@@ -342,6 +345,7 @@ class builder : public builder_abstract {
     const static uint32_t part1 = 128;
     const static uint32_t part2 = 4096;
     const static uint32_t part3 = (1 << 31);
+    const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev) {
       uint32_t total_ptrs = make_uniq_tails(uniq_tails, uniq_tails_fwd);
       clock_t t = clock();
@@ -386,47 +390,61 @@ class builder : public builder_abstract {
       t = print_time_taken(t, "Time taken for uniq_tails freq: ");
       uint32_t s_no = 0;
       uint32_t grp_no = 1;
-      uint32_t grp_tails_len = 0;
-      uint32_t grp_tails_count = 0;
       uint32_t cur_limit = part1;
       uint32_t total_tails_len = 0;
-      uint32_t tails_freq_count = 0;
+      std::vector<freq_grp> freq_grp_vec;
+      freq_grp_vec.push_back((freq_grp) {0, 0, 0, 0, 0, 0});
+      freq_grp_vec.push_back((freq_grp) {1, 7, 128, 0, 0, 0});
       for (int i = 0; i < uniq_tails_freq.size(); i++) {
         s_no++;
         uniq_tails_info *ti = uniq_tails_freq[i];
         if (ti->grp_no == 0) {
-          if (cur_limit == part3 && ti->link_fwd_idx != 0xFFFFFFFF) {
-            grp_tails_count++;
-            tails_freq_count += ti->freq_count;
-            ti->grp_no = grp_no;
-            continue;
-          }
-          if (cur_limit < part3 && ti->link_fwd_idx != 0xFFFFFFFF) {
-            if (ti->grp_no == 0)
-              ti->link_fwd_idx = 0xFFFFFFFF;
-            else
+          if (ti->link_fwd_idx != 0xFFFFFFFF) {
+            if (grp_no > suffix_grp_limit) {
+              uniq_tails_info *ti_link = uniq_tails_fwd[ti->link_fwd_idx];
+              uint32_t link_grp_no = ti_link->grp_no;
+              if (link_grp_no > 0) {
+                ti->grp_no = link_grp_no;
+                if (link_grp_no == grp_no) {
+                  freq_grp_vec[grp_no].count++;
+                  freq_grp_vec[grp_no].freq_count += ti->freq_count;
+                } else {
+                  freq_grp_vec[link_grp_no].count++;
+                  freq_grp_vec[link_grp_no].freq_count += ti->freq_count;
+                  if (link_grp_no > grp_no)
+                    printf("WARNING: Unexpected linked parent grp: %u, %u\n", link_grp_no, grp_no);
+                }
+              } else {
+                freq_grp_vec[grp_no].grp_size += ti_link->tail_len;
+                freq_grp_vec[grp_no].grp_size++;
+                freq_grp_vec[grp_no].count++;
+                freq_grp_vec[grp_no].freq_count += ti_link->freq_count;
+                freq_grp_vec[grp_no].count++;
+                freq_grp_vec[grp_no].freq_count += ti->freq_count;
+                ti->grp_no = ti_link->grp_no = grp_no;
+              }
               continue;
+            } else {
+                ti->link_fwd_idx = 0xFFFFFFFF;
+            }
           }
           if (cur_limit < part1) {
-            printf("%u\t%u\t%u\t[%.*s]\t0\t[%.*s]\n", s_no, grp_tails_count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos,
+            printf("%u\t%u\t%u\t[%.*s]\t0\t[%.*s]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos,
                     ti->link_fwd_idx == 0xFFFFFFFF ? 1 : uniq_tails_fwd[ti->link_fwd_idx]->tail_len,
                     ti->link_fwd_idx == 0xFFFFFFFF ? "-" : (const char *) uniq_tails.data() + uniq_tails_fwd[ti->link_fwd_idx]->tail_pos);
           }
-          if ((grp_tails_len + ti->tail_len + 1) > cur_limit) {
-            std::cout << log2(cur_limit) << "\t" << cur_limit << "\t" << grp_tails_count << "\t" << tails_freq_count << "\t" << grp_tails_len << std::endl;
-            cur_limit = (cur_limit == part1 ? part2 : part3);
-            total_tails_len += grp_tails_len;
-            grp_tails_len = 0;
-            grp_tails_count = 0;
-            tails_freq_count = 0;
+          if ((freq_grp_vec[grp_no].grp_size + ti->tail_len + 1) > cur_limit) {
+            cur_limit = pow(2, log2(cur_limit) + 4);
+            total_tails_len += freq_grp_vec[grp_no].grp_size;
             grp_no++;
+            freq_grp_vec.push_back((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
           }
-          grp_tails_len += ti->tail_len;
-          grp_tails_len++;
-          grp_tails_count++;
-          tails_freq_count += ti->freq_count;
+          freq_grp_vec[grp_no].grp_size += ti->tail_len;
+          freq_grp_vec[grp_no].grp_size++;
+          freq_grp_vec[grp_no].freq_count += ti->freq_count;
+          freq_grp_vec[grp_no].count++;
           ti->grp_no = grp_no;
-          if (ti->tail_len > 2 && cur_limit < part1) {
+          if (ti->tail_len > 2 && grp_no <= suffix_grp_limit) {
             uint8_t *val = uniq_tails.data() + ti->tail_pos;
             for (int j = ti->rev_pos - 1; j > 0; j--) {
               uniq_tails_info *ti_rev = uniq_tails_rev[j];
@@ -441,16 +459,17 @@ class builder : public builder_abstract {
                 if ((cmp - 1) == ti_rev->tail_len) {
                   if (ti_rev->link_fwd_idx == 0xFFFFFFFF || ti_rev->grp_no == 0) {
                     if (cur_limit < part1) {
-                      printf("%u\t%u*\t%u\t[%.*s]\t0\t[%.*s]\t%s\n", s_no, grp_tails_count, ti_rev->freq_count, ti_rev->tail_len, uniq_tails.data() + ti_rev->tail_pos,
+                      printf("%u\t%u*\t%u\t[%.*s]\t0\t[%.*s]\t%s\n", s_no, freq_grp_vec[grp_no].count,
+                              ti_rev->freq_count, ti_rev->tail_len, uniq_tails.data() + ti_rev->tail_pos,
                               ti->tail_len, val, (ti_rev->freq_count > ti->freq_count ? "**" : ""));
                     }
-                    grp_tails_count++;
-                    tails_freq_count += ti_rev->freq_count;
+                    freq_grp_vec[grp_no].freq_count += ti_rev->freq_count;
+                    freq_grp_vec[grp_no].count++;
                     if (ti_rev->link_fwd_idx == 0xFFFFFFFF && ti_rev->grp_no != 0) {
-                      grp_tails_len -= ti_rev->tail_len;
-                      grp_tails_len--;
-                      tails_freq_count -= ti_rev->freq_count;
-                      grp_tails_count--;
+                      freq_grp_vec[grp_no].grp_size -= ti_rev->tail_len;
+                      freq_grp_vec[grp_no].grp_size--;
+                      freq_grp_vec[grp_no].freq_count -= ti_rev->freq_count;
+                      freq_grp_vec[grp_no].count--;
                     }
                     ti_rev->link_fwd_idx = ti->fwd_pos;
                     ti_rev->grp_no = ti->grp_no;
@@ -467,11 +486,14 @@ class builder : public builder_abstract {
           }
         } else {
           if (cur_limit < part1)
-            printf("%u*\t%u*\t%u\t[%.*s]\t0\t[1]\n", s_no, grp_tails_count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos);
+            printf("%u*\t%u*\t%u\t[%.*s]\t0\t[1]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos);
         }
         ti->tail_ptr = 0;
       }
-      std::cout << log2(cur_limit) << "\t" << cur_limit << "\t" << grp_tails_count << "\t" << tails_freq_count << "\t" << grp_tails_len << std::endl;
+      for (int g = 0; g < freq_grp_vec.size(); g++) {
+        freq_grp fg = freq_grp_vec[g];
+        std::cout << (int) fg.grp_log2 << "\t" << fg.grp_limit << "\t" << fg.count << "\t" << fg.freq_count << "\t" << fg.grp_size << std::endl;
+      }
       // 1. build freq sort map - done
       // 2. assign rev sort idx - done
       // 3. Go through uniq_tails_freq desc, assign initial
@@ -552,8 +574,10 @@ class builder : public builder_abstract {
           tails.push_back(0);
         } else {
           uniq_tails_info *ti_link = uniq_tail_vec[ti->link_fwd_idx];
-          if (ti_link->grp_no != grp_no)
-            printf("WARN: mismatch grp %u, [%.*s], [%.*s]\n", grp_no, ti->tail_len, uniq_tails.data() + ti->tail_pos, ti_link->tail_len, uniq_tails.data() + ti_link->tail_pos);
+          if (ti_link->grp_no != grp_no) {
+            printf("WARN: mismatch grp %u:[%.*s], %u:[%.*s]\n", grp_no, ti->tail_len, uniq_tails.data() + ti->tail_pos, 
+                ti_link->grp_no, ti_link->tail_len, uniq_tails.data() + ti_link->tail_pos);
+          }
           if (ti_link->tail_ptr == 0) {
             ti_link->tail_ptr = tails.size();
             ptr = tails.size() + ti_link->tail_len - ti->tail_len;
