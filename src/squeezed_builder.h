@@ -342,9 +342,6 @@ class builder : public builder_abstract {
       return total_ptrs;
     }
 
-    const static uint32_t part1 = 128;
-    const static uint32_t part2 = 4096;
-    const static uint32_t part3 = (1 << 31);
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev) {
       uint32_t total_ptrs = make_uniq_tails(uniq_tails, uniq_tails_fwd);
@@ -390,7 +387,7 @@ class builder : public builder_abstract {
       t = print_time_taken(t, "Time taken for uniq_tails freq: ");
       uint32_t s_no = 0;
       uint32_t grp_no = 1;
-      uint32_t cur_limit = part1;
+      uint32_t cur_limit = 128;
       uint32_t total_tails_len = 0;
       std::vector<freq_grp> freq_grp_vec;
       freq_grp_vec.push_back((freq_grp) {0, 0, 0, 0, 0, 0});
@@ -415,6 +412,12 @@ class builder : public builder_abstract {
                     printf("WARNING: Unexpected linked parent grp: %u, %u\n", link_grp_no, grp_no);
                 }
               } else {
+                if ((freq_grp_vec[grp_no].grp_size + ti_link->tail_len + 1) >= cur_limit) {
+                  cur_limit = pow(2, log2(cur_limit) + 2);
+                  total_tails_len += freq_grp_vec[grp_no].grp_size;
+                  grp_no++;
+                  freq_grp_vec.push_back((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
+                }
                 freq_grp_vec[grp_no].grp_size += ti_link->tail_len;
                 freq_grp_vec[grp_no].grp_size++;
                 freq_grp_vec[grp_no].count++;
@@ -428,13 +431,13 @@ class builder : public builder_abstract {
                 ti->link_fwd_idx = 0xFFFFFFFF;
             }
           }
-          if (cur_limit < part1) {
+          if (cur_limit < 128) {
             printf("%u\t%u\t%u\t[%.*s]\t0\t[%.*s]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos,
                     ti->link_fwd_idx == 0xFFFFFFFF ? 1 : uniq_tails_fwd[ti->link_fwd_idx]->tail_len,
                     ti->link_fwd_idx == 0xFFFFFFFF ? "-" : (const char *) uniq_tails.data() + uniq_tails_fwd[ti->link_fwd_idx]->tail_pos);
           }
-          if ((freq_grp_vec[grp_no].grp_size + ti->tail_len + 1) > cur_limit) {
-            cur_limit = pow(2, log2(cur_limit) + 4);
+          if ((freq_grp_vec[grp_no].grp_size + ti->tail_len + 1) >= cur_limit) {
+            cur_limit = pow(2, log2(cur_limit) + 3);
             total_tails_len += freq_grp_vec[grp_no].grp_size;
             grp_no++;
             freq_grp_vec.push_back((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
@@ -458,7 +461,7 @@ class builder : public builder_abstract {
               else {
                 if ((cmp - 1) == ti_rev->tail_len) {
                   if (ti_rev->link_fwd_idx == 0xFFFFFFFF || ti_rev->grp_no == 0) {
-                    if (cur_limit < part1) {
+                    if (cur_limit < 128) {
                       printf("%u\t%u*\t%u\t[%.*s]\t0\t[%.*s]\t%s\n", s_no, freq_grp_vec[grp_no].count,
                               ti_rev->freq_count, ti_rev->tail_len, uniq_tails.data() + ti_rev->tail_pos,
                               ti->tail_len, val, (ti_rev->freq_count > ti->freq_count ? "**" : ""));
@@ -485,7 +488,7 @@ class builder : public builder_abstract {
             }
           }
         } else {
-          if (cur_limit < part1)
+          if (cur_limit < 128)
             printf("%u*\t%u*\t%u\t[%.*s]\t0\t[1]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos);
         }
         ti->tail_ptr = 0;
@@ -597,10 +600,10 @@ class builder : public builder_abstract {
       node_val |= (grp_no << 6);
       // if (grp_no == 2 || grp_no == 3)
       //   std::cout << "Ptr: " << ptr << " " << grp_no << std::endl;
-      if (grp_no == 1 && ptr > (part1 - 1))
-        std::cout << "ERROR: " << ptr << " > " << part1 << std::endl;
-      if (grp_no == 2 && ptr > (part2 - 1))
-        std::cout << "ERROR: " << ptr << " > " << part2 << std::endl;
+      // if (grp_no == 1 && ptr > (part1 - 1))
+      //   std::cout << "ERROR: " << ptr << " > " << part1 << std::endl;
+      // if (grp_no == 2 && ptr > (part2 - 1))
+      //   std::cout << "ERROR: " << ptr << " > " << part2 << std::endl;
       ptr >>= node_val_bits;
       //  std::cout << ceil(log2(ptr)) << " ";
       if (grp_no == 1) {
