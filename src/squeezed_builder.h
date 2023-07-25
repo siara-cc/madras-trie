@@ -398,7 +398,7 @@ class builder : public builder_abstract {
           freq_count = 1;
           prev_val = it->tail_data;
           prev_val_len = it->tail_len;
-          ti_ptr = new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, ++vec_pos, 0, freq_count);
+          ti_ptr = new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, ++vec_pos, (cmp > 3 ? cmp - 1 : 0), freq_count);
         }
         it++;
       }
@@ -411,7 +411,7 @@ class builder : public builder_abstract {
     }
 
     uint32_t check_next_grp(std::vector<freq_grp>& freq_grp_vec, uint32_t& grp_no, uint32_t cur_limit, uint32_t tail_len) {
-      if ((freq_grp_vec[grp_no].grp_size + tail_len + 1) >= cur_limit) {
+      if ((freq_grp_vec[grp_no].grp_size + tail_len + 1) >= (cur_limit - 1)) {
         cur_limit = pow(2, log2(cur_limit) + 3);
         grp_no++;
         freq_grp_vec.push_back((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
@@ -457,6 +457,42 @@ class builder : public builder_abstract {
       // fprintf(fp, "Savings: %u\n", savings);
       // fclose(fp);
       t = print_time_taken(t, "Time taken for uniq_tails rev: ");
+
+      uint32_t grp_len = 0;
+      uint32_t grp_max = 64;
+      uint32_t savings = 0;
+      uint32_t savings_count = 0;
+      i = uniq_tails_fwd.size() - 1;
+      do {
+        ti0 = uniq_tails_fwd[i--];
+      } while (ti0->link_fwd_idx != 0xFFFFFFFF);
+      prev_val = uniq_tails.data() + ti0->tail_pos;
+      prev_val_len = ti0->tail_len;
+      ti0->cmp_fwd = 0;
+      printf("i: %d, prev_val: [%.*s]\n", i, prev_val_len, prev_val);
+      while (i >= 0) {
+        uniq_tails_info *ti = uniq_tails_fwd[i];
+        if (ti->link_fwd_idx != 0xFFFFFFFF) {
+          i--;
+          continue;
+        }
+        int cmp = compare(prev_val, prev_val_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
+        if (cmp < 4 || grp_len == 0 || (grp_len + ti->tail_len - cmp + 4) > grp_max) {
+          grp_len = ti->tail_len + 1;
+          printf("\n\n[%.*s] ", ti->tail_len, uniq_tails.data() + ti->tail_pos);
+        } else {
+          grp_len += (ti->tail_len - cmp + 4);
+          savings += (cmp - 3);
+          savings_count++;
+          ti0->cmp_fwd = cmp;
+          printf("%d|%d[%.*s|%.*s] ", cmp - 1, ti->tail_len - cmp + 1, cmp - 1, uniq_tails.data() + ti->tail_pos, ti->tail_len - cmp + 1, uniq_tails.data() + ti->tail_pos + cmp - 1);
+        }
+        prev_val = uniq_tails.data() + ti->tail_pos;
+        prev_val_len = ti->tail_len;
+        i--;
+      }
+      printf("Savings: %u, %u\n", savings, savings_count);
+
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_fwd;
       std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         return lhs->freq_count > rhs->freq_count;
@@ -665,9 +701,10 @@ class builder : public builder_abstract {
       uniq_tails_info_vec uniq_tails_fwd, uniq_tails_rev;
       std::vector<freq_grp> freq_grp_vec;
       build_tail_maps(uniq_tails, uniq_tails_fwd, uniq_tails_rev, freq_grp_vec);
-      //std::vector<uint8_t> tails;
       uint32_t flag_counts[8];
+      uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
+      memset(char_counts, '\0', sizeof(uint32_t) * 8);
       uint32_t node_count = 0;
       uint8_t pending_byte = 0;
       vector<int> last_byte_bits;
@@ -704,6 +741,7 @@ class builder : public builder_abstract {
           if (cur_node->tail_len == 1) {
             node_val = cur_node->v0;
           } else {
+            char_counts[(cur_node->tail_len > 7) ? 7 : (cur_node->tail_len-2)]++;
             node_val = get_tail_ptr(cur_node, uniq_tails_fwd, uniq_tails, 
                          freq_grp_vec, grp_tails, grp_tail_ptrs,
                          last_byte_bits, huf_codes);
@@ -725,8 +763,10 @@ class builder : public builder_abstract {
         }
       }
       std::cout << std::endl;
-      for (int i = 0; i < 8; i++)
-        std::cout << "Flag " << i << ": " << flag_counts[i] << std::endl;
+      for (int i = 0; i < 8; i++) {
+        std::cout << "Flag " << i << ": " << flag_counts[i] << "\t";
+        std::cout << "Char " << i + 2 << ": " << char_counts[i] << std::endl;
+      }
       // for (int i = 0; i < 8; i++)
       //   std::cout << "Val lens " << i << ": " << val_len_counts[i] << std::endl;
       std::cout << "Trie size: " << trie.size() << std::endl;
