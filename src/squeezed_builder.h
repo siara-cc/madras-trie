@@ -25,8 +25,9 @@ struct uniq_tails_info {
     uint32_t tail_len;
     uint32_t fwd_pos;
     uint32_t rev_pos;
-    uint32_t cmp_rev_max;
     uint32_t cmp_rev;
+    uint32_t cmp_rev_max;
+    uint32_t cmp_rev_min;
     union {
       uint32_t freq_count;
     };
@@ -44,6 +45,7 @@ struct uniq_tails_info {
       link_fwd_idx1 = 0xFFFFFFFF;
       token_arr_pos = 0xFFFFFFFF;
       cmp_rev = cmp_rev_max = 0;
+      cmp_rev_min = 0xFFFFFFFF;
       tail_ptr = 0;
       grp_no = 0;
       flags = 0;
@@ -386,42 +388,10 @@ class builder : public builder_abstract {
     }
 
     const int nice_len = 4;
-    void process_tail_parts(vector<tail_part>& _tail_parts, byte_vec& uniq_tails) {
-      std::sort(_tail_parts.begin(), _tail_parts.end(), [uniq_tails](const struct tail_part& lhs, const struct tail_part& rhs) -> bool {
-        return compare(uniq_tails.data() + lhs.tail_pos, lhs.tail_len, uniq_tails.data() + rhs.tail_pos, rhs.tail_len) < 0;
-      });
-      std::cout << "Tail part size: " << _tail_parts.size();
-      FILE *fp = fopen("tail_parts.txt", "ab+");
-      vector<tail_part> new_tail_part;
-      uint32_t matched_lines = 0;
-      uint8_t *prev_part = uniq_tails.data() + _tail_parts[0].tail_pos;
-      uint32_t prev_part_len = _tail_parts[0].tail_len;
-      for (int i = 1; i < _tail_parts.size(); i++) {
-        tail_part tp = _tail_parts[i];
-        int cmp = compare(uniq_tails.data() + tp.tail_pos, tp.tail_len, prev_part, prev_part_len);
-        if (--cmp >= nice_len) {
-          matched_lines++;
-          fprintf(fp, "%u\t[%.*s]\t[%.*s]\n", cmp, cmp, uniq_tails.data() + tp.tail_pos, tp.tail_len, uniq_tails.data() + tp.tail_pos);
-          if (tp.tail_len - cmp > nice_len)
-            new_tail_part.push_back((tail_part) {tp.tail_pos + cmp, tp.tail_len - cmp, tp.fwd_pos});
-          i++;
-        } else {
-          if (tp.tail_len > nice_len)
-            new_tail_part.push_back((tail_part) {tp.tail_pos + 1, tp.tail_len - 1, tp.fwd_pos});
-        }
-        if (i < _tail_parts.size()) {
-          prev_part = uniq_tails.data() + _tail_parts[i].tail_pos;
-          prev_part_len = _tail_parts[i].tail_len;
-        }
-      }
-      fclose(fp);
-      std::cout << ", matched: " << matched_lines << std::endl;
-      if (new_tail_part.size() > 1)
-        process_tail_parts(new_tail_part, uniq_tails);
-    }
-
     void add_tail_tokens(byte_vec& uniq_tails, uniq_tails_info *ti, vector<tail_token>& tail_tokens) {
       uint32_t len = ti->tail_len - ti->cmp_rev_max;
+      if (len < 3)
+        return;
       uint8_t *tail_data = uniq_tails.data() + ti->tail_pos;
           // printf("\n[%.*s]", len, uniq_tails.data() + ti->tail_pos);
       uint32_t i, token_start = 0;
@@ -504,6 +474,10 @@ class builder : public builder_abstract {
       }
       return cur_limit;
     }
+// [ approach]
+//  ( {appro}#|ach) [ttach]
+// [approach]
+//  (#|approach) [ approach]
 
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev, std::vector<freq_grp>& freq_grp_vec) {
@@ -528,11 +502,13 @@ class builder : public builder_abstract {
         int cmp = compare_rev(prev_val, prev_val_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
         cmp = cmp ? cmp - 1 : 0;
         ti->rev_pos = i;
-        ti->cmp_rev = ti->cmp_rev_max = cmp;
         if (cmp == ti->tail_len) {
+          ti->cmp_rev = ti->cmp_rev_max = cmp;
           ti->link_fwd_idx = uniq_tails_rev[prev_val_idx]->fwd_pos;
           if (cmp > uniq_tails_rev[prev_val_idx]->cmp_rev_max)
             uniq_tails_rev[prev_val_idx]->cmp_rev_max = cmp;
+          if (cmp < uniq_tails_rev[prev_val_idx]->cmp_rev_min)
+            uniq_tails_rev[prev_val_idx]->cmp_rev_min = cmp;
           // fprintf(fp, "%d\t[%.*s]\t[%.*s]\n", cmp, ti->tail_len, uniq_tails.data() + ti->tail_pos,
           //                 prev_val_len, prev_val);
           // savings += ti->tail_len;
@@ -547,43 +523,7 @@ class builder : public builder_abstract {
       // fprintf(fp, "Savings: %u\n", savings);
       // fclose(fp);
 
-      // uint32_t grp_len = 0;
-      // uint32_t grp_max = 64;
-      // uint32_t savings = 0;
-      // uint32_t savings_count = 0;
-      // i = uniq_tails_fwd.size() - 1;
-      // do {
-      //   ti0 = uniq_tails_fwd[i--];
-      // } while (ti0->link_fwd_idx != 0xFFFFFFFF);
-      // prev_val = uniq_tails.data() + ti0->tail_pos;
-      // prev_val_len = ti0->tail_len;
-      // ti0->cmp_fwd = 0;
-      // //printf("i: %d, prev_val: [%.*s]\n", i, prev_val_len, prev_val);
-      // while (i >= 0) {
-      //   uniq_tails_info *ti = uniq_tails_fwd[i];
-      //   if (ti->link_fwd_idx != 0xFFFFFFFF) {
-      //     i--;
-      //     continue;
-      //   }
-      //   int cmp = compare(prev_val, prev_val_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
-      //   if (cmp < 4 || grp_len == 0 || (grp_len + ti->tail_len - cmp + 4) > grp_max) {
-      //     grp_len = ti->tail_len + 1;
-      //     //printf("\n\n[%.*s] ", ti->tail_len, uniq_tails.data() + ti->tail_pos);
-      //   } else {
-      //     grp_len += (ti->tail_len - cmp + 4);
-      //     savings += (cmp - 3);
-      //     savings_count++;
-      //     ti0->cmp_fwd = cmp;
-      //     //printf("%d|%d[%.*s|%.*s] ", cmp - 1, ti->tail_len - cmp + 1, cmp - 1, uniq_tails.data() + ti->tail_pos, ti->tail_len - cmp + 1, uniq_tails.data() + ti->tail_pos + cmp - 1);
-      //   }
-      //   prev_val = uniq_tails.data() + ti->tail_pos;
-      //   prev_val_len = ti->tail_len;
-      //   i--;
-      // }
-      // printf("Savings: %u, %u\n", savings, savings_count);
-
       FILE *fp = fopen("unattached_tails.txt", "w+");
-      vector<tail_part> _tail_parts;
       vector<tail_token> tail_tokens;
       uint32_t grp_len = 0;
       uint32_t grp_max = 64;
@@ -608,12 +548,18 @@ class builder : public builder_abstract {
         int cmp = compare_rev(prev_val, prev_val_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
         //std::cout << std::endl << cmp << std::endl;
         cmp--;
-        if (cmp < 2 || grp_len == 0 || (grp_len + ti->tail_len - cmp + 2) > grp_max || abs((long)ti->freq_count - prev_freq_count) > 1) {
+        if (ti->cmp_rev_min > 0 && cmp > ti->cmp_rev_min) {
+          cmp = ti->cmp_rev_min - 1;
+        }
+        uint8_t len_len = (cmp > 14 ? cmp / 64 + 1 : 1); // not very accurate
+        if (cmp < 2 || grp_len == 0 || (grp_len + ti->tail_len - cmp + len_len) > grp_max || abs((long)ti->freq_count - prev_freq_count) > 1) {
           grp_len = ti->tail_len + 1;
           // printf("\n\n[%.*s] %u  ", ti->tail_len, uniq_tails.data() + ti->tail_pos, ti->freq_count);
         } else {
-          grp_len += (ti->tail_len - cmp + 2);
-          savings += (cmp - 1);
+          grp_len += (ti->tail_len - cmp + len_len);
+          savings += cmp;
+          savings -= len_len;
+          savings++;
           savings_count++;
           ti->cmp_rev = ti->cmp_rev_max = cmp;
           ti->link_fwd_idx1 = uniq_tails_rev[prev_val_idx]->fwd_pos;
@@ -624,7 +570,6 @@ class builder : public builder_abstract {
         }
         fprintf(fp, "%.*s\n", uniq_tails_rev[prev_val_idx]->tail_len - uniq_tails_rev[prev_val_idx]->cmp_rev_max, prev_val);
         if (uniq_tails_rev[prev_val_idx]->tail_len > nice_len) {
-          _tail_parts.push_back((tail_part) {ti->tail_pos, ti->tail_len - ti->cmp_rev_max, ti->fwd_pos});
           add_tail_tokens(uniq_tails, uniq_tails_rev[prev_val_idx], tail_tokens);
         }
         prev_val = uniq_tails.data() + ti->tail_pos;
@@ -680,10 +625,10 @@ class builder : public builder_abstract {
           }
           if (j == token_end_pos)
             fprintf(fp, "}");
-          if (j == ti->tail_len - ti->cmp_rev)
-            fprintf(fp, "|");
           if (j == ti->tail_len - ti->cmp_rev_max)
             fprintf(fp, "#");
+          if (j == ti->tail_len - ti->cmp_rev)
+            fprintf(fp, "|");
           fprintf(fp, "%c", tail_start[j]);
         }
         token_end_pos = 0xFFFFFFFF;
@@ -699,43 +644,6 @@ class builder : public builder_abstract {
         fprintf(fp, "\n");
       }
       fclose(fp);
-
-      // fp = fopen("sorted_tokens.txt", "w+");
-      // uint32_t freq_count = 0;
-      // uint32_t apparent_savings = 0;
-      // uint32_t prev_cmp_max = tail_tokens[0].cmp_max;
-      // uint32_t prev_token_pos = tail_tokens[0].token_pos;
-      // for (int i = 0; i < tail_tokens.size(); i++) {
-      //   tail_token t = tail_tokens[i];
-      //   if (t.cmp_max == prev_cmp_max && memcmp(uniq_tails.data() + t.token_pos, uniq_tails.data() + prev_token_pos, t.cmp_max) == 0) {
-      //     freq_count++;
-      //     continue;
-      //   }
-      //   if (freq_count > 1 && prev_cmp_max > 4) {
-      //     if (prev_cmp_max > t.token_len)
-      //       prev_cmp_max = t.token_len;
-      //     fprintf(fp, "%u\t%u\t%u\t[%.*s|%.*s]\n", freq_count, prev_cmp_max, t.token_len, prev_cmp_max, uniq_tails.data() + t.token_pos, t.token_len - prev_cmp_max, uniq_tails.data() + t.token_pos + prev_cmp_max);
-      //     apparent_savings += (freq_count - 1) * (prev_cmp_max - 4);
-      //   }
-      //     // fprintf(fp, "%u\t%u\t[%.*s|%.*s]\n", t.cmp_max, t.token_len, t.cmp_max, uniq_tails.data() + t.token_pos, t.token_len - t.cmp_max, uniq_tails.data() + t.token_pos + t.cmp_max);
-      //   prev_cmp_max = t.cmp_max;
-      //   prev_token_pos = t.token_pos;
-      //   freq_count = 1;
-      // }
-      // fclose(fp);
-      // printf("Apparent savings: %u\n", apparent_savings);
-      // t = print_time_taken(t, "Time taken for process tokens: ");
-      // unlink("tail_parts.txt");
-      // process_tail_parts(_tail_parts, uniq_tails);
-      // t = print_time_taken(t, "Time taken for process tail parts: ");
-
-      // FILE *fp = fopen("uniq_tail_freq_len.txt", "w+");
-      // char buf[1000];
-      // for (int i = 0; i < uniq_tails_freq.size(); i++) {
-      //   uniq_tails_info *ti = uniq_tails_freq[i];
-      //   fprintf(fp, "%u\t%u\t[%.*s]\n", ti->freq_count, ti->tail_len, ti->tail_len, (char *) uniq_tails.data() + ti->tail_pos);
-      // }
-      // fclose(fp);
 
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_fwd;
       std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
@@ -1042,7 +950,8 @@ class builder : public builder_abstract {
 // 0 2-15/18-31 bytes 16 ptrs bytes 1
 
 // 0 0000 - terminator
-// 0 0001 to 0015 - length of suffix and terminator
+// 0 0001 to 0014 - length of suffix and terminator
+// 0 0015 - If length more than 14
 
 // 1 xxxx 001xxxxx - dictionary reference 512 bytes
 // 1 xxxx 1xxxxxxx 001xxxxx - dictionary reference 64kb
