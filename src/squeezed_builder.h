@@ -387,12 +387,15 @@ class builder : public builder_abstract {
       return clock();
     }
 
-    const int nice_len = 4;
+    const int nice_len = 3;
     void add_tail_tokens(byte_vec& uniq_tails, uniq_tails_info *ti, vector<tail_token>& tail_tokens) {
-      uint32_t len = ti->tail_len - ti->cmp_rev_max;
+      uint32_t len = ti->tail_len - max(ti->cmp_rev, ti->cmp_rev_max);
       if (len < 3)
         return;
       uint8_t *tail_data = uniq_tails.data() + ti->tail_pos;
+      if (memcmp(tail_data, " longer have", 12) == 0) {
+        printf("cmp_rev: %u, cmp_rev_max: %u, min: %u\n", ti->cmp_rev, ti->cmp_rev_max, ti->cmp_rev_min);
+      }
           // printf("\n[%.*s]", len, uniq_tails.data() + ti->tail_pos);
       uint32_t i, token_start = 0;
       for (i = 0; i < len; i++) {
@@ -561,7 +564,7 @@ class builder : public builder_abstract {
           savings -= len_len;
           savings++;
           savings_count++;
-          ti->cmp_rev = ti->cmp_rev_max = cmp;
+          ti->cmp_rev = cmp;
           ti->link_fwd_idx1 = uniq_tails_rev[prev_val_idx]->fwd_pos;
           if (cmp > uniq_tails_rev[prev_val_idx]->cmp_rev_max)
             uniq_tails_rev[prev_val_idx]->cmp_rev_max = cmp;
@@ -583,7 +586,7 @@ class builder : public builder_abstract {
       printf("No. of tokens generated: %lu\n", tail_tokens.size());
       t = print_time_taken(t, "Time taken for uniq_tails rev: ");
       fclose(fp);
-      std::sort(tail_tokens.begin(), tail_tokens.end(), [uniq_tails](struct tail_token& lhs, struct tail_token& rhs) -> bool {
+      std::sort(tail_tokens.begin(), tail_tokens.end(), [uniq_tails, uniq_tails_fwd](struct tail_token& lhs, struct tail_token& rhs) -> bool {
         int cmp = compare(uniq_tails.data() + lhs.token_pos, lhs.token_len, uniq_tails.data() + rhs.token_pos, rhs.token_len);
         uint32_t cmp_abs = cmp ? abs(cmp) - 1 : 0;
         if (cmp_abs > lhs.cmp_max)
