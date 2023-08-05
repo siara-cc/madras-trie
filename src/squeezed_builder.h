@@ -28,16 +28,9 @@ const uint8_t UTI_FLAG_SFXGRP_TIKTOK = 0x08;
 struct uniq_tails_info {
     uint32_t tail_pos;
     uint32_t tail_len;
-    uint32_t fwd_pos;
-    uint32_t cmp_fwd;
     uint32_t rev_pos;
-    uint32_t cmp_rev;
-    uint32_t cmp_rev_max;
-    uint32_t cmp_rev_min;
-    union {
-      uint32_t freq_count;
-    };
-      uint32_t tail_ptr;
+    uint32_t freq_count;
+    uint32_t tail_ptr;
     uint32_t link_rev_idx;
     uint32_t token_arr_pos;
     uint8_t grp_no;
@@ -48,9 +41,6 @@ struct uniq_tails_info {
       freq_count = _freq_count;
       link_rev_idx = 0xFFFFFFFF;
       token_arr_pos = 0xFFFFFFFF;
-      cmp_fwd = 0;
-      cmp_rev = cmp_rev_max = 0;
-      cmp_rev_min = 0xFFFFFFFF;
       tail_ptr = 0;
       grp_no = 0;
       flags = 0;
@@ -378,29 +368,6 @@ class builder : public builder_abstract {
       return clock();
     }
 
-    const int nice_len = 3;
-    void add_tail_tokens(byte_vec& uniq_tails, uint8_t *tail_data, uint32_t len, uint32_t offset, uniq_tails_info *ti, vector<tail_token>& tail_tokens) {
-          // printf("\n[%.*s]", len, uniq_tails.data() + ti->tail_pos);
-      uint32_t i, token_start = 0;
-      for (i = 0; i < len; i++) {
-        uint8_t c = tail_data[i];
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
-          token_start = token_start;
-        else {
-          if (i - token_start > 2) {
-            tail_tokens.push_back((tail_token) {ti->tail_pos + token_start + offset, len - token_start, ti->fwd_pos, 0});
-            // printf(" [%.*s]", i - token_start, uniq_tails.data() + ti->tail_pos + token_start);
-          }
-          token_start = i;
-          token_start++;
-        }
-      }
-      if (i - token_start > 2) {
-        tail_tokens.push_back((tail_token) {ti->tail_pos + token_start + offset, len - token_start, ti->fwd_pos, 0});
-            // printf(" [%.*s]", i - token_start, uniq_tails.data() + ti->tail_pos + token_start);
-      }
-    }
-
     uint32_t make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev, uniq_tails_info_vec& uniq_tails_freq) {
       clock_t t = clock();
       uint32_t total_ptrs = 0;
@@ -482,66 +449,6 @@ class builder : public builder_abstract {
       }
       len -= 14;
       return get_var_len(len, vec);
-    }
-
-    uint32_t get_sfx_set(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev, uniq_tails_info *ti_link, std::vector<freq_grp>& freq_grp_vec) {
-      return set_sfx_set(uniq_tails, uniq_tails_rev, ti_link, freq_grp_vec);
-    }
-
-    uint32_t set_sfx_set(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev, uniq_tails_info *ti_link, std::vector<freq_grp>& freq_grp_vec,
-              uint32_t grp_no = 0, byte_vec *tail_vec = NULL) {
-      if (ti_link->grp_no != 0 && grp_no != 0)
-        return 0;
-      uint8_t tiktok_flag = ti_link->flags & UTI_FLAG_SFXGRP_TIKTOK;
-      uint32_t rev_pos = ti_link->rev_pos;
-      while (rev_pos > 0 && (uniq_tails_rev[rev_pos]->flags & UTI_FLAG_SFXGRP_TIKTOK) == tiktok_flag)
-        rev_pos--;
-      if ((uniq_tails_rev[rev_pos]->flags & UTI_FLAG_SFXGRP_TIKTOK) != tiktok_flag)
-        rev_pos++;
-      uniq_tails_info *ti = uniq_tails_rev[rev_pos++];
-      uint32_t sfx_set_len = ti->tail_len + 1;
-      if (tail_vec != NULL) {
-        ti->tail_ptr = tail_vec->size();
-        for (int i = 0; i < ti->tail_len; i++)
-          tail_vec->push_back(uniq_tails[ti->tail_pos + i]);
-        tail_vec->push_back(0);
-      }
-      if (grp_no != 0) {
-        if (ti->grp_no != 0 && grp_no != ti->grp_no)
-          std::cout << "Unexpected partial grp link mismatch" << std::endl;
-        ti->grp_no = grp_no;
-        freq_grp_vec[grp_no].grp_size += ti->tail_len;
-        freq_grp_vec[grp_no].grp_size++;
-        freq_grp_vec[grp_no].count++;
-        freq_grp_vec[grp_no].freq_count += ti->freq_count;
-      }
-      while (rev_pos < uniq_tails_rev.size() &&
-              (uniq_tails_rev[rev_pos]->flags & UTI_FLAG_SFXGRP_TIKTOK) == tiktok_flag) {
-        ti = uniq_tails_rev[rev_pos];
-        uint32_t sfx_len = ti->tail_len;
-        if (ti->flags & UTI_FLAG_SUFFIX_FULL)
-          sfx_len = 0;
-        if (ti->flags & UTI_FLAG_SUFFIX_PARTIAL) {
-          uint32_t sfx_len = (ti->tail_len - ti->cmp_rev);
-          if (tail_vec != NULL) {
-            ti->tail_ptr = tail_vec->size();
-            for (int i = 0; i < sfx_len; i++)
-              tail_vec->push_back(uniq_tails[ti->tail_pos + i]);
-          }
-          sfx_len += get_len_len(ti->cmp_rev, tail_vec);
-          sfx_set_len += sfx_len;
-        }
-        if (grp_no != 0 && ti->flags & (UTI_FLAG_HAS_SUFFIX | UTI_FLAG_SUFFIXES)) {
-          if (ti->grp_no != 0 && grp_no != ti->grp_no)
-            std::cout << "Unexpected partial grp link mismatch" << std::endl;
-          ti->grp_no = grp_no;
-          freq_grp_vec[grp_no].grp_size += sfx_len;
-          freq_grp_vec[grp_no].count++;
-          freq_grp_vec[grp_no].freq_count += ti->freq_count;
-        }
-        rev_pos++;
-      }
-      return sfx_set_len;
     }
 
     uint32_t check_next_grp(std::vector<freq_grp>& freq_grp_vec, uint32_t& grp_no, uint32_t cur_limit, uint32_t len) {
@@ -694,14 +601,14 @@ class builder : public builder_abstract {
             savings_full += cmp;
             savings_full++;
             savings_count++;
-            update_current_grp(freq_grp_vec, grp_no, 0, prev_ti->freq_count);
+            update_current_grp(freq_grp_vec, grp_no, 0, ti->freq_count);
             ti->flags |= UTI_FLAG_SUFFIX_FULL;
             prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
             ti->tail_ptr = prev_ti->tail_ptr + prev_ti->tail_len - cmp;
             ti->link_rev_idx = prev_ti->rev_pos;
           } else {
             uint32_t remain_len = ti->tail_len - cmp;
-            uint32_t len_len = get_len_len(remain_len);
+            uint32_t len_len = get_len_len(cmp);
             remain_len += len_len;
             uint32_t new_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, remain_len);
             if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
@@ -715,7 +622,7 @@ class builder : public builder_abstract {
               prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
               remain_len -= len_len;
               ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no, remain_len);
-              get_len_len(remain_len, &grp_tails[grp_no - 1]);
+              get_len_len(cmp, &grp_tails[grp_no - 1]);
             } else {
               sfx_set_len = ti->tail_len + 1;
               update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
