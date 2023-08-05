@@ -553,7 +553,7 @@ class builder : public builder_abstract {
       return cur_limit;
     }
 
-    void update_current_grp(std::vector<freq_grp>& freq_grp_vec, uint32_t grp_no, uint32_t len, uint32_t freq) {
+    void update_current_grp(std::vector<freq_grp>& freq_grp_vec, uint32_t grp_no, int32_t len, int32_t freq) {
       freq_grp_vec[grp_no].grp_size += len;
       freq_grp_vec[grp_no].freq_count += freq;
       freq_grp_vec[grp_no].count += (len < 0 ? -1 : 1);
@@ -580,11 +580,19 @@ class builder : public builder_abstract {
         s_no++;
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
         freq_pos++;
-        if (ti->grp_no != 0)
+        if (ti->grp_no != 0) {
+          if (cur_limit < 128)
+            printf("%u*\t%u*\t%u\t[%.*s]\t0\t[1]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos);
           continue;
+        }
         cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, ti->tail_len + 1);
         if (grp_no > suffix_grp_limit)
           break;
+        if (cur_limit < 128) {
+          printf("%u\t%u\t%u\t[%.*s]\t0\t[%.*s]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos,
+                  ti->link_rev_idx == 0xFFFFFFFF ? 1 : uniq_tails_rev[ti->link_rev_idx]->tail_len,
+                  ti->link_rev_idx == 0xFFFFFFFF ? "-" : (const char *) uniq_tails.data() + uniq_tails_rev[ti->link_rev_idx]->tail_pos);
+        }
         update_current_grp(freq_grp_vec, grp_no, ti->tail_len + 1, ti->freq_count);
         ti->grp_no = grp_no;
         if (ti->tail_len > 2) {
@@ -659,6 +667,10 @@ class builder : public builder_abstract {
       t = print_time_taken(t, "Time taken for uniq_tails rev cmp: ");
       printf("\nSuffix Savings: %u, %u\n", savings, savings_count);
 
+      uint32_t sfx_set_len = 0;
+      uint32_t sfx_set_max = 64;
+      // grp_len = ti0->tail_len + 1;
+      //   uint8_t len_len = (cmp > 14 ? cmp / 64 + 1 : 1); // not very accurate
       freq_pos--;
       while (freq_pos < uniq_tails_freq.size()) {
         s_no++;
@@ -686,18 +698,9 @@ class builder : public builder_abstract {
         ti->tail_ptr = 0;
       }
 
-      // uint32_t grp_len = 0;
-      // uint32_t grp_max = 64;
-      // grp_len = ti0->tail_len + 1;
-      //   uint8_t len_len = (cmp > 14 ? cmp / 64 + 1 : 1); // not very accurate
-
       vector<uint32_t> freqs;
       for (int i = 1; i < freq_grp_vec.size(); i++)
         freqs.push_back(freq_grp_vec[i].freq_count);
-      for (int i = 1; i < freq_grp_vec.size(); i++) {
-        freq_grp& fg = freq_grp_vec[i];
-        printf("%d\t%u\t%u\t%u\t%u\t%2x\t%d\n", (int) fg.grp_log2, fg.grp_limit, fg.count, fg.freq_count, fg.grp_size, fg.code, fg.code_len);
-      }
       huffman<uint32_t> _huffman(freqs);
       for (int i = 1; i < freq_grp_vec.size(); i++) {
         freq_grp& fg = freq_grp_vec[i];
