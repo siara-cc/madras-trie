@@ -37,7 +37,6 @@ struct uniq_tails_info {
     uint32_t tail_len;
     uint32_t rev_pos;
     uint32_t cmp_rev;
-    uint32_t cmp_rev_min;
     uint32_t freq_count;
     uint32_t tail_ptr;
     uint32_t link_rev_idx;
@@ -48,7 +47,6 @@ struct uniq_tails_info {
       tail_pos = _tail_pos; tail_len = _tail_len;
       rev_pos = _rev_pos;
       cmp_rev = 0;
-      cmp_rev_min = 0xFFFFFFFF;
       freq_count = _freq_count;
       link_rev_idx = 0xFFFFFFFF;
       token_arr_pos = 0xFFFFFFFF;
@@ -588,51 +586,14 @@ class builder : public builder_abstract {
             ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, ti->grp_no);
         }
       }
-      t = print_time_taken(t, "Time taken for suffix_grp_limit: ");
-
-      int32_t rev_pos = uniq_tails_rev.size() - 1;
-      uniq_tails_info *ti0 = uniq_tails_rev[rev_pos];
-      uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
-      uint32_t prev_val_len = ti0->tail_len;
-      uint32_t prev_val_idx = rev_pos;
-      while (--rev_pos >= 0) {
-        s_no++;
-        uniq_tails_info *ti = uniq_tails_rev[rev_pos];
-        if (ti->grp_no != 0)
-          continue;
-        int cmp = compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
-        cmp = cmp ? abs(cmp) - 1 : 0;
-        uniq_tails_info *prev_ti = uniq_tails_rev[prev_val_idx];
-        if (cmp == ti->tail_len) {
-          ti->flags |= UTI_FLAG_SUFFIX_FULL;
-          ti->link_rev_idx = prev_ti->rev_pos;
-          ti->cmp_rev = cmp;
-          prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
-          if (prev_ti->freq_count < ti->freq_count)
-            prev_ti->freq_count = ti->freq_count;
-          if (prev_ti->cmp_rev_min > cmp)
-            prev_ti->cmp_rev_min = cmp;
-        } else {
-          prev_val = uniq_tails.data() + ti->tail_pos;
-          prev_val_len = ti->tail_len;
-          prev_val_idx = rev_pos;
-        }
-      }
-      t = print_time_taken(t, "Time taken for suffix full: ");
 
       freq_pos--;
-      std::sort(uniq_tails_freq.begin() + freq_pos, uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        uint32_t lhs_freq = lhs->freq_count / 10;
-        uint32_t rhs_freq = rhs->freq_count / 10;
-        return (lhs_freq == rhs_freq) ? lhs->rev_pos > rhs->rev_pos : (lhs_freq > rhs_freq);
-      });
-
       uint32_t sfx_set_len = 0;
       uint32_t sfx_set_max = 64;
-      ti0 = uniq_tails_freq[freq_pos];
-      prev_val = uniq_tails.data() + ti0->tail_pos;
-      prev_val_len = ti0->tail_len;
-      prev_val_idx = freq_pos;
+      uniq_tails_info *ti0 = uniq_tails_freq[freq_pos];
+      uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
+      uint32_t prev_val_len = ti0->tail_len;
+      uint32_t prev_val_idx = freq_pos;
       uint32_t savings_full = 0;
       uint32_t savings_partial = 0;
       uint32_t savings_count = 0;
@@ -642,65 +603,52 @@ class builder : public builder_abstract {
         freq_pos++;
         if (ti->grp_no != 0)
           continue;
-        int cmp = 0;
-        if (ti->flags & UTI_FLAG_HAS_SUFFIX) {
+        int cmp = compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
+        cmp = cmp ? abs(cmp) - 1 : 0;
+        uniq_tails_info *prev_ti = uniq_tails_freq[prev_val_idx];
+        if (cmp > 1) {
+          if (cmp == ti->tail_len && cmp > prev_ti->cmp_rev) {
+            savings_full += cmp;
+            savings_full++;
+            savings_count++;
+            update_current_grp(freq_grp_vec, grp_no, 0, ti->freq_count);
+            ti->flags |= UTI_FLAG_SUFFIX_FULL;
+            prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
+            ti->tail_ptr = prev_ti->tail_ptr + prev_ti->tail_len - cmp;
+            ti->link_rev_idx = prev_ti->rev_pos;
+          } else {
+            uint32_t remain_len = ti->tail_len - cmp;
+            uint32_t len_len = get_len_len(cmp);
+            remain_len += len_len;
+            uint32_t new_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, remain_len);
+            if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
+              sfx_set_len += remain_len;
+              savings_partial += cmp;
+              savings_partial -= len_len;
+              savings_count++;
+              update_current_grp(freq_grp_vec, grp_no, remain_len, ti->freq_count);
+              ti->link_rev_idx = prev_ti->rev_pos;
+              ti->flags |= UTI_FLAG_SUFFIX_PARTIAL;
+              ti->cmp_rev = cmp;
+              prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
+              remain_len -= len_len;
+              ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no, remain_len);
+              get_len_len(cmp, &grp_tails[grp_no - 1]);
+            } else {
+              sfx_set_len = ti->tail_len + 1;
+              update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
+              ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no);
+            }
+            cur_limit = new_limit;
+          }
+        } else {
           sfx_set_len = ti->tail_len + 1;
           cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, sfx_set_len);
           update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
           ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no);
-        } else
-        if (ti->flags & UTI_FLAG_SUFFIX_FULL) {
-          cmp = ti->tail_len;
-          update_current_grp(freq_grp_vec, grp_no, 0, ti->freq_count);
-          uniq_tails_info *link_ti = uniq_tails_rev[ti->link_rev_idx];
-          if (link_ti->tail_ptr == 0 | link_ti->grp_no != grp_no)
-            std::cout << "Unexpected: link_ti->tail_ptr = 0: " << std::endl;
-          ti->tail_ptr = link_ti->tail_ptr + link_ti->tail_len - ti->tail_len; // + link_ti->cmp_rev;
-          savings_full += cmp;
-          savings_full++;
-          savings_count++;
-        } else {
-            sfx_set_len = ti->tail_len + 1;
-            cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, sfx_set_len);
-            update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
-            ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no);
-          // cmp = compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
-          // cmp = cmp ? abs(cmp) - 1 : 0;
-          // if (cmp > 1) {
-          //   uniq_tails_info *prev_ti = uniq_tails_freq[prev_val_idx];
-          //   if (cmp >= prev_ti->cmp_rev_min)
-          //     cmp = prev_ti->cmp_rev_min - 1;
-          //   uint32_t remain_len = ti->tail_len - cmp;
-          //   uint32_t len_len = get_len_len(cmp);
-          //   remain_len += len_len;
-          //   uint32_t new_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, remain_len);
-          //   if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
-          //     sfx_set_len += remain_len;
-          //     savings_partial += cmp;
-          //     savings_partial -= len_len;
-          //     savings_count++;
-          //     update_current_grp(freq_grp_vec, grp_no, remain_len, ti->freq_count);
-          //     ti->link_rev_idx = prev_ti->rev_pos;
-          //     ti->flags |= UTI_FLAG_SUFFIX_PARTIAL;
-          //     prev_ti->flags |= UTI_FLAG_HAS_SUFFIX;
-          //     remain_len -= len_len;
-          //     ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no, remain_len);
-          //     get_len_len(cmp, &grp_tails[grp_no - 1]);
-          //   } else {
-          //     sfx_set_len = ti->tail_len + 1;
-          //     update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
-          //     ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no);
-          //   }
-          //   cur_limit = new_limit;
-          // } else {
-          //   sfx_set_len = ti->tail_len + 1;
-          //   cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, sfx_set_len);
-          //   update_current_grp(freq_grp_vec, grp_no, sfx_set_len, ti->freq_count);
-          //   ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, grp_no);
-          // }
         }
         ti->grp_no = grp_no;
-        if (cmp != ti->tail_len) {
+        if (cmp != ti->tail_len || cmp <= prev_ti->cmp_rev) {
           prev_val = uniq_tails.data() + ti->tail_pos;
           prev_val_len = ti->tail_len;
           prev_val_idx = freq_pos - 1;
@@ -914,9 +862,11 @@ class builder : public builder_abstract {
           byt = tail[++ptr];
         }
         uint32_t prev_sfx_len = read_len(tail, ptr, len_len);
-        last_str.append(prev_str.substr(prev_sfx_len));
+        last_str.append(prev_str.substr(prev_str.length()-prev_sfx_len));
         ptr += len_len;
+        ptr--;
         prev_str = last_str;
+        last_str.clear();
       }
       ret.append(prev_str.substr(prev_str.length()-sfx_len));
       return ret;
@@ -926,7 +876,7 @@ class builder : public builder_abstract {
       int key_pos = 0;
       uint8_t key_char = key[key_pos];
       node *cur_node = first_node;
-      if (key == std::string("a 20 bomb"))
+      if (key == std::string("a 7th round"))
         key_pos = 0;
       vector<node *> ret;
       ret.push_back(cur_node);

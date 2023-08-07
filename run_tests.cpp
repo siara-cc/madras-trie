@@ -31,6 +31,28 @@ int main(int argc, char *argv[]) {
 
   sb.build();
 
+  vector<squeezed::node *> ret_val;
+  infile.open(argv[1], ios::in);
+  line_count = 0;
+  if (infile.is_open()) {
+    string line;
+    string prev_line = "";
+    while (getline(infile, line)) {
+      if (line == prev_line)
+         continue;
+      int ret = sb.lookup(line.data(), ret_val);
+      if (ret != 0)
+        std::cout << ret << ": " << line << std::endl;
+      prev_line = line;
+      line_count++;
+      if ((line_count % 100000) == 0) {
+        cout << ".";
+        cout.flush();
+      }
+    }
+  }
+  infile.close();
+
   return 0;
 
 }
