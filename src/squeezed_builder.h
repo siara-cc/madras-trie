@@ -711,26 +711,26 @@ class builder : public builder_abstract {
         int len;
         fg.code = (uint8_t) _huffman.get_code(i - 1, len);
         fg.code_len = len;
-        fg.grp_log2 = ceil(log2(fg.grp_size) - 8 + len);
+        fg.grp_log2 = ceil(log2(fg.grp_size)) - 8 + len;
         printf("%d\t%u\t%u\t%u\t%u\t%2x\t%d\n", (int) fg.grp_log2, fg.grp_limit, fg.count, fg.freq_count, fg.grp_size, fg.code, fg.code_len);
       }
     }
 
     int append_bits(byte_vec& ptr_str, int last_byte_bits, int bits_to_append, int ptr) {
       int last_idx = ptr_str.size() - 1;
-      int remaining_bits = 8 - last_byte_bits;
       while (bits_to_append > 0) {
-        remaining_bits = (bits_to_append > remaining_bits ? remaining_bits : bits_to_append);
-        bits_to_append -= remaining_bits;
-        ptr_str[last_idx] |= (ptr >> bits_to_append);
-        ptr &= ((1 << bits_to_append) - 1);
-        remaining_bits = bits_to_append > 8 ? 8 : bits_to_append;
-        if (bits_to_append) {
+        if (bits_to_append < last_byte_bits) {
+          last_byte_bits -= bits_to_append;
+          ptr_str[last_idx] |= (ptr << last_byte_bits);
+          bits_to_append = 0;
+        } else {
+          bits_to_append -= last_byte_bits;
+          ptr_str[last_idx] |= (ptr >> bits_to_append);
+          last_byte_bits = 8;
           ptr_str.push_back(0);
           last_idx++;
         }
       }
-      last_byte_bits = 8 - remaining_bits;
       return last_byte_bits;
     }
 
@@ -749,7 +749,7 @@ class builder : public builder_abstract {
       uint8_t huf_code = _freq_grp.code;
       uint8_t huf_code_len = _freq_grp.code_len;
       int node_val_bits = 8 - huf_code_len;
-      node_val = huf_code | ((ptr & 0xFF) << huf_code_len);
+      node_val = (huf_code << node_val_bits) | (ptr & ((1 << node_val_bits) - 1));
       // if (grp_no == 2 || grp_no == 3)
       //   std::cout << "Ptr: " << ptr << " " << grp_no << std::endl;
       // if (grp_no == 1 && ptr > (part1 - 1))
@@ -758,7 +758,7 @@ class builder : public builder_abstract {
       //   std::cout << "ERROR: " << ptr << " > " << part2 << std::endl;
       ptr >>= node_val_bits;
       //  std::cout << ceil(log2(ptr)) << " ";
-      last_byte_bits = append_bits(tail_ptrs, last_byte_bits, ceil(log2(_freq_grp.grp_size)) - node_val_bits, ptr);
+      last_byte_bits = append_bits(tail_ptrs, last_byte_bits, _freq_grp.grp_log2, ptr);
       return node_val;
     }
 
@@ -776,10 +776,8 @@ class builder : public builder_abstract {
       uint8_t pending_byte = 0;
       int last_byte_bits;
       //trie.reserve(node_count + (node_count >> 1));
-      for (int i = 1; i < freq_grp_vec.size(); i++) {
-        tail_ptrs.push_back(0);
-        last_byte_bits = 0;
-      }
+      tail_ptrs.push_back(0);
+      last_byte_bits = 8;
       uint32_t ptr_count = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *> cur_lvl_nodes = level_nodes[i];
@@ -811,9 +809,9 @@ class builder : public builder_abstract {
           //fwrite(&flags, 1, 1, fout);
           //fwrite(&node_val, 1, 1, fout);
         }
-        if ((node_count % 2) == 1) {
-          trie.push_back(pending_byte);
-        }
+      }
+      if ((node_count % 2) == 1) {
+        trie.push_back(pending_byte);
       }
       std::cout << std::endl;
       for (int i = 0; i < 8; i++) {
@@ -926,15 +924,21 @@ class builder : public builder_abstract {
       fputc(grp_count, fp);
       for (int i = 0; i < 256; i++) {
         uint8_t code_i = i;
+        bool code_found = false;
         for (int j = 1; j < freq_grp_vec.size(); j++) {
           uint8_t code_len = freq_grp_vec[j].code_len;
-          uint8_t code = freq_grp_vec[j].code << (8 - code_len);
-          uint8_t code_end = code | ((1 << (8 - code_len)) - 1);
-          if (code_i >= code && code_i <= code_end) {
+          uint8_t code = freq_grp_vec[j].code;
+          if ((code_i >> (8 - code_len)) == code) {
             fputc((j - 1) | (code_len << 5), fp);
             fputc(freq_grp_vec[j].grp_log2, fp);
+            code_found = true;
             break;
           }
+        }
+        if (!code_found) {
+          printf("Code not found: %d", i);
+          fputc(0, fp);
+          fputc(0, fp);
         }
       }
       uint32_t total_tail_size = 0;
@@ -1081,6 +1085,10 @@ class builder : public builder_abstract {
       j = 0;
       level_node = level_nodes[i];
       return level_node[j++];
+    }
+
+    uniq_tails_info *get_ti(node *n) {
+      return uniq_tails_rev[n->rev_node_info_pos];
     }
 
     uint32_t get_ptr(node *cur_node) {

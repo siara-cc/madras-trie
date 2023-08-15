@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iostream>
 
+#include "squeezed.h"
 #include "squeezed_builder.h"
 
 using namespace std;
@@ -18,7 +19,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  squeezed::builder sb;
+  squeezed::builder sb(argv[1]);
   vector<string> lines;
 
   clock_t t = clock();
@@ -43,24 +44,27 @@ int main(int argc, char *argv[]) {
   }
   infile.close();
 
-  sb.build();
+  std::string out_file = sb.build();
   t = print_time_taken(t, "Time taken for build: ");
 
-  line_count = 0;
-  vector<squeezed::node *> ret_val;
-  for (int i = 0; i < lines.size(); i++) {
-    std::string line = lines[i];
-    int ret = sb.lookup(line, ret_val);
-    if (ret != 0)
-      std::cout << ret << ": " << line << std::endl;
-    line_count++;
-    if ((line_count % 100000) == 0) {
-      cout << ".";
-      cout.flush();
-    }
-  }
-  printf("Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
-  t = print_time_taken(t, "Time taken for retrieve: ");
+  squeezed::static_dict dict_reader(out_file, &sb);
+  dict_reader.dump_tail_ptrs();
+
+  // line_count = 0;
+  // vector<squeezed::node *> ret_val;
+  // for (int i = 0; i < lines.size(); i++) {
+  //   std::string line = lines[i];
+  //   int ret = sb.lookup(line, ret_val);
+  //   if (ret != 0)
+  //     std::cout << ret << ": " << line << std::endl;
+  //   line_count++;
+  //   if ((line_count % 100000) == 0) {
+  //     cout << ".";
+  //     cout.flush();
+  //   }
+  // }
+  // printf("Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
+  // t = print_time_taken(t, "Time taken for retrieve: ");
 
   return 0;
 
