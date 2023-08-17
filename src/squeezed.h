@@ -171,14 +171,15 @@ class static_dict {
       return ret;
     }
 
-    uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
+    uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no, bool str = false) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       grp_no = *lookup_tbl_ptr & 0x1F;
       uint8_t code_len = *lookup_tbl_ptr++ >> 5;
       uint8_t bit_len = *lookup_tbl_ptr;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
-      ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits  );
+      ptr_bit_count -= (str ? bit_len : 0);
+      ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits);
       return ptr;
     }
 
@@ -193,7 +194,7 @@ class static_dict {
 
     std::string get_tail_str(uint8_t node_byte, uint8_t flags, uint32_t node_id, uint32_t ptr_bit_count) {
       uint8_t grp_no;
-      uint32_t tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
+      uint32_t tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no, true);
       uint32_t ptr = tail_ptr;
       uint8_t *tail = grp_tails[grp_no];
       std::string ret;
@@ -288,7 +289,9 @@ class static_dict {
         node_id++;
         if (flags & TRIE_FLAGS_CHILD)
           child_count++;
-        if (key_byte < trie_byte) {
+        if (flags & TRIE_FLAGS_TERM)
+          term_count++;
+        if (key_byte > trie_byte) {
           if (flags & TRIE_FLAGS_TERM)
             return ~INSERT_AFTER;
           continue;
@@ -297,8 +300,9 @@ class static_dict {
           int cmp;
           uint32_t tail_len = 1;
           if (flags & TRIE_FLAGS_PTR) {
-            std::string tail_str = get_tail_str(node_byte, flags, node_id, ptr_bit_count);
-            cmp = compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
+            std::string tail_str = get_tail_str(node_byte, flags, node_id - 1, ptr_bit_count);
+            tail_len = tail_str.length();
+            cmp = compare((const uint8_t *) tail_str.c_str(), tail_len,
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
             // printf("%d\t%d\t%.*s =========== ", cmp, tail_len, tail_len, tail_data);
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
