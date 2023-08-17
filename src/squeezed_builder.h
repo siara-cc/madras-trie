@@ -280,9 +280,11 @@ class builder : public builder_abstract {
 
     ~builder() {
       for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *> cur_lvl_nodes = level_nodes[i];
-        for (int j = 0; j < cur_lvl_nodes.size(); j++)
-          delete cur_lvl_nodes[j];
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
+          node *n = cur_lvl_nodes[j];
+          free(n);
+        }
       }
       // for (int i = 0; i < uniq_tails_fwd.size(); i++) {
       //   delete uniq_tails_fwd[i];
@@ -395,7 +397,7 @@ class builder : public builder_abstract {
       clock_t t = clock();
       std::vector<tails_sort_data> nodes_for_sort;
       for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *n = cur_lvl_nodes[j];
           if (n->tail_len > 1) {
@@ -780,7 +782,7 @@ class builder : public builder_abstract {
       last_byte_bits = 8;
       uint32_t ptr_count = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
           cur_node->node_id = node_count;
@@ -883,16 +885,16 @@ class builder : public builder_abstract {
 
     void write_bit_vectors(FILE *fp) {
       uint32_t node_id = 0;
-      uint32_t term0_count = 0;
+      uint32_t term1_count = 0;
       uint32_t child_count = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          term0_count += (cur_node->next_sibling == NULL ? 1 : 0);
+          term1_count += (cur_node->next_sibling == NULL ? 1 : 0);
           child_count += (cur_node->first_child == NULL ? 0 : 1);
           if (node_id && (node_id % nodes_per_block) == 0) {
-            write_uint32(term0_count, fp);
+            write_uint32(term1_count, fp);
             write_uint32(child_count, fp);
           }
           node_id++;
@@ -905,7 +907,7 @@ class builder : public builder_abstract {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
       for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *> cur_lvl_nodes = level_nodes[i];
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
           if (node_id && (node_id % nodes_per_block) == 0)
@@ -1078,7 +1080,7 @@ class builder : public builder_abstract {
     }
 
     node *get_node(uint32_t& i, uint32_t& j) {
-      vector<node *> level_node = level_nodes[i];
+      vector<node *>& level_node = level_nodes[i];
       if (j < level_node.size())
         return level_node[j++];
       i++;
