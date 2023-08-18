@@ -45,26 +45,26 @@ int main(int argc, char *argv[]) {
   infile.close();
 
   std::string out_file = sb.build();
+  printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
 
   squeezed::static_dict dict_reader(out_file, &sb);
   //dict_reader.dump_tail_ptrs();
 
   line_count = 0;
-  vector<squeezed::node *> ret_val;
   for (int i = 0; i < lines.size(); i++) {
     std::string line = lines[i];
     int ret = dict_reader.lookup(line);
-    // ret = sb.lookup(line, ret_val);
+    // int ret = sb.lookup(line);
     if (ret != 0)
       std::cout << ret << ": " << line << std::endl;
     line_count++;
-    if ((line_count % 1000) == 0) {
+    if ((line_count % 100000) == 0) {
       cout << ".";
       cout.flush();
     }
   }
-  printf("Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
+  printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for retrieve: ");
 
   return 0;

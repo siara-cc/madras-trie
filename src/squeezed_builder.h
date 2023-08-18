@@ -853,7 +853,7 @@ class builder : public builder_abstract {
       uint32_t cache_loc = grp_tails_loc + grp_tails_size;
       uint32_t ptr_lookup_tbl_loc = cache_loc + cache_size;
       uint32_t bit_vectors_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      uint32_t tail_ptrs_loc = bit_vectors_loc + ptr_lookup_tbl * 2;
+      uint32_t tail_ptrs_loc = bit_vectors_loc + ptr_lookup_tbl * 2 + 8;
       uint32_t trie_loc = tail_ptrs_loc + tail_ptrs.size();
       printf("%u,%u,%u,%u,%u,%u\n", node_count, cache_loc, ptr_lookup_tbl_loc, bit_vectors_loc, tail_ptrs_loc, trie_loc);
       write_uint32(node_count, fp);
@@ -884,19 +884,22 @@ class builder : public builder_abstract {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
       uint32_t child_count = 0;
+      write_uint32(0, fp);
+      write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          term1_count += (cur_node->next_sibling == NULL ? 1 : 0);
-          child_count += (cur_node->first_child == NULL ? 0 : 1);
           if (node_id && (node_id % nodes_per_block) == 0) {
             write_uint32(term1_count, fp);
             write_uint32(child_count, fp);
           }
+          term1_count += (cur_node->next_sibling == NULL ? 1 : 0);
+          child_count += (cur_node->first_child == NULL ? 0 : 1);
           node_id++;
         }
       }
+      printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
     }
 
     const int nodes_per_block = 42;
@@ -1029,17 +1032,14 @@ class builder : public builder_abstract {
       return ret;
     }
 
-    int lookup(std::string key, vector<node *>& nodes) {
+    int lookup(std::string key) {
       int key_pos = 0;
       uint8_t key_char = key[key_pos];
       node *cur_node = first_node;
-      vector<node *> ret;
-      ret.push_back(cur_node);
       uint8_t trie_char = get_first_char(cur_node);
       do {
         while (key_char > trie_char) {
           cur_node = cur_node->next_sibling;
-          ret[ret.size()-1] = cur_node;
           if (cur_node == NULL)
             return ~INSERT_AFTER;
           trie_char = get_first_char(cur_node);
@@ -1062,7 +1062,6 @@ class builder : public builder_abstract {
           if (cmp == 0 || abs(cmp) - 1 == cur_node->tail_len) {
             key_pos += cur_node->tail_len;
             cur_node = cur_node->first_child;
-            ret.push_back(cur_node);
             if (key_pos >= key.size())
               return ~INSERT_THREAD;
             key_char = key[key_pos];

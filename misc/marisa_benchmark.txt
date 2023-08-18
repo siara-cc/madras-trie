@@ -1,0 +1,38 @@
+arun@Arundales-MacBook-Air squeezed-trie % ../marisa-trie/tools/marisa-benchmark ../marisa-siara/tools/word_freq_sorted.txt
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Descending weight order
+Cache level: Normal cache
+Number of keys: 1099292
+Total length: 14554342
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1    3770152  1323.73  3443.44  2961.94  3120.77  1955.60
+     2    3443544  1301.91  2749.68  2390.97  2530.18  1382.91
+     3    3434848  1263.61  2730.87  2380.84  2521.86  1334.54
+     4    3434208  1293.89  2710.47  2382.46  2497.28  1362.54
+     5    3434320  1311.41  2696.93  2374.84  2455.09  1343.18
+------+----------+--------+--------+--------+--------+--------
+arun@Arundales-MacBook-Air squeezed-trie % ../marisa-trie/tools/marisa-benchmark ~/Downloads/enwiki-latest-all-titles-in-ns0
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Descending weight order
+Cache level: Normal cache
+Number of keys: 17257203
+Total length: 357461978
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1  121815912   887.67  2551.68  2166.36  2117.38  1055.14
+     2   94398792   749.75  1410.03  1304.57  1269.88   408.21
+     3   90213864   729.84  1279.92  1220.75  1161.80   364.77
+     4   89050176   722.17  1243.85  1192.22  1137.54   352.64
+     5   88642240   722.06  1225.61  1170.20  1120.89   344.31
+------+----------+--------+--------+--------+--------+--------
+arun@Arundales-MacBook-Air squeezed-trie % 
+

@@ -1,0 +1,46 @@
+arun@Arundales-MacBook-Air squeezed-trie % time ./run_tests ../marisa-siara/tools/word_freq_sorted.txt 
+..........
+Time taken for adding to nodes_for_sort: 0.039952
+Time taken to sort: 0.229094
+Time taken for uniq_tails_rev: 0.049778
+Time taken for uniq_tails freq: 0.002488
+Time taken for uniq_tails fwd sort: 0.014792
+Suffix savings: 113617, 63648, 40625
+1	128	58	313689	122	 0	2
+4	1024	423	288535	1019	 1	2
+7	8192	2951	202330	8186	 2	2
+11	65536	23666	103123	65534	 6	3
+11	524288	20078	42082	55221	 7	3
+
+Flag 0: 0	Char 2: 281258
+Flag 1: 151889	Char 3: 262877
+Flag 2: 269018	Char 4: 179036
+Flag 3: 79053	Char 5: 99768
+Flag 4: 0	Char 6: 56967
+Flag 5: 707403	Char 7: 32238
+Flag 6: 83938	Char 8: 0
+Flag 7: 158418	Char 9: 37615
+Tail0 size: 123
+Tail1 size: 1020
+Tail2 size: 8187
+Tail3 size: 65535
+Tail4 size: 55222
+Total pointer count: 949759
+Node count: 1449719
+Trie size: 2174579
+Total tail size: 130087
+Tail ptr size: 560175
+Pointer lookup table: 138068
+Bit vectors (trie, leaf): 142362
+Cache size: 34272
+Total size: 3179543
+Node struct size: 40
+1449719,130646,164918,302986,579130,1139305
+Term1_count: 590428, Child count: 590427
+
+Build Keys per sec: 858.721192
+Time taken for build: 1.27723
+..........
+Keys per sec: 753.147146
+Time taken for retrieve: 1.45626
+

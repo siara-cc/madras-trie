@@ -241,10 +241,8 @@ class static_dict {
     }
 
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
-      uint32_t middle;
-      int res;
+      uint32_t middle = (first + size) >> 4;
       while (first < size) {
-        middle = (first + size) >> 1;
         uint32_t term_at = read_uint32(bit_vectors_loc + middle * 8);
         if (term_at < term_count)
           first = middle + 1;
@@ -252,6 +250,7 @@ class static_dict {
           size = middle;
         else
           return middle;
+        middle = (first + size) >> 1;
       }
       return size;
     }
@@ -259,18 +258,15 @@ class static_dict {
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
       uint32_t first_term_count = read_uint32(bit_vectors_loc);
-      uint32_t child_block = target_term_count <= first_term_count ? 0 : bin_srch_bv_term(0, node_count / 42, target_term_count) + 1;
-      while (child_block > 1 && read_uint32(bit_vectors_loc + (child_block - 1) * 8) >= target_term_count)
+      uint32_t child_block = bin_srch_bv_term(node_id / 42, node_count / 42, target_term_count);
+      child_block++;
+      do {
         child_block--;
-      if (child_block > 0)
-        child_block--;
-      term_count = child_block == 0 ? 0 : read_uint32(bit_vectors_loc + child_block * 8);
-      child_count = child_block == 0 ? 0 : read_uint32(bit_vectors_loc + child_block * 8 + 4);
-      node_id = child_block * 42;
-      t = trie_loc + child_block * 63;
-      if (term_count == target_term_count)
-        return t;
-      uint8_t flags;
+        term_count  = read_uint32(bit_vectors_loc + child_block * 8);
+        child_count = read_uint32(bit_vectors_loc + child_block * 8 + 4);
+        node_id = child_block * 42;
+        t = trie_loc + child_block * 63;
+      } while (term_count >= target_term_count);
       while (term_count < target_term_count) {
         uint8_t flags;
         if (node_id % 2) {
