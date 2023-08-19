@@ -830,7 +830,7 @@ class builder : public builder_abstract {
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
       uint32_t ptr_lookup_tbl = ceil(node_count/42) * 4;
-      uint32_t bit_vectors = ceil(node_count/336) * 11 * 3;
+      uint32_t bit_vectors = (ceil(node_count/336) + 1) * 11 * 2;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
       std::cout << "Bit vectors (trie, leaf): " << bit_vectors << std::endl;
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
@@ -838,7 +838,7 @@ class builder : public builder_abstract {
       uint32_t total_size = trie.size()
           + ptr_lookup_tbl + bit_vectors
           + cache_size
-          + total_tails // tails
+          + total_tails + 512 + 1 + grp_tails.size() * 4 // tails
           + tail_ptrs.size();  // tail pointers
       std::cout << "Total size: " << total_size << std::endl;
       std::cout << "Node struct size: " << sizeof(node) << std::endl;
@@ -853,7 +853,7 @@ class builder : public builder_abstract {
       uint32_t cache_loc = grp_tails_loc + grp_tails_size;
       uint32_t ptr_lookup_tbl_loc = cache_loc + cache_size;
       uint32_t bit_vectors_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      uint32_t tail_ptrs_loc = bit_vectors_loc + ptr_lookup_tbl * 2 + 8;
+      uint32_t tail_ptrs_loc = bit_vectors_loc + bit_vectors;
       uint32_t trie_loc = tail_ptrs_loc + tail_ptrs.size();
       printf("%u,%u,%u,%u,%u,%u\n", node_count, cache_loc, ptr_lookup_tbl_loc, bit_vectors_loc, tail_ptrs_loc, trie_loc);
       write_uint32(node_count, fp);
@@ -880,29 +880,61 @@ class builder : public builder_abstract {
         fputc((input >> (8 * i)) & 0xFF, fp);
     }
 
+    const int nodes_per_bv_block7 = 42;
+    void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
+                    uint32_t& term1_count7, uint32_t& child_count7,
+                    uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {
+      if (node_id && (node_id % nodes_per_bv_block) == 0) {
+        fwrite(term1_buf7, 7, 1, fp);
+        fwrite(child_buf7, 7, 1, fp);
+        write_uint32(term1_count, fp);
+        write_uint32(child_count, fp);
+        term1_count7 = 0;
+        child_count7 = 0;
+        memset(term1_buf7, 0, 7);
+        memset(child_buf7, 0, 7);
+        pos7 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
+        term1_buf7[pos7] = term1_count7;
+        child_buf7[pos7] = child_count7;
+        term1_count7 = 0;
+        child_count7 = 0;
+        pos7++;
+      }
+    }
+
+    const int nodes_per_bv_block = 336;
     void write_bit_vectors(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
       uint32_t child_count = 0;
+      uint32_t term1_count7 = 0;
+      uint32_t child_count7 = 0;
+      uint8_t term1_buf7[7];
+      uint8_t child_buf7[7];
+      uint8_t pos7 = 0;
+      memset(term1_buf7, 0, 7);
+      memset(child_buf7, 0, 7);
       write_uint32(0, fp);
       write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          if (node_id && (node_id % nodes_per_block) == 0) {
-            write_uint32(term1_count, fp);
-            write_uint32(child_count, fp);
-          }
+          write_bv7(node_id, term1_count, child_count, term1_count7, child_count7, term1_buf7, child_buf7, pos7, fp);
           term1_count += (cur_node->next_sibling == NULL ? 1 : 0);
           child_count += (cur_node->first_child == NULL ? 0 : 1);
+          term1_count7 += (cur_node->next_sibling == NULL ? 1 : 0);
+          child_count7 += (cur_node->first_child == NULL ? 0 : 1);
           node_id++;
         }
       }
+      fwrite(term1_buf7, 7, 1, fp);
+      fwrite(child_buf7, 7, 1, fp);
       printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
     }
 
-    const int nodes_per_block = 42;
+    const int nodes_per_ptr_block = 42;
     void write_ptr_lookup_tbl(std::vector<freq_grp>& freq_grp_vec, uniq_tails_info_vec& uniq_tails_rev, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
@@ -910,7 +942,7 @@ class builder : public builder_abstract {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          if (node_id && (node_id % nodes_per_block) == 0)
+          if (node_id && (node_id % nodes_per_ptr_block) == 0)
             write_uint32(bit_count, fp);
           if (cur_node->tail_len > 1) {
             uniq_tails_info *ti = uniq_tails_rev[cur_node->rev_node_info_pos];

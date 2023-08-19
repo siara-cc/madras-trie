@@ -243,7 +243,7 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
       uint32_t middle = (first + size) >> 4;
       while (first < size) {
-        uint32_t term_at = read_uint32(bit_vectors_loc + middle * 8);
+        uint32_t term_at = read_uint32(bit_vectors_loc + middle * 22);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
@@ -255,18 +255,31 @@ class static_dict {
       return size;
     }
 
+    const int nodes_per_bv_block = 336;
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
       uint32_t first_term_count = read_uint32(bit_vectors_loc);
-      uint32_t child_block = bin_srch_bv_term(node_id / 42, node_count / 42, target_term_count);
+      uint32_t child_block = bin_srch_bv_term(node_id / nodes_per_bv_block, node_count / nodes_per_bv_block, target_term_count);
       child_block++;
       do {
         child_block--;
-        term_count  = read_uint32(bit_vectors_loc + child_block * 8);
-        child_count = read_uint32(bit_vectors_loc + child_block * 8 + 4);
-        node_id = child_block * 42;
-        t = trie_loc + child_block * 63;
+        term_count = read_uint32(bit_vectors_loc + child_block * 22);
+        child_count = read_uint32(bit_vectors_loc + child_block * 22 + 4);
+        node_id = child_block * nodes_per_bv_block;
+        t = trie_loc + child_block * 8 * 63;
       } while (term_count >= target_term_count);
+      uint8_t *bv7_term = bit_vectors_loc + child_block * 22 + 8;
+      uint8_t *bv7_child = bit_vectors_loc + child_block * 22 + 15;
+      for (int pos7 = 0; pos7 < 7 && node_id + 42 < node_count; pos7++) {
+        uint8_t term7 = bv7_term[pos7];
+        if (term_count + term7 < target_term_count) {
+          term_count += term7;
+          child_count += bv7_child[pos7];
+          node_id += 42;
+          t += 63;
+        } else
+          break;
+      }
       while (term_count < target_term_count) {
         uint8_t flags;
         if (node_id % 2) {
@@ -349,8 +362,8 @@ class static_dict {
           return ~INSERT_THREAD;
         }
         return ~INSERT_BEFORE;
-      } while (1);
-      return 0;
+      }
+      return ~INSERT_EMPTY;
     }
 
     uint8_t make_flags(node *cur_node) {

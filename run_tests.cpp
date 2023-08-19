@@ -54,6 +54,10 @@ int main(int argc, char *argv[]) {
   line_count = 0;
   for (int i = 0; i < lines.size(); i++) {
     std::string line = lines[i];
+    // if (line.compare("don't think there's anything wrong") == 0)
+    //   std::cout << line << std::endl;;
+    // if (line.compare("understand that there is a") == 0)
+    //   std::cout << line << std::endl;;
     int ret = dict_reader.lookup(line);
     // int ret = sb.lookup(line);
     if (ret != 0)
