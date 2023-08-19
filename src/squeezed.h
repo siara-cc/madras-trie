@@ -33,7 +33,9 @@ class static_dict {
     uint8_t *grp_tails_loc;
     uint8_t *cache_loc;
     uint8_t *ptr_lookup_tbl_loc;
-    uint8_t *bit_vectors_loc;
+    uint8_t *trie_bv_loc;
+    uint8_t *leaf_bv_loc;
+    uint8_t *select_lkup_loc;
     uint8_t *tail_ptrs_loc;
     uint8_t *trie_loc;
 
@@ -88,19 +90,24 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 6 * 4; // 26
+      grp_tails_loc = dict_buf + 2 + 8 * 4; // 34
       node_count = read_uint32(dict_buf + 2);
       cache_loc = dict_buf + read_uint32(dict_buf + 6);
       ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 10);
-      bit_vectors_loc =  dict_buf + read_uint32(dict_buf + 14);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 18);
-      trie_loc = dict_buf + read_uint32(dict_buf + 22);
+      trie_bv_loc =  dict_buf + read_uint32(dict_buf + 14);
+      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 22);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 26);
+      trie_loc = dict_buf + read_uint32(dict_buf + 30);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
       uint8_t *grp_tails_idx_start = code_lookup_tbl + 512;
       for (int i = 0; i < grp_count; i++)
         grp_tails.push_back(dict_buf + read_uint32(grp_tails_idx_start + i * 4));
+
+      printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
+                leaf_bv_loc-dict_buf, select_lkup_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
 
     }
 
@@ -243,7 +250,7 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
       uint32_t middle = (first + size) >> 4;
       while (first < size) {
-        uint32_t term_at = read_uint32(bit_vectors_loc + middle * 22);
+        uint32_t term_at = read_uint32(trie_bv_loc + middle * 22);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
@@ -258,18 +265,18 @@ class static_dict {
     const int nodes_per_bv_block = 336;
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
-      uint32_t first_term_count = read_uint32(bit_vectors_loc);
+      uint32_t first_term_count = read_uint32(trie_bv_loc);
       uint32_t child_block = bin_srch_bv_term(node_id / nodes_per_bv_block, node_count / nodes_per_bv_block, target_term_count);
       child_block++;
       do {
         child_block--;
-        term_count = read_uint32(bit_vectors_loc + child_block * 22);
-        child_count = read_uint32(bit_vectors_loc + child_block * 22 + 4);
+        term_count = read_uint32(trie_bv_loc + child_block * 22);
+        child_count = read_uint32(trie_bv_loc + child_block * 22 + 4);
         node_id = child_block * nodes_per_bv_block;
         t = trie_loc + child_block * 8 * 63;
       } while (term_count >= target_term_count);
-      uint8_t *bv7_term = bit_vectors_loc + child_block * 22 + 8;
-      uint8_t *bv7_child = bit_vectors_loc + child_block * 22 + 15;
+      uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
+      uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
       for (int pos7 = 0; pos7 < 7 && node_id + 42 < node_count; pos7++) {
         uint8_t term7 = bv7_term[pos7];
         if (term_count + term7 < target_term_count) {
@@ -378,7 +385,6 @@ class static_dict {
       uint8_t flags, node_byte, grp_no;
       uint8_t *t = trie_loc;
       uint32_t i = 0, j = 0;
-      printf("%u,%u,%u,%u,%u,%u\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, bit_vectors_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
       for (; node_id < node_count; node_id++) {
         node *cur_node = sb->get_node(i, j);
         if (node_id % 2) {
