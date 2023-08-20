@@ -889,6 +889,7 @@ class builder : public builder_abstract {
     }
 
     static void write_uint32(uint32_t input, FILE *fp) {
+      // fwrite(&input, 4, 1, fp);
       int i = 4;
       while (i--)
         fputc((input >> (8 * i)) & 0xFF, fp);
@@ -1023,9 +1024,7 @@ class builder : public builder_abstract {
       }
     }
 
-    void write_grp_tails(std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, uint32_t offset, FILE* fp) {
-      uint8_t grp_count = grp_tails.size();
-      fputc(grp_count, fp);
+    void write_code_lookup_tbl(std::vector<freq_grp>& freq_grp_vec, FILE* fp) {
       for (int i = 0; i < 256; i++) {
         uint8_t code_i = i;
         bool code_found = false;
@@ -1045,6 +1044,12 @@ class builder : public builder_abstract {
           fputc(0, fp);
         }
       }
+    }
+
+    void write_grp_tails(std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, uint32_t offset, FILE* fp) {
+      uint8_t grp_count = grp_tails.size();
+      fputc(grp_count, fp);
+      write_code_lookup_tbl(freq_grp_vec, fp);
       uint32_t total_tail_size = 0;
       for (int i = 0; i < grp_count; i++) {
         write_uint32(offset + grp_count * 4 + total_tail_size, fp);
