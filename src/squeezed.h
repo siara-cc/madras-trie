@@ -36,6 +36,7 @@ class static_dict {
     uint8_t *trie_bv_loc;
     uint8_t *leaf_bv_loc;
     uint8_t *select_lkup_loc;
+    uint8_t *select_lkup_loc_end;
     uint8_t *tail_ptrs_loc;
     uint8_t *trie_loc;
 
@@ -98,6 +99,7 @@ class static_dict {
       leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
       select_lkup_loc =  dict_buf + read_uint32(dict_buf + 22);
       tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 26);
+      select_lkup_loc_end = tail_ptrs_loc;
       trie_loc = dict_buf + read_uint32(dict_buf + 30);
 
       grp_count = *grp_tails_loc;
@@ -262,11 +264,25 @@ class static_dict {
       return size;
     }
 
+    const int term_divisor = 336;
     const int nodes_per_bv_block = 336;
+    const int nodes_per_bv_block7 = 42;
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
-      uint32_t first_term_count = read_uint32(trie_bv_loc);
-      uint32_t child_block = bin_srch_bv_term(node_id / nodes_per_bv_block, node_count / nodes_per_bv_block, target_term_count);
+      uint32_t child_block;
+      uint32_t select_id = target_term_count / term_divisor;
+      uint32_t node_id_block = node_id / nodes_per_bv_block;
+      if ((target_term_count % term_divisor) == 0) {
+        child_block = read_uint32(select_lkup_loc + select_id * 4);
+      } else {
+        // child_block = node_id_block;
+        // uint32_t end_block = node_count / nodes_per_bv_block;
+        child_block = read_uint32(select_lkup_loc + select_id * 4);
+        uint8_t *end_block_loc = select_lkup_loc + (select_id + 1) * 4;
+        uint32_t end_block = end_block_loc < select_lkup_loc_end ? read_uint32(end_block_loc) : node_count / nodes_per_bv_block;
+        //printf("%u,%u\t%u,%u\n", node_id_block, node_count / nodes_per_bv_block, child_block, end_block);
+        child_block = bin_srch_bv_term(child_block, end_block, target_term_count);
+      }
       child_block++;
       do {
         child_block--;
@@ -287,23 +303,18 @@ class static_dict {
         } else
           break;
       }
+      uint32_t start_node_id = node_id;
+      t += (term_count < target_term_count ? 1 : 0);
       while (term_count < target_term_count) {
-        uint8_t flags;
-        if (node_id % 2) {
-          flags = (*t++ & 0x0F);
-          t++;
-        } else {
-          t++;
-          flags = (*t >> 4);
-        }
+        uint8_t flags = (*t >> (node_id % 2 ? 0 : 4)) & 0x0F;
+        t += (node_id % 2 ? 3 : 0);
         node_id++;
-        if (flags & TRIE_FLAGS_CHILD)
-          child_count++;
-        if (flags & TRIE_FLAGS_TERM)
-          term_count++;
-        if (term_count == target_term_count)
-          break;
+        child_count += (flags & TRIE_FLAGS_CHILD ? 1 : 0);
+        term_count += (flags & TRIE_FLAGS_TERM ? 1 : 0);
       }
+      t -= (node_id % 2 ? 0 : 1);
+      if (node_id - start_node_id > 42)
+        printf("Nodes > 42: %u, %d\n", node_id, node_id - start_node_id);
       return t;
     }
 

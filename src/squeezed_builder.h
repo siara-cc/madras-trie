@@ -772,7 +772,7 @@ class builder : public builder_abstract {
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
       memset(char_counts, '\0', sizeof(uint32_t) * 8);
       uint32_t node_count = 0;
-      uint32_t child_count = 0;
+      uint32_t term_count = 0;
       uint8_t pending_byte = 0;
       int last_byte_bits;
       //trie.reserve(node_count + (node_count >> 1));
@@ -787,8 +787,8 @@ class builder : public builder_abstract {
           uint8_t flags = (cur_node->is_leaf ? 1 : 0) +
             (cur_node->first_child != NULL ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
             (cur_node->next_sibling == NULL ? 8 : 0);
-          if (cur_node->first_child != NULL)
-            child_count++;
+          if (cur_node->next_sibling == NULL)
+            term_count++;
           flag_counts[flags & 0x07]++;
           uint8_t node_val;
           if (cur_node->tail_len == 1) {
@@ -830,13 +830,13 @@ class builder : public builder_abstract {
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Node count: " << node_count << std::endl;
       std::cout << "Trie size: " << trie.size() << std::endl;
-      std::cout << "Child count: " << child_count << std::endl;
+      std::cout << "Term count: " << term_count << std::endl;
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
       uint32_t ptr_lookup_tbl = ceil(node_count/42) * 4;
-      uint32_t trie_bv = (ceil(node_count/336) + 1) * 11 * 2;
-      uint32_t leaf_bv = ceil(node_count/336) * 11;
-      uint32_t select_lookup = ceil(child_count/512) * 4;
+      uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
+      uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
+      uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
       std::cout << "Trie bit vectors: " << trie_bv << std::endl;
       std::cout << "Leaf bit vectors: " << leaf_bv << std::endl;
@@ -879,7 +879,7 @@ class builder : public builder_abstract {
       write_ptr_lookup_tbl(freq_grp_vec, uniq_tails_rev, fp);
       write_trie_bv(fp);
       write_leaf_bv(fp);
-      write_select_lkup(fp, child_count);
+      write_select_lkup(fp);
       fwrite(tail_ptrs.data(), tail_ptrs.size(), 1, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
       fclose(fp);
@@ -969,7 +969,7 @@ class builder : public builder_abstract {
       uint8_t leaf_buf7[7];
       uint8_t pos7 = 0;
       memset(leaf_buf7, 0, 7);
-      // write_uint32(0, fp);
+      write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
@@ -980,11 +980,28 @@ class builder : public builder_abstract {
           node_id++;
         }
       }
-      // fwrite(leaf_buf7, 7, 1, fp);
+      fwrite(leaf_buf7, 7, 1, fp);
     }
 
-    void write_select_lkup(FILE *fp, uint32_t child_count) {
-      fwrite(sort_tails.data(), ceil(child_count / 512) * 4, 1, fp);
+    const int term_divisor = 336;
+    void write_select_lkup(FILE *fp) {
+      uint32_t node_id = 0;
+      uint32_t term_count = 0;
+      write_uint32(0, fp);
+      for (int i = 0; i < level_nodes.size(); i++) {
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
+          node *cur_node = cur_lvl_nodes[j];
+          if (cur_node->next_sibling == NULL) {
+            if (term_count && (term_count % term_divisor) == 0) {
+              write_uint32(node_id / nodes_per_bv_block, fp);
+              //printf("%u\t%u\n", term_count, node_id / nodes_per_bv_block);
+            }
+            term_count++;
+          }
+          node_id++;
+        }
+      }
     }
 
     const int nodes_per_ptr_block = 42;
