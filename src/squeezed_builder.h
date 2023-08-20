@@ -833,7 +833,7 @@ class builder : public builder_abstract {
       std::cout << "Term count: " << term_count << std::endl;
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
-      uint32_t ptr_lookup_tbl = ceil(node_count/42) * 4;
+      uint32_t ptr_lookup_tbl = (ceil(node_count/42) + 1) * 4;
       uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
       uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
       uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
@@ -1012,7 +1012,7 @@ class builder : public builder_abstract {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          if (node_id && (node_id % nodes_per_ptr_block) == 0)
+          if ((node_id % nodes_per_ptr_block) == 0)
             write_uint32(bit_count, fp);
           if (cur_node->tail_len > 1) {
             uniq_tails_info *ti = uniq_tails_rev[cur_node->rev_node_info_pos];

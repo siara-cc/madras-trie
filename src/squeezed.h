@@ -146,7 +146,7 @@ class static_dict {
     uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, int8_t bit_len) {
       if (ptr_bit_count == 0xFFFFFFFF) {
         uint32_t block_count = node_id / 42;
-        ptr_bit_count = block_count ? read_uint32(ptr_lookup_tbl_loc + (block_count - 1) * 4) : 0;
+        ptr_bit_count = read_uint32(ptr_lookup_tbl_loc + block_count * 4);
         uint8_t *t = trie_loc + block_count * 63;
         int upto_node_id = node_id % 42;
         uint8_t flags, node_byte;
@@ -278,11 +278,11 @@ class static_dict {
       } else {
         // child_block = node_id_block;
         // uint32_t end_block = node_count / nodes_per_bv_block;
-        child_block = read_uint32(select_lkup_loc + select_id * 4);
+        uint32_t start_block = read_uint32(select_lkup_loc + select_id * 4);
         uint8_t *end_block_loc = select_lkup_loc + (select_id + 1) * 4;
         uint32_t end_block = end_block_loc < select_lkup_loc_end ? read_uint32(end_block_loc) : node_count / nodes_per_bv_block;
-        //printf("%u,%u\t%u,%u\n", node_id_block, node_count / nodes_per_bv_block, child_block, end_block);
-        child_block = bin_srch_bv_term(child_block, end_block, target_term_count);
+        child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
+        //printf("%u,%u\t%u,%u,%u\n", node_id_block, node_count / nodes_per_bv_block, start_block, end_block, child_block);
       }
       child_block++;
       do {
