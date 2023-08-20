@@ -250,7 +250,7 @@ class static_dict {
     }
 
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
-      uint32_t middle = (first + size) >> 4;
+      uint32_t middle = (first + size) >> 1;
       while (first < size) {
         uint32_t term_at = read_uint32(trie_bv_loc + middle * 22);
         if (term_at < term_count)
@@ -267,6 +267,7 @@ class static_dict {
     const int term_divisor = 336;
     const int nodes_per_bv_block = 336;
     const int nodes_per_bv_block7 = 42;
+    const int bytes_per_bv_block7 = 63;
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
@@ -289,17 +290,17 @@ class static_dict {
         term_count = read_uint32(trie_bv_loc + child_block * 22);
         child_count = read_uint32(trie_bv_loc + child_block * 22 + 4);
         node_id = child_block * nodes_per_bv_block;
-        t = trie_loc + child_block * 8 * 63;
+        t = trie_loc + child_block * 8 * bytes_per_bv_block7;
       } while (term_count >= target_term_count);
       uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
       uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
-      for (int pos7 = 0; pos7 < 7 && node_id + 42 < node_count; pos7++) {
+      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
         uint8_t term7 = bv7_term[pos7];
         if (term_count + term7 < target_term_count) {
           term_count += term7;
           child_count += bv7_child[pos7];
-          node_id += 42;
-          t += 63;
+          node_id += nodes_per_bv_block7;
+          t += bytes_per_bv_block7;
         } else
           break;
       }
@@ -313,7 +314,7 @@ class static_dict {
         term_count += (flags & TRIE_FLAGS_TERM ? 1 : 0);
       }
       t -= (node_id % 2 ? 0 : 1);
-      if (node_id - start_node_id > 42)
+      if (node_id - start_node_id > nodes_per_bv_block7)
         printf("Nodes > 42: %u, %d\n", node_id, node_id - start_node_id);
       return t;
     }

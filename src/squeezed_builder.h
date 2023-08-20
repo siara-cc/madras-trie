@@ -895,6 +895,8 @@ class builder : public builder_abstract {
     }
 
     const int nodes_per_bv_block7 = 42;
+    const int nodes_per_bv_block = 336;
+    const int term_divisor = 336;
     void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
                     uint32_t& term1_count7, uint32_t& child_count7,
                     uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {
@@ -917,7 +919,6 @@ class builder : public builder_abstract {
       }
     }
 
-    const int nodes_per_bv_block = 336;
     void write_trie_bv(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
@@ -983,7 +984,6 @@ class builder : public builder_abstract {
       fwrite(leaf_buf7, 7, 1, fp);
     }
 
-    const int term_divisor = 336;
     void write_select_lkup(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
