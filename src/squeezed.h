@@ -183,30 +183,26 @@ class static_dict {
       return ret;
     }
 
-    uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no, bool str = false) {
+    uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       grp_no = *lookup_tbl_ptr & 0x1F;
       uint8_t code_len = *lookup_tbl_ptr++ >> 5;
       uint8_t bit_len = *lookup_tbl_ptr;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
-      ptr_bit_count -= (str ? bit_len : 0);
       ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits);
       return ptr;
     }
 
-    uint8_t get_first_char(uint8_t node_byte, uint8_t flags, uint32_t node_id, uint32_t& ptr_bit_count) {
+    uint8_t get_first_char(uint8_t node_byte, uint8_t flags, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
       if ((flags & TRIE_FLAGS_PTR) == 0)
         return node_byte;
-      uint8_t grp_no;
-      uint32_t ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
+      tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       uint8_t *tail = grp_tails[grp_no];
-      return tail[ptr];
+      return tail[tail_ptr];
     }
 
-    std::string get_tail_str(uint8_t node_byte, uint8_t flags, uint32_t node_id, uint32_t ptr_bit_count, std::string& ret) {
-      uint8_t grp_no;
-      uint32_t tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no, true);
+    std::string get_tail_str(std::string& ret, uint32_t tail_ptr, uint8_t grp_no) {
       uint32_t ptr = tail_ptr;
       uint8_t *tail = grp_tails[grp_no];
       ret.clear();
@@ -250,6 +246,32 @@ class static_dict {
       }
       ret.append(prev_str.substr(prev_str.length()-sfx_len));
       return ret;
+    }
+
+    uint32_t get_bv7_val(uint8_t *bv7, int pos) {
+      uint32_t ret = bv7[pos];
+      if (pos < 3)
+        return ret & 0x7F;
+      if (pos > 4)
+        return ret | ((bv7[pos - 5] & 0x80) << 1);
+      return ret;
+    }
+
+    int bin_srch_bv7_term(uint8_t *bv7_term, uint32_t term_count) {
+      int first = 0;
+      int size = 6;
+      int middle = (first + size) >> 1;
+      while (first < size) {
+        uint32_t term_at = get_bv7_val(bv7_term, middle);
+        if (term_at < term_count)
+          first = middle + 1;
+        else if (term_at > term_count)
+          size = middle;
+        else
+          return middle;
+        middle = (first + size) >> 1;
+      }
+      return size;
     }
 
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
@@ -303,15 +325,20 @@ class static_dict {
       } while (term_count >= target_term_count);
       uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
       uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
-      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
-        uint8_t term7 = bv7_term[pos7];
-        if (term_count + term7 < target_term_count) {
-          term_count += term7;
-          child_count += bv7_child[pos7];
-          node_id += nodes_per_bv_block7;
-          t += bytes_per_bv_block7;
-        } else
+      int pos7 = bin_srch_bv7_term(bv7_term, target_term_count - term_count);
+      pos7++;
+      uint32_t term_bv7;
+      do {
+        pos7--;
+        if (pos7 == -1)
           break;
+        term_bv7 = get_bv7_val(bv7_term, pos7);
+      } while (term_count + term_bv7 >= target_term_count);
+      if (pos7 != -1) {
+        term_count += term_bv7;
+        child_count += get_bv7_val(bv7_child, pos7);
+        node_id += nodes_per_bv_block7 * pos7;
+        t += bytes_per_bv_block7 * pos7;
       }
       while (term_count < target_term_count) {
         uint8_t flags;
@@ -342,12 +369,14 @@ class static_dict {
       uint8_t *t = trie_loc;
       uint8_t node_byte;
       uint8_t flags;
+      uint8_t grp_no;
       uint8_t trie_byte;
       uint32_t ptr_bit_count = 0;
+      uint32_t tail_ptr = 0;
       uint32_t term_count = 0;
       uint32_t child_count = 0;
       std::string tail_str;
-      while (node_id < node_count) {
+      do {
         if (node_id % 2) {
           flags = (*t++ & 0x0F);
           node_byte = *t++;
@@ -355,7 +384,7 @@ class static_dict {
           node_byte = *t++;
           flags = (*t >> 4);
         }
-        trie_byte = get_first_char(node_byte, flags, node_id, ptr_bit_count);
+        trie_byte = get_first_char(node_byte, flags, node_id, ptr_bit_count, tail_ptr, grp_no);
         node_id++;
         if (flags & TRIE_FLAGS_CHILD)
           child_count++;
@@ -370,7 +399,7 @@ class static_dict {
           int cmp = 0;
           uint32_t tail_len = 1;
           if (flags & TRIE_FLAGS_PTR) {
-            get_tail_str(node_byte, flags, node_id - 1, ptr_bit_count, tail_str);
+            get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
             cmp = compare((const uint8_t *) tail_str.c_str(), tail_len,
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
@@ -391,7 +420,7 @@ class static_dict {
           return ~INSERT_THREAD;
         }
         return ~INSERT_BEFORE;
-      }
+      } while (node_id < node_count);
       return ~INSERT_EMPTY;
     }
 

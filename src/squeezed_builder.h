@@ -914,8 +914,10 @@ class builder : public builder_abstract {
       } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
         term1_buf7[pos7] = term1_count7;
         child_buf7[pos7] = child_count7;
-        term1_count7 = 0;
-        child_count7 = 0;
+        if (pos7 > 4) {
+          term1_buf7[pos7 - 5] |= ((term1_count7 >> 1) & 0x80);
+          child_buf7[pos7 - 5] |= ((child_count7 >> 1) & 0x80);
+        }
         pos7++;
       }
     }
