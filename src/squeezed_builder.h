@@ -915,10 +915,8 @@ class builder : public builder_abstract {
       } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
         term1_buf7[pos7] = term1_count7;
         child_buf7[pos7] = child_count7;
-        if (pos7 > 4) {
-          term1_buf7[pos7 - 5] |= ((term1_count7 >> 1) & 0x80);
-          child_buf7[pos7 - 5] |= ((child_count7 >> 1) & 0x80);
-        }
+        term1_count7 = 0;
+        child_count7 = 0;
         pos7++;
       }
     }
@@ -1011,7 +1009,7 @@ class builder : public builder_abstract {
           node *cur_node = cur_lvl_nodes[j];
           if (cur_node->next_sibling == NULL) {
             if (term_count && (term_count % term_divisor) == 0) {
-              write_uint32(node_id / nodes_per_bv_block7, fp);
+              write_uint32(node_id / nodes_per_bv_block, fp);
               //printf("%u\t%u\n", term_count, node_id / nodes_per_bv_block);
             }
             term_count++;
