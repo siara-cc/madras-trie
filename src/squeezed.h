@@ -31,6 +31,7 @@ class static_dict {
 
     uint32_t node_count;
     uint32_t bv_block_count;
+    uint32_t bv_block_count7;
     uint8_t *grp_tails_loc;
     uint8_t *cache_loc;
     uint8_t *ptr_lookup_tbl_loc;
@@ -90,6 +91,7 @@ class static_dict {
       grp_tails_loc = dict_buf + 2 + 8 * 4; // 34
       node_count = read_uint32(dict_buf + 2);
       bv_block_count = node_count / nodes_per_bv_block;
+      bv_block_count = node_count / nodes_per_bv_block7;
       cache_loc = dict_buf + read_uint32(dict_buf + 6);
       ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 10);
       trie_bv_loc =  dict_buf + read_uint32(dict_buf + 14);
@@ -258,19 +260,20 @@ class static_dict {
       return ret;
     }
 
-    int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
-      uint32_t middle = (first + size) >> 1;
-      while (first < size) {
-        uint32_t term_at = read_uint32(trie_bv_loc + middle * 22);
+    int bin_srch_bv_term(uint32_t start, uint32_t end, uint32_t term_count) {
+      while (start < end) {
+        uint32_t middle = (start + end) >> 1;
+        uint32_t term_at = read_uint32(trie_bv_loc + middle / 8 * 22);
+        if (middle % 8)
+          term_at += get_bv7_val(trie_bv_loc + middle / 8 * 22 + 8, (middle % 8) - 1);
         if (term_at < term_count)
-          first = middle + 1;
+          start = middle + 1;
         else if (term_at > term_count)
-          size = middle;
+          end = middle;
         else
           return middle;
-        middle = (first + size) >> 1;
       }
-      return size;
+      return end;
     }
 
     uint8_t *scan_block42(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
@@ -292,6 +295,13 @@ class static_dict {
       return t;
     }
 
+    uint32_t read_bv7(uint32_t block, uint8_t *bv7, uint32_t offset = 0) {
+      uint32_t ret = read_uint32(trie_bv_loc + block / 8 * 22 + offset);
+      if (block % 8)
+        ret += get_bv7_val(bv7, (block % 8) - 1);
+      return ret;
+    }
+
     const int term_divisor = 336;
     const int nodes_per_bv_block = 336;
     const int nodes_per_bv_block7 = 42;
@@ -300,44 +310,27 @@ class static_dict {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
       uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 4;
-      if ((target_term_count % term_divisor) == 0) {
-        child_block = read_uint32(select_loc);
-      } else {
+      // if ((target_term_count % term_divisor) == 0) {
+      //   child_block = read_uint32(select_loc);
+      // } else {
         uint32_t start_block = read_uint32(select_loc);
         uint32_t end_block = read_uint32(select_loc + 4);
         end_block = end_block < bv_block_count ? end_block : bv_block_count;
-        if (start_block + 4 >= end_block) {
-          do {
-            start_block++;
-          } while (read_uint32(trie_bv_loc + start_block * 22) < target_term_count && start_block <= end_block);
-          child_block = start_block - 1;
-        } else {
-          child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
-        }
+        child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
         // printf("%u,%u,%.0f\t%u,%u,%.0f,%u\n", node_id_block, bv_block_count, ceil(log2(bv_block_count - node_id_block)), start_block, end_block, ceil(log2(end_block - start_block)), child_block);
-      }
+      // }
       // uint32_t node_id_block = node_id / nodes_per_bv_block;
       // child_block = bin_srch_bv_term(node_id_block, bv_block_count, target_term_count);
       child_block++;
       do {
         child_block--;
-        term_count = read_uint32(trie_bv_loc + child_block * 22);
-        child_count = read_uint32(trie_bv_loc + child_block * 22 + 4);
-        node_id = child_block * nodes_per_bv_block;
-        t = trie_loc + child_block * 8 * bytes_per_bv_block7;
+        uint8_t *bv7_term = trie_bv_loc + child_block / 8 * 22 + 8;
+        uint8_t *bv7_child = trie_bv_loc + child_block / 8 * 22 + 15;
+        term_count = read_bv7(child_block, bv7_term);
+        child_count = read_bv7(child_block, bv7_child, 4);
+        node_id = child_block * nodes_per_bv_block7;
+        t = trie_loc + child_block * bytes_per_bv_block7;
       } while (term_count >= target_term_count);
-      uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
-      uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
-      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
-        uint8_t term7 = bv7_term[pos7];
-        if (term_count + term7 < target_term_count) {
-          term_count += term7;
-          child_count += bv7_child[pos7];
-          node_id += nodes_per_bv_block7;
-          t += bytes_per_bv_block7;
-        } else
-          break;
-      }
       return scan_block42(t, node_id, child_count, term_count, target_term_count);
     }
 
