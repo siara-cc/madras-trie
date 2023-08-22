@@ -53,18 +53,12 @@ class static_dict {
             int len2, int k = 0) {
         int lim = (len2 < len1 ? len2 : len1);
         do {
-            uint8_t c1 = v1[k];
-            uint8_t c2 = v2[k];
-            k++;
-            if (c1 < c2)
-                return -k;
-            else if (c1 > c2)
-                return k;
-        } while (k < lim);
+          if (v1[k] != v2[k])
+            return ++k;
+        } while (++k < lim);
         if (len1 == len2)
-            return 0;
-        k++;
-        return (len1 < len2 ? -k : k);
+          return 0;
+        return ++k;
     }
 
     static uint32_t read_uint32(uint8_t *pos) {
@@ -79,7 +73,7 @@ class static_dict {
     }
 
   public:
-    static_dict(std::string filename, builder *_sb) {
+    static_dict(std::string filename, builder *_sb = NULL) {
 
       sb = _sb;
 
@@ -143,27 +137,34 @@ class static_dict {
       return ret + 15;
     }
 
+    void scan_nodes_ptr_bits(uint32_t node_id, uint8_t *t, uint32_t& ptr_bit_count) {
+      int upto_node_id = node_id % 42;
+      uint8_t flags, node_byte;
+      for (int i = 0; i < upto_node_id; i++) {
+        if (i % 2) {
+          flags = (*t++ & 0x0F);
+          node_byte = *t++;
+        } else {
+          node_byte = *t++;
+          flags = (*t >> 4);
+        }
+        ptr_bit_count += (flags & TRIE_FLAGS_PTR ? code_lookup_tbl[node_byte * 2 + 1] : 0);
+      }
+    }
+
+    void get_ptr_bit_count(uint32_t node_id, uint32_t& ptr_bit_count) {
+      uint32_t block_count = node_id / 42;
+      ptr_bit_count = read_uint32(ptr_lookup_tbl_loc + block_count * 4);
+      uint8_t *t = trie_loc + block_count * 63;
+      scan_nodes_ptr_bits(node_id, t, ptr_bit_count);
+    }
+
     // flag pos: 1 1 4 4 7 7 10 10 13 13
     // trie pos: 0 2 3 5 6 8  9 11 12 14
     // i:        0 1 2 3 4 5  6  7  8  9
     uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, int8_t bit_len) {
-      if (ptr_bit_count == 0xFFFFFFFF) {
-        uint32_t block_count = node_id / 42;
-        ptr_bit_count = read_uint32(ptr_lookup_tbl_loc + block_count * 4);
-        uint8_t *t = trie_loc + block_count * 63;
-        int upto_node_id = node_id % 42;
-        uint8_t flags, node_byte;
-        for (int i = 0; i < upto_node_id; i++) {
-          if (i % 2) {
-            flags = (*t++ & 0x0F);
-            node_byte = *t++;
-          } else {
-            node_byte = *t++;
-            flags = (*t >> 4);
-          }
-          ptr_bit_count += (flags & TRIE_FLAGS_PTR ? code_lookup_tbl[node_byte * 2 + 1] : 0);
-        }
-      }
+      if (ptr_bit_count == 0xFFFFFFFF)
+        get_ptr_bit_count(node_id, ptr_bit_count);
       uint8_t *ptr_loc = tail_ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_left = 8 - (ptr_bit_count % 8);
       ptr_bit_count += bit_len;
@@ -257,23 +258,6 @@ class static_dict {
       return ret;
     }
 
-    int bin_srch_bv7_term(uint8_t *bv7_term, uint32_t term_count) {
-      int first = 0;
-      int size = 6;
-      int middle = (first + size) >> 1;
-      while (first < size) {
-        uint32_t term_at = get_bv7_val(bv7_term, middle);
-        if (term_at < term_count)
-          first = middle + 1;
-        else if (term_at > term_count)
-          size = middle;
-        else
-          return middle;
-        middle = (first + size) >> 1;
-      }
-      return size;
-    }
-
     int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
       uint32_t middle = (first + size) >> 1;
       while (first < size) {
@@ -287,6 +271,25 @@ class static_dict {
         middle = (first + size) >> 1;
       }
       return size;
+    }
+
+    uint8_t *scan_block42(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
+      while (term_count < target_term_count) {
+        uint8_t flags;
+        if (node_id % 2) {
+          flags = (*t++ & 0x0F);
+          t++;
+        } else {
+          t++;
+          flags = (*t >> 4);
+        }
+        node_id++;
+        if (flags & TRIE_FLAGS_CHILD)
+          child_count++;
+        if (flags & TRIE_FLAGS_TERM)
+          term_count++;
+      }
+      return t;
     }
 
     const int term_divisor = 336;
@@ -325,37 +328,17 @@ class static_dict {
       } while (term_count >= target_term_count);
       uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
       uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
-      int pos7 = bin_srch_bv7_term(bv7_term, target_term_count - term_count);
-      pos7++;
-      uint32_t term_bv7;
-      do {
-        pos7--;
-        if (pos7 == -1)
+      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
+        uint8_t term7 = bv7_term[pos7];
+        if (term_count + term7 < target_term_count) {
+          term_count += term7;
+          child_count += bv7_child[pos7];
+          node_id += nodes_per_bv_block7;
+          t += bytes_per_bv_block7;
+        } else
           break;
-        term_bv7 = get_bv7_val(bv7_term, pos7);
-      } while (term_count + term_bv7 >= target_term_count);
-      if (pos7 != -1) {
-        term_count += term_bv7;
-        child_count += get_bv7_val(bv7_child, pos7);
-        node_id += nodes_per_bv_block7 * pos7;
-        t += bytes_per_bv_block7 * pos7;
       }
-      while (term_count < target_term_count) {
-        uint8_t flags;
-        if (node_id % 2) {
-          flags = (*t++ & 0x0F);
-          t++;
-        } else {
-          t++;
-          flags = (*t >> 4);
-        }
-        node_id++;
-        if (flags & TRIE_FLAGS_CHILD)
-          child_count++;
-        if (flags & TRIE_FLAGS_TERM)
-          term_count++;
-      }
-      return t;
+      return scan_block42(t, node_id, child_count, term_count, target_term_count);
     }
 
     static const char TRIE_FLAGS_LEAF = 0x01;
@@ -409,7 +392,7 @@ class static_dict {
           key_pos += tail_len;
           if (cmp == 0 && key_pos == key.size() && (flags & TRIE_FLAGS_LEAF))
             return 0;
-          if (cmp == 0 || abs(cmp) - 1 == tail_len) {
+          if (cmp == 0 || cmp - 1 == tail_len) {
             if ((flags & TRIE_FLAGS_CHILD) == 0)
               return ~INSERT_LEAF;
             t = find_child(t, node_id, child_count, term_count);

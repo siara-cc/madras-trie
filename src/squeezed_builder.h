@@ -138,10 +138,10 @@ typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uniq_tails_info *> uniq_tails_info_vec;
 
 struct node_cache {
-  uint32_t parent;
   uint32_t child;
+  uint32_t child_ptr_bits;
   uint8_t grp_no;
-  uint32_t tail_pos;
+  uint32_t tail_ptr;
 };
 
 struct freq_grp {
@@ -875,6 +875,7 @@ class builder : public builder_abstract {
       write_uint32(tail_ptrs_loc, fp);
       write_uint32(trie_loc, fp);
       write_grp_tails(freq_grp_vec, grp_tails, grp_tails_loc + 513, fp); // group count, 512 lookup tbl, tail locs, tails
+      //write_cache(fp, cache_size);
       fwrite(trie.data(), cache_size, 1, fp);
       write_ptr_lookup_tbl(freq_grp_vec, uniq_tails_rev, fp);
       write_trie_bv(fp);
@@ -914,10 +915,8 @@ class builder : public builder_abstract {
       } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
         term1_buf7[pos7] = term1_count7;
         child_buf7[pos7] = child_count7;
-        if (pos7 > 4) {
-          term1_buf7[pos7 - 5] |= ((term1_count7 >> 1) & 0x80);
-          child_buf7[pos7 - 5] |= ((child_count7 >> 1) & 0x80);
-        }
+        term1_count7 = 0;
+        child_count7 = 0;
         pos7++;
       }
     }
@@ -985,6 +984,19 @@ class builder : public builder_abstract {
         }
       }
       fwrite(leaf_buf7, 7, 1, fp);
+    }
+
+    void write_cache(FILE *fp, uint32_t cache_size) {
+      uint32_t cache_count = cache_size / sizeof(node_cache);
+      uint32_t node_id = 0;
+      for (int i = 0; i < level_nodes.size(); i++) {
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
+          node *cur_node = cur_lvl_nodes[j];
+          node_id++;
+          cache_count--;
+        }
+      }
     }
 
     void write_select_lkup(FILE *fp) {
