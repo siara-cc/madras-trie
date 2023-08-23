@@ -193,7 +193,7 @@ class static_dict {
       return ptr;
     }
 
-    uint8_t get_first_char(uint8_t node_byte, uint8_t is_ptr, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
+    uint8_t get_first_char(uint8_t node_byte, uint64_t is_ptr, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
       if (!is_ptr)
         return node_byte;
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
@@ -329,21 +329,19 @@ class static_dict {
       return scan_block64(t, node_id, child_count, term_count, target_term_count);
     }
 
-    void read_uint64(uint8_t *t, uint64_t& u64) {
+    uint8_t *read_uint64(uint8_t *t, uint64_t& u64) {
       u64 = 0;
       for (int v = 0; v < 8; v++) {
         u64 <<= 8;
         u64 |= *t++;
       }
+      return t;
     }
 
     void read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
-      read_uint64(t, bm_leaf);
-      t += 8;
-      read_uint64(t, bm_term);
-      t += 8;
-      read_uint64(t, bm_child);
-      t += 8;
+      t = read_uint64(t, bm_leaf);
+      t = read_uint64(t, bm_term);
+      t = read_uint64(t, bm_child);
       read_uint64(t, bm_ptr);
     }
 
@@ -403,7 +401,7 @@ class static_dict {
             if ((bm_mask & bm_child) == 0)
               return ~INSERT_LEAF;
             t = find_child(t, node_id, child_count, term_count);
-            read_flags(t - (node_id % 64) - 32, bm_leaf, bm_term, bm_child, bm_ptr);
+            read_flags(trie_loc + (node_id / 64) * 96, bm_leaf, bm_term, bm_child, bm_ptr);
             bm_mask = (bm_init_mask >> (node_id % 64));
             key_byte = key[key_pos];
             ptr_bit_count = 0xFFFFFFFF;
