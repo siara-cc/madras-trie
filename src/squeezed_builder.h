@@ -760,6 +760,29 @@ class builder : public builder_abstract {
       } while (n != NULL);
     }
 
+    void append64_t(byte_vec& byv, uint64_t b64) {
+      byv.push_back(b64 >> 56);
+      byv.push_back((b64 >> 48) & 0xFF);
+      byv.push_back((b64 >> 40) & 0xFF);
+      byv.push_back((b64 >> 32) & 0xFF);
+      byv.push_back((b64 >> 24) & 0xFF);
+      byv.push_back((b64 >> 16) & 0xFF);
+      byv.push_back((b64 >> 8) & 0xFF);
+      byv.push_back(b64 & 0xFF);
+    }
+
+    void append_flags(byte_vec& byv, uint64_t bm_leaf, uint64_t bm_term, uint64_t bm_child, uint64_t bm_ptr) {
+      append64_t(byv, bm_leaf);
+      append64_t(byv, bm_term);
+      append64_t(byv, bm_child);
+      append64_t(byv, bm_ptr);
+    }
+
+    void append_byte_vec(byte_vec& byv1, byte_vec& byv2) {
+      for (int k = 0; k < byv2.size(); k++)
+        byv1.push_back(byv2[k]);
+    }
+
     std::string build() {
       std::cout << std::endl;
       byte_vec trie;
@@ -773,6 +796,12 @@ class builder : public builder_abstract {
       memset(char_counts, '\0', sizeof(uint32_t) * 8);
       uint32_t node_count = 0;
       uint32_t term_count = 0;
+      uint64_t bm_leaf = 0;
+      uint64_t bm_term = 0;
+      uint64_t bm_child = 0;
+      uint64_t bm_ptr = 0;
+      uint64_t bm_mask = 0x8000000000000000UL;
+      byte_vec byte_vec64;
       uint8_t pending_byte = 0;
       int last_byte_bits;
       //trie.reserve(node_count + (node_count >> 1));
@@ -784,11 +813,11 @@ class builder : public builder_abstract {
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
           cur_node->node_id = node_count;
+          if (cur_node->next_sibling == NULL)
+            term_count++;
           uint8_t flags = (cur_node->is_leaf ? 1 : 0) +
             (cur_node->first_child != NULL ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
             (cur_node->next_sibling == NULL ? 8 : 0);
-          if (cur_node->next_sibling == NULL)
-            term_count++;
           flag_counts[flags & 0x07]++;
           uint8_t node_val;
           if (cur_node->tail_len == 1) {
@@ -799,21 +828,31 @@ class builder : public builder_abstract {
                          freq_grp_vec, grp_tails, tail_ptrs, last_byte_bits);
             ptr_count++;
           }
-          if ((node_count % 2) == 0) {
-            trie.push_back(node_val);
-            pending_byte = flags << 4;
-          } else {
-            trie.push_back(pending_byte | flags);
-            trie.push_back(node_val);
-            pending_byte = 0;
+          if (node_count && (node_count % 64) == 0) {
+            append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
+            bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
+            bm_mask = 0x8000000000000000UL;
+            append_byte_vec(trie, byte_vec64);
+            byte_vec64.clear();
           }
+          if (cur_node->is_leaf)
+            bm_leaf |= bm_mask;
+          if (cur_node->next_sibling == NULL)
+            bm_term |= bm_mask;
+          if (cur_node->first_child != NULL)
+            bm_child |= bm_mask;
+          if (cur_node->tail_len > 1)
+            bm_ptr |= bm_mask;
+          bm_mask >>= 1;
+          byte_vec64.push_back(node_val);
           node_count++;
           //fwrite(&flags, 1, 1, fout);
           //fwrite(&node_val, 1, 1, fout);
         }
       }
-      if ((node_count % 2) == 1) {
-        trie.push_back(pending_byte);
+      if (node_count % 64) {
+        append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
+        append_byte_vec(trie, byte_vec64);
       }
       std::cout << std::endl;
       for (int i = 0; i < 8; i++) {
@@ -833,7 +872,7 @@ class builder : public builder_abstract {
       std::cout << "Term count: " << term_count << std::endl;
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
-      uint32_t ptr_lookup_tbl = (ceil(node_count/42) + 1) * 4;
+      uint32_t ptr_lookup_tbl = (ceil(node_count/64) + 1) * 4;
       uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
       uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
       uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
@@ -896,9 +935,9 @@ class builder : public builder_abstract {
         fputc((input >> (8 * i)) & 0xFF, fp);
     }
 
-    const int nodes_per_bv_block7 = 42;
-    const int nodes_per_bv_block = 336;
-    const int term_divisor = 336;
+    const int nodes_per_bv_block7 = 64;
+    const int nodes_per_bv_block = 512;
+    const int term_divisor = 512;
     void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
                     uint32_t& term1_count7, uint32_t& child_count7,
                     uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {
@@ -1019,7 +1058,7 @@ class builder : public builder_abstract {
       }
     }
 
-    const int nodes_per_ptr_block = 42;
+    const int nodes_per_ptr_block = 64;
     void write_ptr_lookup_tbl(std::vector<freq_grp>& freq_grp_vec, uniq_tails_info_vec& uniq_tails_rev, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;

@@ -138,24 +138,22 @@ class static_dict {
     }
 
     void scan_nodes_ptr_bits(uint32_t node_id, uint8_t *t, uint32_t& ptr_bit_count) {
-      int upto_node_id = node_id % 42;
-      uint8_t flags, node_byte;
+      uint64_t bm_ptr;
+      uint64_t bm_mask = bm_init_mask;
+      read_uint64(t + 24, bm_ptr);
+      t += 32;
+      int upto_node_id = node_id % 64;
       for (int i = 0; i < upto_node_id; i++) {
-        if (i % 2) {
-          flags = (*t++ & 0x0F);
-          node_byte = *t++;
-        } else {
-          node_byte = *t++;
-          flags = (*t >> 4);
-        }
-        ptr_bit_count += (flags & TRIE_FLAGS_PTR ? code_lookup_tbl[node_byte * 2 + 1] : 0);
+        ptr_bit_count += (bm_ptr & bm_mask ? code_lookup_tbl[*t * 2 + 1] : 0);
+        bm_mask >>= 1;
+        t++;
       }
     }
 
     void get_ptr_bit_count(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t block_count = node_id / 42;
+      uint32_t block_count = node_id / 64;
       ptr_bit_count = read_uint32(ptr_lookup_tbl_loc + block_count * 4);
-      uint8_t *t = trie_loc + block_count * 63;
+      uint8_t *t = trie_loc + block_count * 96;
       scan_nodes_ptr_bits(node_id, t, ptr_bit_count);
     }
 
@@ -195,8 +193,8 @@ class static_dict {
       return ptr;
     }
 
-    uint8_t get_first_char(uint8_t node_byte, uint8_t flags, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
-      if ((flags & TRIE_FLAGS_PTR) == 0)
+    uint8_t get_first_char(uint8_t node_byte, uint8_t is_ptr, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
+      if (!is_ptr)
         return node_byte;
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       uint8_t *tail = grp_tails[grp_no];
@@ -249,53 +247,43 @@ class static_dict {
       return ret;
     }
 
-    uint32_t get_bv7_val(uint8_t *bv7, int pos) {
-      uint32_t ret = bv7[pos];
-      if (pos < 3)
-        return ret & 0x7F;
-      if (pos > 4)
-        return ret | ((bv7[pos - 5] & 0x80) << 1);
-      return ret;
-    }
-
-    int bin_srch_bv_term(uint32_t first, uint32_t size, uint32_t term_count) {
-      uint32_t middle = (first + size) >> 1;
-      while (first < size) {
+    int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
+      while (first < last) {
+        uint32_t middle = (first + last) >> 1;
         uint32_t term_at = read_uint32(trie_bv_loc + middle * 22);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
-          size = middle;
+          last = middle;
         else
           return middle;
-        middle = (first + size) >> 1;
       }
-      return size;
+      return last;
     }
 
-    uint8_t *scan_block42(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
+    uint8_t *scan_block64(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
+      uint64_t bm_term, bm_child;
+      uint64_t bm_mask = bm_init_mask;
+      read_uint64(t + 8, bm_term);
+      read_uint64(t + 16, bm_child);
+      t += 32;
       while (term_count < target_term_count) {
-        uint8_t flags;
-        if (node_id % 2) {
-          flags = (*t++ & 0x0F);
-          t++;
-        } else {
-          t++;
-          flags = (*t >> 4);
-        }
-        node_id++;
-        if (flags & TRIE_FLAGS_CHILD)
+        if (bm_child & bm_mask)
           child_count++;
-        if (flags & TRIE_FLAGS_TERM)
+        if (bm_term & bm_mask)
           term_count++;
+        node_id++;
+        t++;
+        bm_mask >>= 1;
       }
       return t;
     }
 
-    const int term_divisor = 336;
-    const int nodes_per_bv_block = 336;
-    const int nodes_per_bv_block7 = 42;
-    const int bytes_per_bv_block7 = 63;
+    const int term_divisor = 512;
+    const int nodes_per_bv_block = 512;
+    const int bytes_per_bv_block = 768;
+    const int nodes_per_bv_block7 = 64;
+    const int bytes_per_bv_block7 = 96;
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
@@ -324,10 +312,10 @@ class static_dict {
         term_count = read_uint32(trie_bv_loc + child_block * 22);
         child_count = read_uint32(trie_bv_loc + child_block * 22 + 4);
         node_id = child_block * nodes_per_bv_block;
-        t = trie_loc + child_block * 8 * bytes_per_bv_block7;
+        t = trie_loc + child_block * bytes_per_bv_block;
       } while (term_count >= target_term_count);
       uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
-      uint8_t *bv7_child = trie_bv_loc + child_block * 22 + 15;
+      uint8_t *bv7_child = bv7_term + 7;
       for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
         uint8_t term7 = bv7_term[pos7];
         if (term_count + term7 < target_term_count) {
@@ -338,20 +326,39 @@ class static_dict {
         } else
           break;
       }
-      return scan_block42(t, node_id, child_count, term_count, target_term_count);
+      return scan_block64(t, node_id, child_count, term_count, target_term_count);
     }
 
-    static const char TRIE_FLAGS_LEAF = 0x01;
-    static const char TRIE_FLAGS_CHILD = 0x02;
-    static const char TRIE_FLAGS_PTR = 0x04;
-    static const char TRIE_FLAGS_TERM = 0x08;
+    void read_uint64(uint8_t *t, uint64_t& u64) {
+      u64 = 0;
+      for (int v = 0; v < 8; v++) {
+        u64 <<= 8;
+        u64 |= *t++;
+      }
+    }
+
+    void read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
+      read_uint64(t, bm_leaf);
+      t += 8;
+      read_uint64(t, bm_term);
+      t += 8;
+      read_uint64(t, bm_child);
+      t += 8;
+      read_uint64(t, bm_ptr);
+    }
+
+    static const uint64_t bm_init_mask = 0x8000000000000000UL;
     int lookup(std::string& key) {
       int key_pos = 0;
       uint32_t node_id = 0;
       uint8_t key_byte = key[key_pos];
       uint8_t *t = trie_loc;
       uint8_t node_byte;
-      uint8_t flags;
+      uint64_t bm_leaf = 0;
+      uint64_t bm_term = 0;
+      uint64_t bm_child = 0;
+      uint64_t bm_ptr = 0;
+      uint64_t bm_mask = 0x8000000000000000UL;
       uint8_t grp_no;
       uint8_t trie_byte;
       uint32_t ptr_bit_count = 0;
@@ -360,28 +367,28 @@ class static_dict {
       uint32_t child_count = 0;
       std::string tail_str;
       do {
-        if (node_id % 2) {
-          flags = (*t++ & 0x0F);
-          node_byte = *t++;
-        } else {
-          node_byte = *t++;
-          flags = (*t >> 4);
+        if ((node_id % 64) == 0) {
+          bm_mask = bm_init_mask;
+          read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+          t += 32;
         }
-        trie_byte = get_first_char(node_byte, flags, node_id, ptr_bit_count, tail_ptr, grp_no);
+        node_byte = *t++;
+        trie_byte = get_first_char(node_byte, (bm_ptr & bm_mask), node_id, ptr_bit_count, tail_ptr, grp_no);
         node_id++;
-        if (flags & TRIE_FLAGS_CHILD)
+        if (bm_mask & bm_child)
           child_count++;
-        if (flags & TRIE_FLAGS_TERM)
+        if (bm_mask & bm_term)
           term_count++;
         if (key_byte > trie_byte) {
-          if (flags & TRIE_FLAGS_TERM)
+          if (bm_mask & bm_term)
             return ~INSERT_AFTER;
+          bm_mask >>= 1;
           continue;
         }
         if (key_byte == trie_byte) {
           int cmp = 0;
           uint32_t tail_len = 1;
-          if (flags & TRIE_FLAGS_PTR) {
+          if (bm_mask & bm_ptr) {
             get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
             cmp = compare((const uint8_t *) tail_str.c_str(), tail_len,
@@ -390,12 +397,14 @@ class static_dict {
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           }
           key_pos += tail_len;
-          if (cmp == 0 && key_pos == key.size() && (flags & TRIE_FLAGS_LEAF))
+          if (cmp == 0 && key_pos == key.size() && (bm_leaf & bm_mask))
             return 0;
           if (cmp == 0 || cmp - 1 == tail_len) {
-            if ((flags & TRIE_FLAGS_CHILD) == 0)
+            if ((bm_mask & bm_child) == 0)
               return ~INSERT_LEAF;
             t = find_child(t, node_id, child_count, term_count);
+            read_flags(t - (node_id % 64) - 32, bm_leaf, bm_term, bm_child, bm_ptr);
+            bm_mask = (bm_init_mask >> (node_id % 64));
             key_byte = key[key_pos];
             ptr_bit_count = 0xFFFFFFFF;
             continue;
