@@ -761,14 +761,22 @@ class builder : public builder_abstract {
     }
 
     void append64_t(byte_vec& byv, uint64_t b64) {
-      byv.push_back(b64 >> 56);
-      byv.push_back((b64 >> 48) & 0xFF);
-      byv.push_back((b64 >> 40) & 0xFF);
-      byv.push_back((b64 >> 32) & 0xFF);
-      byv.push_back((b64 >> 24) & 0xFF);
-      byv.push_back((b64 >> 16) & 0xFF);
-      byv.push_back((b64 >> 8) & 0xFF);
+      // byv.push_back(b64 >> 56);
+      // byv.push_back((b64 >> 48) & 0xFF);
+      // byv.push_back((b64 >> 40) & 0xFF);
+      // byv.push_back((b64 >> 32) & 0xFF);
+      // byv.push_back((b64 >> 24) & 0xFF);
+      // byv.push_back((b64 >> 16) & 0xFF);
+      // byv.push_back((b64 >> 8) & 0xFF);
+      // byv.push_back(b64 & 0xFF);
       byv.push_back(b64 & 0xFF);
+      byv.push_back((b64 >> 8) & 0xFF);
+      byv.push_back((b64 >> 16) & 0xFF);
+      byv.push_back((b64 >> 24) & 0xFF);
+      byv.push_back((b64 >> 32) & 0xFF);
+      byv.push_back((b64 >> 40) & 0xFF);
+      byv.push_back((b64 >> 48) & 0xFF);
+      byv.push_back(b64 >> 56);
     }
 
     void append_flags(byte_vec& byv, uint64_t bm_leaf, uint64_t bm_term, uint64_t bm_child, uint64_t bm_ptr) {
@@ -800,7 +808,7 @@ class builder : public builder_abstract {
       uint64_t bm_term = 0;
       uint64_t bm_child = 0;
       uint64_t bm_ptr = 0;
-      uint64_t bm_mask = 0x8000000000000000UL;
+      uint64_t bm_mask = 1UL;
       byte_vec byte_vec64;
       uint8_t pending_byte = 0;
       int last_byte_bits;
@@ -831,7 +839,7 @@ class builder : public builder_abstract {
           if (node_count && (node_count % 64) == 0) {
             append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
             bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
-            bm_mask = 0x8000000000000000UL;
+            bm_mask = 1UL;
             append_byte_vec(trie, byte_vec64);
             byte_vec64.clear();
           }
@@ -843,7 +851,7 @@ class builder : public builder_abstract {
             bm_child |= bm_mask;
           if (cur_node->tail_len > 1)
             bm_ptr |= bm_mask;
-          bm_mask >>= 1;
+          bm_mask <<= 1;
           byte_vec64.push_back(node_val);
           node_count++;
           //fwrite(&flags, 1, 1, fout);
@@ -929,10 +937,13 @@ class builder : public builder_abstract {
     }
 
     static void write_uint32(uint32_t input, FILE *fp) {
-      // fwrite(&input, 4, 1, fp);
-      int i = 4;
-      while (i--)
-        fputc((input >> (8 * i)) & 0xFF, fp);
+      // int i = 4;
+      // while (i--)
+      //   fputc((input >> (8 * i)) & 0xFF, fp);
+      fputc(input & 0xFF, fp);
+      fputc((input >> 8) & 0xFF, fp);
+      fputc((input >> 16) & 0xFF, fp);
+      fputc(input >> 24, fp);
     }
 
     const int nodes_per_bv_block7 = 64;

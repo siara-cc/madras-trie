@@ -6,6 +6,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <immintrin.h>
 
 #include "bit_vector.h"
 #include "var_array.h"
@@ -62,14 +63,14 @@ class static_dict {
     }
 
     static uint32_t read_uint32(uint8_t *pos) {
-      // return *((uint32_t *) pos);
-      uint32_t ret = 0;
-      int i = 4;
-      while (i--) {
-        ret <<= 8;
-        ret += *pos++;
-      }
-      return ret;
+      return *((uint32_t *) pos);
+      // uint32_t ret = 0;
+      // int i = 4;
+      // while (i--) {
+      //   ret <<= 8;
+      //   ret += *pos++;
+      // }
+      // return ret;
     }
 
   public:
@@ -144,8 +145,9 @@ class static_dict {
       t += 32;
       int upto_node_id = node_id % 64;
       for (int i = 0; i < upto_node_id; i++) {
-        ptr_bit_count += (bm_ptr & bm_mask ? code_lookup_tbl[*t * 2 + 1] : 0);
-        bm_mask >>= 1;
+        if (bm_ptr & bm_mask)
+          ptr_bit_count += code_lookup_tbl[*t * 2 + 1];
+        bm_mask <<= 1;
         t++;
       }
     }
@@ -261,21 +263,72 @@ class static_dict {
       return last;
     }
 
+const uint64_t sMSBs8 = 0x8080808080808080ull;
+const uint64_t sLSBs8 = 0x0101010101010101ull;
+    
+inline uint64_t
+leq_bytes(uint64_t pX, uint64_t pY)
+{
+    return ((((pY | sMSBs8) - (pX & ~sMSBs8)) ^ pX ^ pY) & sMSBs8) >> 7;
+}
+    
+    
+inline uint64_t
+gt_zero_bytes(uint64_t pX)
+{
+    return ((pX | ((pX | sMSBs8) - sLSBs8)) & sMSBs8) >> 7;
+}
+    
+    
+inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR)
+{
+    const uint64_t sOnesStep4  = 0x1111111111111111ull;
+    const uint64_t sIncrStep8  = 0x8040201008040201ull;
+
+    uint64_t byte_sums = pWord - ((pWord & 0xA*sOnesStep4) >> 1);
+    byte_sums = (byte_sums & 3*sOnesStep4) + ((byte_sums >> 2) & 3*sOnesStep4);
+    byte_sums = (byte_sums + (byte_sums >> 4)) & 0xF*sLSBs8;
+    byte_sums *= sLSBs8;
+    
+    const uint64_t k_step_8 = pR * sLSBs8;
+    const uint64_t place
+        = (leq_bytes( byte_sums, k_step_8 ) * sLSBs8 >> 53) & ~0x7;
+    const int byte_rank = pR - (((byte_sums << 8) >> place) & 0xFF);
+    const uint64_t spread_bits = (pWord >> place & 0xFF) * sLSBs8 & sIncrStep8;
+    const uint64_t bit_sums = gt_zero_bytes(spread_bits) * sLSBs8;
+    const uint64_t byte_rank_step_8 = byte_rank * sLSBs8;
+    return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
+}
+
     uint8_t *scan_block64(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
+
+
       uint64_t bm_term, bm_child;
       uint64_t bm_mask = bm_init_mask;
       read_uint64(t + 8, bm_term);
       read_uint64(t + 16, bm_child);
       t += 32;
-      while (term_count < target_term_count) {
-        if (bm_child & bm_mask)
-          child_count++;
-        if (bm_term & bm_mask)
-          term_count++;
-        node_id++;
-        t++;
-        bm_mask >>= 1;
-      }
+      int i = target_term_count - term_count - 1;
+      //size_t pos1 = find_nth_set_bit(bm_term, i);
+      uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
+      size_t pos = _tzcnt_u64(isolated_bit) + 1; //+ _tzcnt_u64(bm_term);
+      node_id = node_id + pos;
+      t += pos;
+      term_count = target_term_count;
+      child_count = child_count + __builtin_popcountll(bm_child & ((isolated_bit << 1) - 1));
+      // size_t k = 0;
+      // while (term_count < target_term_count) {
+      //   if (bm_child & bm_mask)
+      //     child_count++;
+      //   if (bm_term & bm_mask)
+      //     term_count++;
+      //   node_id++;
+      //   t++;
+      //   bm_mask <<= 1;
+      //   k++;
+      // }
+      // if (child_count != child_count1)
+      //   printf("Node_Id: %u,%u\tChild count: %u,%u\n", node_id, node_id1, child_count, child_count1);
       return t;
     }
 
@@ -330,12 +383,14 @@ class static_dict {
     }
 
     uint8_t *read_uint64(uint8_t *t, uint64_t& u64) {
-      u64 = 0;
-      for (int v = 0; v < 8; v++) {
-        u64 <<= 8;
-        u64 |= *t++;
-      }
-      return t;
+      u64 = *((uint64_t *) t);
+      return t + 8;
+      // u64 = 0;
+      // for (int v = 0; v < 8; v++) {
+      //   u64 <<= 8;
+      //   u64 |= *t++;
+      // }
+      // return t;
     }
 
     void read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
@@ -345,7 +400,7 @@ class static_dict {
       read_uint64(t, bm_ptr);
     }
 
-    static const uint64_t bm_init_mask = 0x8000000000000000UL;
+    static const uint64_t bm_init_mask = 0x0000000000000001UL;
     int lookup(std::string& key) {
       int key_pos = 0;
       uint32_t node_id = 0;
@@ -356,7 +411,7 @@ class static_dict {
       uint64_t bm_term = 0;
       uint64_t bm_child = 0;
       uint64_t bm_ptr = 0;
-      uint64_t bm_mask = 0x8000000000000000UL;
+      uint64_t bm_mask = bm_init_mask;
       uint8_t grp_no;
       uint8_t trie_byte;
       uint32_t ptr_bit_count = 0;
@@ -380,7 +435,7 @@ class static_dict {
         if (key_byte > trie_byte) {
           if (bm_mask & bm_term)
             return ~INSERT_AFTER;
-          bm_mask >>= 1;
+          bm_mask <<= 1;
           continue;
         }
         if (key_byte == trie_byte) {
@@ -402,7 +457,7 @@ class static_dict {
               return ~INSERT_LEAF;
             t = find_child(t, node_id, child_count, term_count);
             read_flags(trie_loc + (node_id / 64) * 96, bm_leaf, bm_term, bm_child, bm_ptr);
-            bm_mask = (bm_init_mask >> (node_id % 64));
+            bm_mask = (bm_init_mask << (node_id % 64));
             key_byte = key[key_pos];
             ptr_bit_count = 0xFFFFFFFF;
             continue;
