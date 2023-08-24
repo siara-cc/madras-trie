@@ -24,6 +24,39 @@ using namespace std;
 
 namespace squeezed {
 
+class byte_str {
+  int max_len;
+  int len;
+  uint8_t *buf;
+  public:
+    byte_str(uint8_t *_buf, int _max_len) {
+      max_len = _max_len;
+      buf = _buf;
+      len = 0;
+    }
+    void append(uint8_t b) {
+      if (len >= max_len)
+        return;
+      buf[len++] = b;
+    }
+    void append(uint8_t *b, size_t blen) {
+      size_t start = 0;
+      while (len < max_len && start < blen) {
+        buf[len++] = *b++;
+        start++;
+      }
+    }
+    uint8_t *data() {
+      return buf;
+    }
+    size_t length() {
+      return len;
+    }
+    void clear() {
+      len = 0;
+    }
+};
+
 class static_dict {
 
   private:
@@ -32,6 +65,7 @@ class static_dict {
 
     uint32_t node_count;
     uint32_t bv_block_count;
+    uint32_t max_tail_len;
     uint8_t *grp_tails_loc;
     uint8_t *cache_loc;
     uint8_t *ptr_lookup_tbl_loc;
@@ -88,17 +122,18 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 8 * 4; // 34
+      grp_tails_loc = dict_buf + 2 + 9 * 4; // 38
       node_count = read_uint32(dict_buf + 2);
+      max_tail_len = read_uint32(dict_buf + 6);
       bv_block_count = node_count / nodes_per_bv_block;
-      cache_loc = dict_buf + read_uint32(dict_buf + 6);
-      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 10);
-      trie_bv_loc =  dict_buf + read_uint32(dict_buf + 14);
-      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
-      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 22);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 26);
+      cache_loc = dict_buf + read_uint32(dict_buf + 10);
+      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 14);
+      trie_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
+      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 22);
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 26);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 30);
       select_lkup_loc_end = tail_ptrs_loc;
-      trie_loc = dict_buf + read_uint32(dict_buf + 30);
+      trie_loc = dict_buf + read_uint32(dict_buf + 34);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
@@ -203,17 +238,18 @@ class static_dict {
       return tail[tail_ptr];
     }
 
-    std::string get_tail_str(std::string& ret, uint32_t tail_ptr, uint8_t grp_no) {
+    const int max_tailset_len = 65;
+    void get_tail_str(byte_str& ret, uint32_t tail_ptr, uint8_t grp_no) {
       uint32_t ptr = tail_ptr;
       uint8_t *tail = grp_tails[grp_no];
       ret.clear();
       int byt = tail[ptr++];
       while (byt > 31) {
-        ret.append(1, byt);
+        ret.append(byt);
         byt = tail[ptr++];
       }
       if (tail[--ptr] == 0)
-        return ret;
+        return;
       uint8_t len_len = 0;
       uint32_t sfx_len = read_len(tail, ptr, len_len);
       uint32_t ptr_end = tail_ptr;
@@ -225,28 +261,30 @@ class static_dict {
         byt = tail[ptr--];
       } while (byt > 31);
       ptr++;
-      std::string prev_str;
+      uint8_t prev_str_buf[max_tailset_len];
+      byte_str prev_str(prev_str_buf, max_tailset_len);
       byt = tail[++ptr];
       while (byt != 0) {
-        prev_str.append(1, byt);
+        prev_str.append(byt);
         byt = tail[++ptr];
       }
-      std::string last_str;
+      uint8_t last_str_buf[max_tailset_len];
+      byte_str last_str(last_str_buf, max_tailset_len);
       while (ptr < ptr_end) {
         byt = tail[++ptr];
         while (byt > 31) {
-          last_str.append(1, byt);
+          last_str.append(byt);
           byt = tail[++ptr];
         }
         uint32_t prev_sfx_len = read_len(tail, ptr, len_len);
-        last_str.append(prev_str.substr(prev_str.length()-prev_sfx_len));
+        last_str.append(prev_str.data() + prev_str.length()-prev_sfx_len, prev_sfx_len);
         ptr += len_len;
         ptr--;
-        prev_str = last_str;
+        prev_str.clear();
+        prev_str.append(last_str.data(), last_str.length());
         last_str.clear();
       }
-      ret.append(prev_str.substr(prev_str.length()-sfx_len));
-      return ret;
+      ret.append(prev_str.data() + prev_str.length()-sfx_len, sfx_len);
     }
 
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
@@ -263,55 +301,42 @@ class static_dict {
       return last;
     }
 
-const uint64_t sMSBs8 = 0x8080808080808080ull;
-const uint64_t sLSBs8 = 0x0101010101010101ull;
-    
-inline uint64_t
-leq_bytes(uint64_t pX, uint64_t pY)
-{
-    return ((((pY | sMSBs8) - (pX & ~sMSBs8)) ^ pX ^ pY) & sMSBs8) >> 7;
-}
-    
-    
-inline uint64_t
-gt_zero_bytes(uint64_t pX)
-{
-    return ((pX | ((pX | sMSBs8) - sLSBs8)) & sMSBs8) >> 7;
-}
-    
-    
-inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR)
-{
-    const uint64_t sOnesStep4  = 0x1111111111111111ull;
-    const uint64_t sIncrStep8  = 0x8040201008040201ull;
-
-    uint64_t byte_sums = pWord - ((pWord & 0xA*sOnesStep4) >> 1);
-    byte_sums = (byte_sums & 3*sOnesStep4) + ((byte_sums >> 2) & 3*sOnesStep4);
-    byte_sums = (byte_sums + (byte_sums >> 4)) & 0xF*sLSBs8;
-    byte_sums *= sLSBs8;
-    
-    const uint64_t k_step_8 = pR * sLSBs8;
-    const uint64_t place
-        = (leq_bytes( byte_sums, k_step_8 ) * sLSBs8 >> 53) & ~0x7;
-    const int byte_rank = pR - (((byte_sums << 8) >> place) & 0xFF);
-    const uint64_t spread_bits = (pWord >> place & 0xFF) * sLSBs8 & sIncrStep8;
-    const uint64_t bit_sums = gt_zero_bytes(spread_bits) * sLSBs8;
-    const uint64_t byte_rank_step_8 = byte_rank * sLSBs8;
-    return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
-}
+    // https://stackoverflow.com/a/76608807/5072621
+    // https://vigna.di.unimi.it/ftp/papers/Broadword.pdf
+    const uint64_t sMSBs8 = 0x8080808080808080ull;
+    const uint64_t sLSBs8 = 0x0101010101010101ull;
+    inline uint64_t leq_bytes(uint64_t pX, uint64_t pY) {
+      return ((((pY | sMSBs8) - (pX & ~sMSBs8)) ^ pX ^ pY) & sMSBs8) >> 7;
+    }
+    inline uint64_t gt_zero_bytes(uint64_t pX) {
+      return ((pX | ((pX | sMSBs8) - sLSBs8)) & sMSBs8) >> 7;
+    }
+    inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR) {
+      const uint64_t sOnesStep4  = 0x1111111111111111ull;
+      const uint64_t sIncrStep8  = 0x8040201008040201ull;
+      uint64_t byte_sums = pWord - ((pWord & 0xA*sOnesStep4) >> 1);
+      byte_sums = (byte_sums & 3*sOnesStep4) + ((byte_sums >> 2) & 3*sOnesStep4);
+      byte_sums = (byte_sums + (byte_sums >> 4)) & 0xF*sLSBs8;
+      byte_sums *= sLSBs8;
+      const uint64_t k_step_8 = pR * sLSBs8;
+      const uint64_t place = (leq_bytes( byte_sums, k_step_8 ) * sLSBs8 >> 53) & ~0x7;
+      const int byte_rank = pR - (((byte_sums << 8) >> place) & 0xFF);
+      const uint64_t spread_bits = (pWord >> place & 0xFF) * sLSBs8 & sIncrStep8;
+      const uint64_t bit_sums = gt_zero_bytes(spread_bits) * sLSBs8;
+      const uint64_t byte_rank_step_8 = byte_rank * sLSBs8;
+      return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
+    }
 
     uint8_t *scan_block64(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
 
-
       uint64_t bm_term, bm_child;
-      uint64_t bm_mask = bm_init_mask;
       read_uint64(t + 8, bm_term);
       read_uint64(t + 16, bm_child);
       t += 32;
       int i = target_term_count - term_count - 1;
-      //size_t pos1 = find_nth_set_bit(bm_term, i);
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
-      size_t pos = _tzcnt_u64(isolated_bit) + 1; //+ _tzcnt_u64(bm_term);
+      size_t pos = _tzcnt_u64(isolated_bit) + 1;
+      // size_t pos = find_nth_set_bit(bm_term, i) + 1;
       node_id = node_id + pos;
       t += pos;
       term_count = target_term_count;
@@ -418,7 +443,8 @@ inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR)
       uint32_t tail_ptr = 0;
       uint32_t term_count = 0;
       uint32_t child_count = 0;
-      std::string tail_str;
+      uint8_t tail_str_buf[max_tail_len];
+      byte_str tail_str(tail_str_buf, max_tail_len);
       do {
         if ((node_id % 64) == 0) {
           bm_mask = bm_init_mask;
@@ -444,7 +470,7 @@ inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR)
           if (bm_mask & bm_ptr) {
             get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
-            cmp = compare((const uint8_t *) tail_str.c_str(), tail_len,
+            cmp = compare(tail_str.data(), tail_len,
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
             // printf("%d\t%d\t%.*s =========== ", cmp, tail_len, tail_len, tail_data);
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);

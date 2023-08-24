@@ -804,13 +804,13 @@ class builder : public builder_abstract {
       memset(char_counts, '\0', sizeof(uint32_t) * 8);
       uint32_t node_count = 0;
       uint32_t term_count = 0;
+      uint32_t max_tail_len = 0;
       uint64_t bm_leaf = 0;
       uint64_t bm_term = 0;
       uint64_t bm_child = 0;
       uint64_t bm_ptr = 0;
       uint64_t bm_mask = 1UL;
       byte_vec byte_vec64;
-      uint8_t pending_byte = 0;
       int last_byte_bits;
       //trie.reserve(node_count + (node_count >> 1));
       tail_ptrs.push_back(0);
@@ -851,6 +851,8 @@ class builder : public builder_abstract {
             bm_child |= bm_mask;
           if (cur_node->tail_len > 1)
             bm_ptr |= bm_mask;
+          if (cur_node->tail_len > max_tail_len)
+            max_tail_len = cur_node->tail_len;
           bm_mask <<= 1;
           byte_vec64.push_back(node_val);
           node_count++;
@@ -878,6 +880,7 @@ class builder : public builder_abstract {
       std::cout << "Node count: " << node_count << std::endl;
       std::cout << "Trie size: " << trie.size() << std::endl;
       std::cout << "Term count: " << term_count << std::endl;
+      std::cout << "Max tail len: " << max_tail_len << std::endl;
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
       uint32_t ptr_lookup_tbl = (ceil(node_count/64) + 1) * 4;
@@ -890,7 +893,7 @@ class builder : public builder_abstract {
       std::cout << "Select lookup table: " << select_lookup << std::endl;
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
       std::cout << "Cache size: " << cache_size << std::endl;
-      uint32_t total_size = 2 + 8 * 4 + trie.size()
+      uint32_t total_size = 2 + 9 * 4 + trie.size()
           + ptr_lookup_tbl + trie_bv + leaf_bv + select_lookup
           + cache_size
           + total_tails + 512 + 1 + grp_tails.size() * 4 // tails
@@ -901,7 +904,7 @@ class builder : public builder_abstract {
       FILE *fp = fopen(out_filename.c_str(), "wb+");
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
-      uint32_t grp_tails_loc = 2 + 8 * 4; // 26
+      uint32_t grp_tails_loc = 2 + 9 * 4; // 26
       uint32_t grp_tails_size = 513 // group_count + huffman lookup table
                        + grp_tails.size() * 4 // tail_locations
                        + total_tails;
@@ -914,6 +917,7 @@ class builder : public builder_abstract {
       uint32_t trie_loc = tail_ptrs_loc + tail_ptrs.size();
       printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc, ptr_lookup_tbl_loc, trie_bv_loc, leaf_bv_loc, select_lkup_loc, tail_ptrs_loc, trie_loc);
       write_uint32(node_count, fp);
+      write_uint32(max_tail_len, fp);
       write_uint32(cache_loc, fp);
       write_uint32(ptr_lookup_tbl_loc, fp);
       write_uint32(trie_bv_loc, fp);
