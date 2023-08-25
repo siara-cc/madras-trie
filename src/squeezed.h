@@ -73,7 +73,6 @@ class static_dict {
     uint8_t *child_bv_loc;
     uint8_t *leaf_bv_loc;
     uint8_t *select_lkup_loc;
-    uint8_t *select_lkup_loc_end;
     uint8_t *tail_ptrs_loc;
     uint8_t *trie_loc;
 
@@ -134,7 +133,6 @@ class static_dict {
       leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 26);
       select_lkup_loc =  dict_buf + read_uint32(dict_buf + 30);
       tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 34);
-      select_lkup_loc_end = tail_ptrs_loc;
       trie_loc = dict_buf + read_uint32(dict_buf + 38);
 
       grp_count = *grp_tails_loc;
@@ -355,11 +353,10 @@ class static_dict {
     }
 
     uint32_t get_rank7(uint8_t *bv7, int pos) {
-      if (pos > 2) {
-        uint32_t ret = (bv7[7] << (pos - 2)) & 0x100;
-        return ret | bv7[pos];
-      }
-      return bv7[pos];
+      uint32_t ret = bv7[pos];
+      if (pos < 3)
+        return ret;
+      return ret | (bv7[7] << (pos - 2)) & 0x100;
     }
 
     uint32_t find_child_rank(uint32_t node_id, uint64_t bm_child, uint64_t mask) {
@@ -388,7 +385,7 @@ class static_dict {
       } else {
         uint32_t start_block = read_uint32(select_loc);
         select_loc += 4;
-        uint32_t end_block = select_loc < select_lkup_loc_end ? read_uint32(select_loc) : bv_block_count;
+        uint32_t end_block = read_uint32(select_loc);
         if (start_block + 6 >= end_block) {
           do {
             start_block++;
@@ -412,32 +409,51 @@ class static_dict {
       uint8_t *bv7_term = term_bv_loc + child_block * 12 + 4;
       int pos7 = -1;
       uint32_t remain_count = target_term_count - term_count;
-      if (remain_count <= get_rank7(bv7_term, 3)) {
-        if (remain_count <= get_rank7(bv7_term, 1)) {
-          if (remain_count > get_rank7(bv7_term, 0)) {
-            pos7 = 0;
+      if (remain_count <= bv7_term3(bv7_term)) {
+        if (remain_count <= bv7_term[1]) {
+          if (remain_count > bv7_term[0]) {
+            term_count += bv7_term[0];
+            node_id += nodes_per_bv_block7;
           }
-        } else if (remain_count <= get_rank7(bv7_term, 2)) {
-          pos7 = 1;
+        } else if (remain_count <= bv7_term[2]) {
+          term_count += bv7_term[1];
+          node_id += nodes_per_bv_block7 * 2;
         } else {
-          pos7 = 2;
+          term_count += bv7_term[2];
+          node_id += nodes_per_bv_block7 * 3;
         }
-      } else if (remain_count <= get_rank7(bv7_term, 5)) {
-        if (remain_count <= get_rank7(bv7_term, 4)) {
-          pos7 = 3;
+      } else if (remain_count <= bv7_term5(bv7_term)) {
+        if (remain_count <= bv7_term4(bv7_term)) {
+          term_count += bv7_term3(bv7_term);
+          node_id += nodes_per_bv_block7 * 4;
         } else {
-          pos7 = 4;
+          term_count += bv7_term4(bv7_term);
+          node_id += nodes_per_bv_block7 * 5;
         }
-      } else if (remain_count <= get_rank7(bv7_term, 6)) {
-        pos7 = 5;
+      } else if (remain_count <= bv7_term6(bv7_term)) {
+        term_count += bv7_term5(bv7_term);
+        node_id += nodes_per_bv_block7 * 6;
       } else {
-        pos7 = 6;
-      }
-      if (pos7 >= 0) {
-        term_count += get_rank7(bv7_term, pos7++);
-        node_id += nodes_per_bv_block7 * pos7;
+        term_count += bv7_term6(bv7_term);
+        node_id += nodes_per_bv_block7 * 7;
       }
       scan_block64(node_id, term_count, target_term_count);
+    }
+
+    uint32_t bv7_term3(uint8_t *bv7) {
+      return bv7[3] | (bv7[7] << 1) & 0x100;
+    }
+
+    uint32_t bv7_term4(uint8_t *bv7) {
+      return bv7[4] | (bv7[7] << 2) & 0x100;
+    }
+
+    uint32_t bv7_term5(uint8_t *bv7) {
+      return bv7[5] | (bv7[7] << 3) & 0x100;
+    }
+
+    uint32_t bv7_term6(uint8_t *bv7) {
+      return bv7[6] | (bv7[7] << 4) & 0x100;
     }
 
     uint8_t *read_uint64(uint8_t *t, uint64_t& u64) {

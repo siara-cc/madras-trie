@@ -887,7 +887,7 @@ class builder : public builder_abstract {
       uint32_t term_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 12;
       uint32_t child_bv = term_bv;
       uint32_t leaf_bv = term_bv;
-      uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
+      uint32_t select_lookup = (ceil(term_count/term_divisor) + 2) * 4;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
       std::cout << "Bit vector lookup table: " << term_bv << " * 3 = " << term_bv * 3 << std::endl;
       std::cout << "Select lookup table: " << select_lookup << std::endl;
@@ -934,7 +934,7 @@ class builder : public builder_abstract {
       write_term_bv(fp);
       write_child_bv(fp);
       write_leaf_bv(fp);
-      write_select_lkup(fp);
+      write_select_lkup(fp, node_count);
       fwrite(tail_ptrs.data(), tail_ptrs.size(), 1, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
       fclose(fp);
@@ -1033,7 +1033,7 @@ class builder : public builder_abstract {
       }
     }
 
-    void write_select_lkup(FILE *fp) {
+    void write_select_lkup(FILE *fp, uint32_t node_count) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
       write_uint32(0, fp);
@@ -1051,6 +1051,7 @@ class builder : public builder_abstract {
           node_id++;
         }
       }
+      write_uint32(node_count / nodes_per_bv_block, fp);
     }
 
     const int nodes_per_ptr_block = 64;
