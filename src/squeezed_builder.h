@@ -884,7 +884,7 @@ class builder : public builder_abstract {
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
       uint32_t ptr_lookup_tbl = (ceil(node_count/64) + 1) * 4;
-      uint32_t term_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
+      uint32_t term_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 12;
       uint32_t child_bv = term_bv;
       uint32_t leaf_bv = term_bv;
       uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
@@ -959,14 +959,16 @@ class builder : public builder_abstract {
     void write_bv7(uint32_t node_id, uint32_t& count, uint32_t& count7,
                     uint8_t *buf7, uint8_t& pos7, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(buf7, 7, 1, fp);
+        fwrite(buf7, 8, 1, fp);
         write_uint32(count, fp);
         count7 = 0;
-        memset(buf7, 0, 7);
+        memset(buf7, 0, 8);
         pos7 = 0;
       } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
         buf7[pos7] = count7;
-        count7 = 0;
+        if (pos7 > 2)
+          buf7[7] |= ((count7 & 0x100) >> (pos7 - 2));
+        // count7 = 0;
         pos7++;
       }
     }
@@ -975,9 +977,9 @@ class builder : public builder_abstract {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
       uint32_t term1_count7 = 0;
-      uint8_t term1_buf7[7];
+      uint8_t term1_buf7[8];
       uint8_t pos7 = 0;
-      memset(term1_buf7, 0, 7);
+      memset(term1_buf7, 0, 8);
       write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
@@ -989,7 +991,7 @@ class builder : public builder_abstract {
           node_id++;
         }
       }
-      fwrite(term1_buf7, 7, 1, fp);
+      fwrite(term1_buf7, 8, 1, fp);
       printf("Term1_count: %u\n", term1_count);
     }
 
@@ -997,9 +999,9 @@ class builder : public builder_abstract {
       uint32_t node_id = 0;
       uint32_t child_count = 0;
       uint32_t child_count7 = 0;
-      uint8_t child_buf7[7];
+      uint8_t child_buf7[8];
       uint8_t pos7 = 0;
-      memset(child_buf7, 0, 7);
+      memset(child_buf7, 0, 8);
       write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
@@ -1011,7 +1013,7 @@ class builder : public builder_abstract {
           node_id++;
         }
       }
-      fwrite(child_buf7, 7, 1, fp);
+      fwrite(child_buf7, 8, 1, fp);
       printf("Child_count: %u\n", child_count);
     }
 
@@ -1019,9 +1021,9 @@ class builder : public builder_abstract {
       uint32_t node_id = 0;
       uint32_t leaf_count = 0;
       uint32_t leaf_count7 = 0;
-      uint8_t leaf_buf7[7];
+      uint8_t leaf_buf7[8];
       uint8_t pos7 = 0;
-      memset(leaf_buf7, 0, 7);
+      memset(leaf_buf7, 0, 8);
       write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
@@ -1033,7 +1035,7 @@ class builder : public builder_abstract {
           node_id++;
         }
       }
-      fwrite(leaf_buf7, 7, 1, fp);
+      fwrite(leaf_buf7, 8, 1, fp);
       printf("Leaf_count: %u\n", leaf_count);
     }
 

@@ -64,7 +64,7 @@ class static_dict {
     size_t dict_size;
 
     uint32_t node_count;
-    uint32_t bv_block_count;
+    uint32_t bv_block_last;
     uint32_t max_tail_len;
     uint8_t *grp_tails_loc;
     uint8_t *cache_loc;
@@ -126,7 +126,7 @@ class static_dict {
       grp_tails_loc = dict_buf + 2 + 10 * 4; // 42
       node_count = read_uint32(dict_buf + 2);
       max_tail_len = read_uint32(dict_buf + 6);
-      bv_block_count = node_count / nodes_per_bv_block;
+      bv_block_last = node_count / nodes_per_bv_block - 1;
       cache_loc = dict_buf + read_uint32(dict_buf + 10);
       ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 14);
       term_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
@@ -288,15 +288,15 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
       while (first < last) {
         uint32_t middle = (first + last) >> 1;
-        uint32_t term_at = read_uint32(term_bv_loc + middle * 11);
+        uint32_t term_at = read_uint32(term_bv_loc + middle * 12);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
           last = middle;
         else
-          return middle;
+          return middle - 1;
       }
-      return last;
+      return first;
     }
 
     // https://stackoverflow.com/a/76608807/5072621
@@ -354,14 +354,23 @@ class static_dict {
       //   printf("Node_Id: %u,%u\tChild count: %u,%u\n", node_id, node_id1, child_count, child_count1);
     }
 
+    uint32_t get_rank7(uint8_t *bv7, int pos) {
+      if (pos > 2) {
+        uint32_t ret = (bv7[7] << (pos - 2)) & 0x100;
+        return ret | bv7[pos];
+      }
+      return bv7[pos];
+    }
+
     uint32_t find_child_rank(uint32_t node_id, uint64_t bm_child, uint64_t mask) {
-      uint8_t *child_rank_ptr = child_bv_loc + node_id / nodes_per_bv_block * 11;
+      uint8_t *child_rank_ptr = child_bv_loc + node_id / nodes_per_bv_block * 12;
       uint32_t child_rank = read_uint32(child_rank_ptr);
       int pos = (node_id / nodes_per_bv_block7) % 8;
       if (pos > 0) {
         uint8_t *bv_child7 = child_rank_ptr + 4;
-        while (pos--)
-          child_rank += bv_child7[pos];
+        //while (pos--)
+        //  child_rank += bv_child7[pos];
+        child_rank += get_rank7(bv_child7, pos - 1);
       }
       return child_rank + __builtin_popcountll(bm_child & (mask - 1));
     }
@@ -378,35 +387,39 @@ class static_dict {
         child_block = read_uint32(select_loc);
       } else {
         uint32_t start_block = read_uint32(select_loc);
-        uint32_t end_block = read_uint32(select_loc + 4);
-        end_block = end_block < bv_block_count ? end_block : bv_block_count;
+        select_loc += 4;
+        uint32_t end_block = select_loc < select_lkup_loc_end ? read_uint32(select_loc) : bv_block_last;
         if (start_block + 6 >= end_block) {
           do {
             start_block++;
-          } while (read_uint32(term_bv_loc + start_block * 11) < target_term_count && start_block <= end_block);
+          } while (read_uint32(term_bv_loc + start_block * 12) < target_term_count && start_block <= end_block);
           child_block = start_block - 1;
         } else {
           child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
         }
-        // printf("%u,%u,%.0f\t%u,%u,%.0f,%u\n", node_id_block, bv_block_count, ceil(log2(bv_block_count - node_id_block)), start_block, end_block, ceil(log2(end_block - start_block)), child_block);
+        // printf("%u,%u,%.0f\t%u,%u,%.0f,%u\n", node_id_block, bv_block_last, ceil(log2(bv_block_last - node_id_block)), start_block, end_block, ceil(log2(end_block - start_block)), child_block);
       }
       // uint32_t node_id_block = node_id / nodes_per_bv_block;
-      // child_block = bin_srch_bv_term(node_id_block, bv_block_count, target_term_count);
-      uint32_t term_count;
+      // child_block = bin_srch_bv_term(node_id_block, bv_block_last, target_term_count);
+      uint32_t term_count = read_uint32(term_bv_loc + child_block * 12);
       child_block++;
       do {
+        // printf("Child block: %u\n", child_block);
         child_block--;
-        term_count = read_uint32(term_bv_loc + child_block * 11);
-        node_id = child_block * nodes_per_bv_block;
+        term_count = read_uint32(term_bv_loc + child_block * 12);
       } while (term_count >= target_term_count);
-      uint8_t *bv7_term = term_bv_loc + child_block * 11 + 4;
-      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
-        uint8_t term7 = bv7_term[pos7];
-        if (term_count + term7 < target_term_count) {
-          term_count += term7;
-          node_id += nodes_per_bv_block7;
-        } else
+      node_id = child_block * nodes_per_bv_block;
+      uint8_t *bv7_term = term_bv_loc + child_block * 12 + 4;
+      int pos7;
+      uint32_t term7 = 0;
+      for (pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 + nodes_per_bv_block7 * pos7 < node_count; pos7++) {
+        term7 = get_rank7(bv7_term, pos7);
+        if (term_count + term7 >= target_term_count)
           break;
+      }
+      if (pos7 > 0) {
+        node_id += nodes_per_bv_block7 * pos7--;
+        term_count += get_rank7(bv7_term, pos7);
       }
       scan_block64(node_id, term_count, target_term_count);
     }
