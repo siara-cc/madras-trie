@@ -410,14 +410,32 @@ class static_dict {
       } while (term_count >= target_term_count);
       node_id = child_block * nodes_per_bv_block;
       uint8_t *bv7_term = term_bv_loc + child_block * 12 + 4;
-      int pos7;
-      for (pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 + nodes_per_bv_block7 * pos7 < node_count; pos7++) {
-        if (term_count + get_rank7(bv7_term, pos7) >= target_term_count)
-          break;
+      int pos7 = -1;
+      uint32_t remain_count = target_term_count - term_count;
+      if (remain_count <= get_rank7(bv7_term, 3)) {
+        if (remain_count <= get_rank7(bv7_term, 1)) {
+          if (remain_count > get_rank7(bv7_term, 0)) {
+            pos7 = 0;
+          }
+        } else if (remain_count <= get_rank7(bv7_term, 2)) {
+          pos7 = 1;
+        } else {
+          pos7 = 2;
+        }
+      } else if (remain_count <= get_rank7(bv7_term, 5)) {
+        if (remain_count <= get_rank7(bv7_term, 4)) {
+          pos7 = 3;
+        } else {
+          pos7 = 4;
+        }
+      } else if (remain_count <= get_rank7(bv7_term, 6)) {
+        pos7 = 5;
+      } else {
+        pos7 = 6;
       }
-      if (pos7 > 0) {
-        node_id += nodes_per_bv_block7 * pos7--;
-        term_count += get_rank7(bv7_term, pos7);
+      if (pos7 >= 0) {
+        term_count += get_rank7(bv7_term, pos7++);
+        node_id += nodes_per_bv_block7 * pos7;
       }
       scan_block64(node_id, term_count, target_term_count);
     }
