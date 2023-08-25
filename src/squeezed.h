@@ -69,7 +69,8 @@ class static_dict {
     uint8_t *grp_tails_loc;
     uint8_t *cache_loc;
     uint8_t *ptr_lookup_tbl_loc;
-    uint8_t *trie_bv_loc;
+    uint8_t *term_bv_loc;
+    uint8_t *child_bv_loc;
     uint8_t *leaf_bv_loc;
     uint8_t *select_lkup_loc;
     uint8_t *select_lkup_loc_end;
@@ -122,27 +123,25 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 9 * 4; // 38
+      grp_tails_loc = dict_buf + 2 + 10 * 4; // 42
       node_count = read_uint32(dict_buf + 2);
       max_tail_len = read_uint32(dict_buf + 6);
       bv_block_count = node_count / nodes_per_bv_block;
       cache_loc = dict_buf + read_uint32(dict_buf + 10);
       ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 14);
-      trie_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
-      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 22);
-      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 26);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 30);
+      term_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
+      child_bv_loc =  dict_buf + read_uint32(dict_buf + 22);
+      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 26);
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 30);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 34);
       select_lkup_loc_end = tail_ptrs_loc;
-      trie_loc = dict_buf + read_uint32(dict_buf + 34);
+      trie_loc = dict_buf + read_uint32(dict_buf + 38);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
       uint8_t *grp_tails_idx_start = code_lookup_tbl + 512;
       for (int i = 0; i < grp_count; i++)
         grp_tails.push_back(dict_buf + read_uint32(grp_tails_idx_start + i * 4));
-
-      printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
-                leaf_bv_loc-dict_buf, select_lkup_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
 
     }
 
@@ -289,7 +288,7 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
       while (first < last) {
         uint32_t middle = (first + last) >> 1;
-        uint32_t term_at = read_uint32(trie_bv_loc + middle * 22);
+        uint32_t term_at = read_uint32(term_bv_loc + middle * 11);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
@@ -356,11 +355,11 @@ class static_dict {
     }
 
     uint32_t find_child_rank(uint32_t node_id, uint64_t bm_child, uint64_t mask) {
-      uint8_t *child_rank_ptr = trie_bv_loc + node_id / nodes_per_bv_block * 22 + 4;
+      uint8_t *child_rank_ptr = child_bv_loc + node_id / nodes_per_bv_block * 11;
       uint32_t child_rank = read_uint32(child_rank_ptr);
       int pos = (node_id / nodes_per_bv_block7) % 8;
       if (pos > 0) {
-        uint8_t *bv_child7 = child_rank_ptr + 4 + 7;
+        uint8_t *bv_child7 = child_rank_ptr + 4;
         while (pos--)
           child_rank += bv_child7[pos];
       }
@@ -381,10 +380,10 @@ class static_dict {
         uint32_t start_block = read_uint32(select_loc);
         uint32_t end_block = read_uint32(select_loc + 4);
         end_block = end_block < bv_block_count ? end_block : bv_block_count;
-        if (start_block + 4 >= end_block) {
+        if (start_block + 6 >= end_block) {
           do {
             start_block++;
-          } while (read_uint32(trie_bv_loc + start_block * 22) < target_term_count && start_block <= end_block);
+          } while (read_uint32(term_bv_loc + start_block * 11) < target_term_count && start_block <= end_block);
           child_block = start_block - 1;
         } else {
           child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
@@ -397,10 +396,10 @@ class static_dict {
       child_block++;
       do {
         child_block--;
-        term_count = read_uint32(trie_bv_loc + child_block * 22);
+        term_count = read_uint32(term_bv_loc + child_block * 11);
         node_id = child_block * nodes_per_bv_block;
       } while (term_count >= target_term_count);
-      uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
+      uint8_t *bv7_term = term_bv_loc + child_block * 11 + 4;
       for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
         uint8_t term7 = bv7_term[pos7];
         if (term_count + term7 < target_term_count) {
