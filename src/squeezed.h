@@ -331,7 +331,8 @@ class static_dict {
       t += 32;
       int i = target_term_count - term_count - 1;
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
-      size_t bit_pos = _tzcnt_u64(isolated_bit) + 1;
+      size_t bit_pos = __builtin_popcountll(isolated_bit - 1) + 1;
+      //size_t bit_pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t bit_pos = find_nth_set_bit(bm_term, i) + 1;
       node_id += bit_pos;
       // term_count = target_term_count;

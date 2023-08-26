@@ -1,0 +1,37 @@
+arun@arun-h110:~/git/marisa-trie/tools$ ./marisa-benchmark -p -l ../../marisa-siara/tools/word_freq_sorted.txt
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Ascending label order
+Cache level: Normal cache
+Number of keys: 1099292
+Total length: 14554342
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1    3770152  1974.74  2538.97  4061.84  2377.09        -
+     2    3443544  1955.66  2008.18  3053.97  1904.81        -
+     3    3434848  1908.92  1970.22  3082.26  1872.86        -
+     4    3434208  2017.61  1979.35  3010.74  1877.18        -
+     5    3434320  1907.67  1951.44  3019.83  1853.42        -
+------+----------+--------+--------+--------+--------+--------
+arun@arun-h110:~/git/marisa-trie/tools$ ./marisa-benchmark -p -l ~/Downloads/enwiki-latest-all-titles-in-ns0
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Ascending label order
+Cache level: Normal cache
+Number of keys: 17336431
+Total length: 359374131
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1  122343840   958.80  1329.56  2914.41  1224.54        -
+     2   94907952   816.85   846.82  1525.13   804.14        -
+     3   90706632   803.15   772.82  1389.43   737.93        -
+     4   89538456   799.32   751.65  1352.59   716.97        -
+     5   89129024   798.03   744.22  1340.56   710.86        -
+------+----------+--------+--------+--------+--------+--------
+

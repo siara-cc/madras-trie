@@ -170,7 +170,7 @@ struct node {
   }
 };
 
-int compare(const uint8_t *v1, int len1, const uint8_t *v2,
+int compare_build(const uint8_t *v1, int len1, const uint8_t *v2,
         int len2, int k = 0) {
     int lim = (len2 < len1 ? len2 : len1);
     do {
@@ -248,7 +248,7 @@ class builder : public builder_abstract {
     }
 
     bool compareNodeTails(const node *lhs, const node *rhs) const {
-      return compare(sort_tails.data() + lhs->tail_pos, lhs->tail_len,
+      return compare_build(sort_tails.data() + lhs->tail_pos, lhs->tail_len,
                      sort_tails.data() + rhs->tail_pos, rhs->tail_len);
     }
 
@@ -502,8 +502,8 @@ class builder : public builder_abstract {
       make_uniq_tails(uniq_tails, uniq_tails_rev, uniq_tails_freq);
       clock_t t = clock();
       uniq_tails_fwd = uniq_tails_rev;
-      std::sort(uniq_tails_fwd.begin(), uniq_tails_fwd.end(), [uniq_tails](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        return compare(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
+      std::sort(uniq_tails_fwd.begin(), uniq_tails_fwd.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return compare_build(this->uniq_tails.data() + lhs->tail_pos, lhs->tail_len, this->uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
       });
       for (int i = 0; i < uniq_tails_fwd.size(); i++)
         uniq_tails_fwd[i]->fwd_pos = i;
@@ -1207,7 +1207,7 @@ class builder : public builder_abstract {
             // const uint8_t *tail_str = get_tail_str(cur_node, tail_len);
             // cmp = compare(tail_str, tail_len, 
             std::string tail_str = get_tail_str(cur_node);
-            cmp = compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
+            cmp = compare_build((const uint8_t *) tail_str.c_str(), tail_str.length(),
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
             // printf("%d\t%d\t%.*s =========== ", cmp, tail_len, tail_len, tail_data);
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
