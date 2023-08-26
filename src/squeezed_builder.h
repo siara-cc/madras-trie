@@ -884,17 +884,17 @@ class builder : public builder_abstract {
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Tail ptr size: " << tail_ptrs.size() << std::endl;
       uint32_t ptr_lookup_tbl = (ceil(node_count/64) + 1) * 4;
-      uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
-      uint32_t leaf_bv = trie_bv / 2;
+      uint32_t term_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
+      uint32_t child_bv = term_bv;
+      uint32_t leaf_bv = term_bv;
       uint32_t select_lookup = (ceil(term_count/term_divisor) + 2) * 4;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
-      std::cout << "Trie BV lookup table: " << trie_bv << " * 3 = " << trie_bv * 2 << std::endl;
-      std::cout << "Leaf BV lookup table: " << leaf_bv << std::endl;
+      std::cout << "Bit vector lookup table: " << term_bv << " * 3 = " << term_bv * 3 << std::endl;
       std::cout << "Select lookup table: " << select_lookup << std::endl;
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
       std::cout << "Cache size: " << cache_size << std::endl;
-      uint32_t total_size = 2 + 9 * 4 + trie.size()
-          + ptr_lookup_tbl + (trie_bv + leaf_bv) + select_lookup
+      uint32_t total_size = 2 + 10 * 4 + trie.size()
+          + ptr_lookup_tbl + (term_bv * 3) + select_lookup
           + cache_size
           + total_tails + 512 + 1 + grp_tails.size() * 4 // tails
           + tail_ptrs.size();  // tail pointers
@@ -904,22 +904,25 @@ class builder : public builder_abstract {
       FILE *fp = fopen(out_filename.c_str(), "wb+");
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
-      uint32_t grp_tails_loc = 2 + 9 * 4; // 38
+      uint32_t grp_tails_loc = 2 + 10 * 4; // 42
       uint32_t grp_tails_size = 513 // group_count + huffman lookup table
                        + grp_tails.size() * 4 // tail_locations
                        + total_tails;
       uint32_t cache_loc = grp_tails_loc + grp_tails_size;
       uint32_t ptr_lookup_tbl_loc = cache_loc + cache_size;
-      uint32_t trie_bv_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
+      uint32_t term_bv_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
+      uint32_t child_bv_loc = term_bv_loc + term_bv;
+      uint32_t leaf_bv_loc = child_bv_loc + child_bv;
       uint32_t select_lkup_loc = leaf_bv_loc + leaf_bv;
       uint32_t tail_ptrs_loc = select_lkup_loc + select_lookup;
       uint32_t trie_loc = tail_ptrs_loc + tail_ptrs.size();
+      printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc, ptr_lookup_tbl_loc, term_bv_loc, leaf_bv_loc, select_lkup_loc, tail_ptrs_loc, trie_loc);
       write_uint32(node_count, fp);
       write_uint32(max_tail_len, fp);
       write_uint32(cache_loc, fp);
       write_uint32(ptr_lookup_tbl_loc, fp);
-      write_uint32(trie_bv_loc, fp);
+      write_uint32(term_bv_loc, fp);
+      write_uint32(child_bv_loc, fp);
       write_uint32(leaf_bv_loc, fp);
       write_uint32(select_lkup_loc, fp);
       write_uint32(tail_ptrs_loc, fp);
@@ -928,7 +931,8 @@ class builder : public builder_abstract {
       //write_cache(fp, cache_size);
       fwrite(trie.data(), cache_size, 1, fp);
       write_ptr_lookup_tbl(freq_grp_vec, uniq_tails_rev, fp);
-      write_trie_bv(fp);
+      write_term_bv(fp);
+      write_child_bv(fp);
       write_leaf_bv(fp);
       write_select_lkup(fp, node_count);
       fwrite(tail_ptrs.data(), tail_ptrs.size(), 1, fp);
@@ -952,91 +956,68 @@ class builder : public builder_abstract {
     const int nodes_per_bv_block7 = 64;
     const int nodes_per_bv_block = 512;
     const int term_divisor = 512;
-    void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
-                    uint32_t& term1_count7, uint32_t& child_count7,
-                    uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {
+    void write_bv7(uint32_t node_id, uint32_t& count, uint32_t& count7,
+                    uint8_t *buf7, uint8_t& pos7, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(term1_buf7, 7, 1, fp);
-        fwrite(child_buf7, 7, 1, fp);
-        write_uint32(term1_count, fp);
-        write_uint32(child_count, fp);
-        term1_count7 = 0;
-        child_count7 = 0;
-        memset(term1_buf7, 0, 7);
-        memset(child_buf7, 0, 7);
+        fwrite(buf7, 7, 1, fp);
+        write_uint32(count, fp);
+        count7 = 0;
+        memset(buf7, 0xFF, 7);
         pos7 = 0;
       } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
-        term1_buf7[pos7] = term1_count7;
-        child_buf7[pos7] = child_count7;
-        term1_count7 = 0;
-        child_count7 = 0;
+        buf7[pos7] = count7;
+        // if (pos7 > 2) {
+        //   buf7[7] &= ~(0x100 >> (pos7 - 2));
+        //   buf7[7] |= ((count7 & 0x100) >> (pos7 - 2));
+        // }
+        count7 = 0;
         pos7++;
       }
     }
 
-    void write_trie_bv(FILE *fp) {
+    void write_bv_lkup_tbl(FILE *fp, int which) {
       uint32_t node_id = 0;
-      uint32_t term1_count = 0;
-      uint32_t child_count = 0;
-      uint32_t term1_count7 = 0;
-      uint32_t child_count7 = 0;
-      uint8_t term1_buf7[7];
-      uint8_t child_buf7[7];
+      uint32_t count = 0;
+      uint32_t count7 = 0;
+      uint8_t buf7[7];
       uint8_t pos7 = 0;
-      memset(term1_buf7, 0, 7);
-      memset(child_buf7, 0, 7);
-      write_uint32(0, fp);
+      memset(buf7, 0xFF, 7);
       write_uint32(0, fp);
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
         for (int j = 0; j < cur_lvl_nodes.size(); j++) {
           node *cur_node = cur_lvl_nodes[j];
-          write_bv7(node_id, term1_count, child_count, term1_count7, child_count7, term1_buf7, child_buf7, pos7, fp);
-          term1_count += (cur_node->next_sibling == NULL ? 1 : 0);
-          child_count += (cur_node->first_child == NULL ? 0 : 1);
-          term1_count7 += (cur_node->next_sibling == NULL ? 1 : 0);
-          child_count7 += (cur_node->first_child == NULL ? 0 : 1);
+          write_bv7(node_id, count, count7, buf7, pos7, fp);
+          switch (which) {
+            case 1:
+              count += (cur_node->next_sibling == NULL ? 1 : 0);
+              count7 += (cur_node->next_sibling == NULL ? 1 : 0);
+              break;
+            case 2:
+              count += (cur_node->first_child != NULL ? 1 : 0);
+              count7 += (cur_node->first_child != NULL ? 1 : 0);
+              break;
+            case 3:
+              count  += (cur_node->is_leaf ? 1 : 0);
+              count7 += (cur_node->is_leaf ? 1 : 0);
+          }
           node_id++;
         }
       }
-      fwrite(term1_buf7, 7, 1, fp);
-      fwrite(child_buf7, 7, 1, fp);
-      printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
+      fwrite(buf7, 7, 1, fp);
+      printf("BV Count: %u\n", count);
     }
 
-    void write_leaf_bv7(uint32_t node_id, uint32_t& leaf_count, uint32_t& leaf_count7, uint8_t *leaf_buf7, uint8_t& pos7, FILE *fp) {
-      if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(leaf_buf7, 7, 1, fp);
-        write_uint32(leaf_count, fp);
-        leaf_count7 = 0;
-        memset(leaf_buf7, 0, 7);
-        pos7 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
-        leaf_buf7[pos7] = leaf_count7;
-        leaf_count7 = 0;
-        pos7++;
-      }
+    void write_term_bv(FILE *fp) {
+      write_bv_lkup_tbl(fp, 1);
+    }
+
+    void write_child_bv(FILE *fp) {
+      write_bv_lkup_tbl(fp, 2);
     }
 
     void write_leaf_bv(FILE *fp) {
-      uint32_t node_id = 0;
-      uint32_t leaf_count = 0;
-      uint32_t leaf_count7 = 0;
-      uint8_t leaf_buf7[7];
-      uint8_t pos7 = 0;
-      memset(leaf_buf7, 0, 7);
-      write_uint32(0, fp);
-      for (int i = 0; i < level_nodes.size(); i++) {
-        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
-        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
-          node *cur_node = cur_lvl_nodes[j];
-          write_leaf_bv7(node_id, leaf_count, leaf_count7, leaf_buf7, pos7, fp);
-          leaf_count += (cur_node->next_sibling == NULL ? 1 : 0);
-          leaf_count7 += (cur_node->next_sibling == NULL ? 1 : 0);
-          node_id++;
-        }
-      }
-      fwrite(leaf_buf7, 7, 1, fp);
+      write_bv_lkup_tbl(fp, 3);
     }
 
     void write_cache(FILE *fp, uint32_t cache_size) {
@@ -1062,7 +1043,7 @@ class builder : public builder_abstract {
           node *cur_node = cur_lvl_nodes[j];
           if (cur_node->next_sibling == NULL) {
             if (term_count && (term_count % term_divisor) == 0) {
-              write_uint32(node_id, fp);
+              write_uint32(node_id / nodes_per_bv_block, fp);
               //printf("%u\t%u\n", term_count, node_id / nodes_per_bv_block);
             }
             term_count++;
