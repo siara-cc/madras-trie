@@ -323,15 +323,41 @@ class static_dict {
       return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
     }
 
+    uint32_t select1(uint64_t bm_term, int count) {
+      if (bm_term == 1 && count == 1)
+        return 1;
+      int first = 1;
+      int last = 63;
+      while (first < last) {
+        uint32_t middle = (first + last) >> 1;
+        uint64_t bm_mask = (1ULL << middle) - 1;
+        int count_at = __builtin_popcountll(bm_term & bm_mask++);
+        if ((bm_term & bm_mask) && count_at == count)
+          return middle;
+        if (count_at < count)
+          first = middle + 1;
+        else if (count_at >= count)
+          last = middle;
+      }
+      if ((bm_term >> 63) && count == __builtin_popcountll(bm_term))
+        return 64;
+      return last;
+    }
+
     void scan_block64(uint32_t& node_id, uint32_t term_count, uint32_t target_term_count) {
 
       uint64_t bm_term;
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
       read_uint64(t + 8, bm_term);
       t += 32;
+
       int i = target_term_count - term_count - 1;
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
-      size_t bit_pos = __builtin_popcountll(isolated_bit - 1) + 1;
+      size_t bit_pos1 = __builtin_popcountll(isolated_bit - 1) + 1;
+
+      uint32_t bit_pos = select1(bm_term, target_term_count - term_count);
+      std::cout << "Bit pos: " << bit_pos << ": " << bit_pos1 << std::endl;
+
       //size_t bit_pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t bit_pos = find_nth_set_bit(bm_term, i) + 1;
       node_id += bit_pos;
@@ -352,7 +378,7 @@ class static_dict {
       // if (child_count != child_count1)
       //   printf("Node_Id: %u,%u\tChild count: %u,%u\n", node_id, node_id1, child_count, child_count1);
     }
-
+ 
     uint32_t find_child_rank(uint32_t node_id, uint64_t bm_child, uint64_t mask) {
       uint8_t *child_rank_ptr = child_bv_loc + node_id / nodes_per_bv_block * 11;
       uint32_t child_rank = read_uint32(child_rank_ptr);
