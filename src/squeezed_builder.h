@@ -159,6 +159,8 @@ struct freq_grp {
   uint8_t code_len;
 };
 
+static const int NFLAG_LEAF = 1;
+static const int NFLAG_TERM = 2;
 struct node {
   uint32_t node_id;
   uint32_t first_child;
@@ -167,7 +169,7 @@ struct node {
   uint32_t tail_pos;
   uint32_t rev_node_info_pos;
   uint32_t tail_len;
-  uint8_t is_leaf;
+  uint8_t flags;
   uint8_t v0;
   node() {
     memset(this, '\0', sizeof(node));
@@ -216,12 +218,12 @@ class builder_abstract {
 class builder : public builder_abstract {
 
   private:
-    node *root;
-    node *first_node;
+    node root;
+    node first_node;
     int node_count;
     int key_count;
-    vector<node *> all_nodes;
-    vector<node *> last_children;
+    vector<node> all_nodes;
+    vector<uint32_t> last_children;
     vector<vector<node *> > level_nodes;
     std::string prev_key;
     //dfox uniq_basix_map;
@@ -242,14 +244,43 @@ class builder : public builder_abstract {
       do {
         add_to_level_nodes(n, level);
         if (n->first_child != NULL)
-          build_level_nodes(all_nodes[n->first_child], level + 1);
-        n = n->next_sibling == 0 ? NULL : all_nodes[n->next_sibling];
+          build_level_nodes(&all_nodes[n->first_child], level + 1);
+        n = n->next_sibling == 0 ? NULL : &all_nodes[n->next_sibling];
       } while (n != NULL);
     }
 
-    void append_tail_vec(std::string val, node *n) {
-      n->tail_pos = sort_tails.size();
-      n->tail_len = val.length();
+    void sort_nodes() {
+      clock_t t = clock();
+      uint32_t nxt = 0;
+      uint32_t node_id = 1;
+      std::vector<node> new_all_nodes;
+      new_all_nodes.push_back(all_nodes[0]);
+      while (node_id < all_nodes.size()) {
+        if (all_nodes[nxt].first_child == 0) {
+          nxt++;
+          continue;
+        }
+        uint32_t nxt_n = all_nodes[nxt].first_child;
+        new_all_nodes[all_nodes[nxt].node_id].first_child = node_id;
+        node n = all_nodes[nxt_n];
+        do {
+          all_nodes[nxt_n].node_id = node_id;
+          nxt_n = n.next_sibling;
+          n.flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
+          n.node_id = node_id++;
+          new_all_nodes.push_back(n);
+          n = all_nodes[nxt_n];
+        } while (nxt_n != 0);
+        nxt++;
+      }
+      all_nodes = new_all_nodes;
+      print_time_taken(t, "Time taken for sort_nodes(): ");
+      printf("New all_nodes size: %u\n", all_nodes.size());
+    }
+
+    void append_tail_vec(std::string val, uint32_t node_pos) {
+      all_nodes[node_pos].tail_pos = sort_tails.size();
+      all_nodes[node_pos].tail_len = val.length();
       for (int i = 0; i < val.length(); i++)
         sort_tails.push_back(val[i]);
     }
@@ -268,30 +299,30 @@ class builder : public builder_abstract {
     byte_vec tail_ptrs;
     std::string out_filename;
     builder(const char *out_file) {
-      root = new node;
+      root = node();
       node_count = 0;
       key_count = 0;
       //root->parent = NULL;
-      root->next_sibling = NULL;
-      root->is_leaf = 0;
-      root->node_id = 0;
-      first_node = new node;
+      root.next_sibling = NULL;
+      root.flags = 0;
+      root.node_id = 0;
+      root.first_child = 1;
+      first_node = node();
       //first_node->parent = root;
-      first_node->next_sibling = NULL;
+      first_node.next_sibling = NULL;
       all_nodes.push_back(root);
       all_nodes.push_back(first_node);
-      root->first_child = 1;
       util::generate_bit_counts();
       //art_tree_init(&at);
       out_filename = out_file;
       out_filename += ".rst";
-      last_children.push_back(first_node);
+      last_children.push_back(1);
     }
 
     ~builder() {
-      for (int i = 0; i < all_nodes.size(); i++) {
-        delete all_nodes[i];
-      }
+      // for (int i = 0; i < all_nodes.size(); i++) {
+      //   delete all_nodes[i];
+      // }
       // for (int i = 0; i < uniq_tails_fwd.size(); i++) {
       //   delete uniq_tails_fwd[i];
       // }
@@ -303,84 +334,88 @@ class builder : public builder_abstract {
          return;
       key_count++;
       if (node_count == 0) {
-        append_tail_vec(key, first_node);
-        first_node->is_leaf = 1;
+        append_tail_vec(key, 1);
+        all_nodes[1].flags |= NFLAG_LEAF;
         node_count++;
         return;
       }
       prev_key = key;
       int key_pos = 0;
       int level = 0;
-      node *last_child = last_children[level];
+      node *last_child = &all_nodes[last_children[level]];
       do {
         std::string val((const char *) sort_tails.data() + last_child->tail_pos, last_child->tail_len);
         int i = 0;
         for (; i < val.length(); i++) {
           if (key[key_pos] != val[i]) {
             if (i == 0) {
-              node *new_node = new node();
-              new_node->is_leaf = 1;
+              node new_node = node();
+              uint32_t new_node_pos = all_nodes.size();
+              new_node.flags |= NFLAG_LEAF;
               //new_node->parent = last_child->parent;
-              new_node->next_sibling = NULL;
-              append_tail_vec(key.substr(key_pos), new_node);
+              new_node.next_sibling = NULL;
               //if (new_node->val == string(" discuss"))
               //  cout << "New node: " << key << endl;
-              last_child->next_sibling = all_nodes.size();
+              last_child->next_sibling = new_node_pos;
               all_nodes.push_back(new_node);
-              last_children[level] = new_node;
+              append_tail_vec(key.substr(key_pos), new_node_pos);
+              last_children[level] = new_node_pos;
               last_children.resize(level + 1);
               node_count++;
             } else {
-              node *child1 = new node();
-              node *child2 = new node();
-              all_nodes.push_back(child1);
-              all_nodes.push_back(child2);
-              child1->is_leaf = last_child->is_leaf;
-              //child1->parent = last_child;
-              child1->next_sibling = all_nodes.size() - 1;
-              child1->tail_pos = last_child->tail_pos + i;
-              child1->tail_len = last_child->tail_len - i;
+              node child1 = node();
+              node child2 = node();
+              uint32_t child1_pos = all_nodes.size();
+              uint32_t child2_pos = child1_pos + 1;
+              child1.flags |= (last_child->flags & NFLAG_LEAF);
+              //child1.parent = last_child;
+              child1.next_sibling = child2_pos;
+              child1.tail_pos = last_child->tail_pos + i;
+              child1.tail_len = last_child->tail_len - i;
               //if (child1->val == string(" discuss"))
               //  cout << "Child1 node: " << key << endl;
               if (last_child->first_child != NULL) {
-                child1->first_child = last_child->first_child;
+                child1.first_child = last_child->first_child;
               }
               last_children.resize(level + 1);
-              last_children.push_back(child2);
-              child2->is_leaf = 1;
+              last_children.push_back(child2_pos);
+              child2.flags |= NFLAG_LEAF;
               //child2->parent = last_child;
-              child2->next_sibling = NULL;
-              append_tail_vec(key.substr(key_pos), child2);
+              child2.next_sibling = NULL;
               //if (child2->val == string(" discuss"))
               //  cout << "Child2 node: " << key << endl;
-              last_child->first_child = all_nodes.size() - 2;
-              last_child->is_leaf = 0;
+              last_child->first_child = child1_pos;
+              last_child->flags |= NFLAG_LEAF;
+              last_child->tail_len = i; // do these before push_back all_nodes
+              all_nodes.push_back(child1);
+              all_nodes.push_back(child2);
+              append_tail_vec(key.substr(key_pos), child2_pos);
               node_count += 2;
               //last_child->tail_pos += i;
-              last_child->tail_len = i;
             }
             return;
           }
           key_pos++;
         }
         if (i == val.length() && key_pos < key.length()
-            && last_child->is_leaf && last_child->first_child == NULL) {
-          node *child1 = new node();
-          child1->is_leaf = 1;
+            && (last_child->flags & NFLAG_LEAF) && last_child->first_child == NULL) {
+          node child1 = node();
+          uint32_t child1_pos = all_nodes.size();
+          child1.flags |= NFLAG_LEAF;
           //child1->parent = last_child;
-          child1->next_sibling = NULL;
-          append_tail_vec(key.substr(key_pos), child1);
+          child1.next_sibling = NULL;
           //    if (child1->val == string(" discuss"))
           //      cout << "Ext node: " << key << endl;
+          last_child->first_child = child1_pos;
           all_nodes.push_back(child1);
+          append_tail_vec(key.substr(key_pos), child1_pos);
           last_children.resize(level + 1);
-          last_children.push_back(child1);
-          last_child->first_child = all_nodes.size() - 1;
+          last_children.push_back(child1_pos);
           node_count++;
           return;
         }
         level++;
-        last_child = last_children[level];
+        last_child = &all_nodes[last_children[level]];
       } while (last_child != NULL);
     }
 
@@ -401,7 +436,7 @@ class builder : public builder_abstract {
       clock_t t = clock();
       std::vector<tails_sort_data> nodes_for_sort;
       for (int i = 0; i < all_nodes.size(); i++) {
-        node *n = all_nodes[i];
+        node *n = &all_nodes[i];
         uint8_t *v = sort_tails.data() + n->tail_pos;
         n->v0 = v[0];
         if (n->tail_len > 1)
@@ -843,7 +878,18 @@ class builder : public builder_abstract {
       std::cout << std::endl;
       byte_vec trie;
       uniq_tails_info_vec uniq_tails_fwd;
-      build_level_nodes(first_node, 0);
+      sort_nodes();
+      build_level_nodes(&all_nodes[1], 0);
+      uint32_t nid = 1;
+      for (int i = 0; i < level_nodes.size(); i++) {
+        std::vector<node *>& cur_lvl_nodes = level_nodes[i];
+        for (int j = 0; j < cur_lvl_nodes.size(); j++) {
+          node *n = cur_lvl_nodes[j];
+          if (nid != all_nodes[nid].node_id || n->tail_pos != all_nodes[nid].tail_pos)
+            std::cout << "Not matching: " << i << ", " << j << ": " << nid << ": " << n->node_id << ": " << all_nodes[nid].node_id << ": " << n->tail_pos << ": " << all_nodes[nid].tail_pos << std::endl;
+          nid++;
+        }
+      }
       build_tail_maps(uniq_tails, uniq_tails_fwd, uniq_tails_rev, freq_grp_vec, grp_tails, tail_ptrs);
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
@@ -876,9 +922,9 @@ class builder : public builder_abstract {
           cur_node->node_id = node_count + 1;
           if (cur_node->next_sibling == NULL)
             term_count++;
-          uint8_t flags = (cur_node->is_leaf ? 1 : 0) +
+          uint8_t flags = (cur_node->flags & NFLAG_LEAF) +
             (cur_node->first_child != NULL ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
-            (cur_node->next_sibling == NULL ? 8 : 0);
+            (cur_node->flags & NFLAG_TERM ? 8 : 0);
           flag_counts[flags & 0x07]++;
           uint8_t node_val;
           if (cur_node->tail_len == 1) {
@@ -896,7 +942,7 @@ class builder : public builder_abstract {
             append_byte_vec(trie, byte_vec64);
             byte_vec64.clear();
           }
-          if (cur_node->is_leaf)
+          if (cur_node->flags & NFLAG_LEAF)
             bm_leaf |= bm_mask;
           if (cur_node->next_sibling == NULL)
             bm_term |= bm_mask;
@@ -1270,11 +1316,11 @@ class builder : public builder_abstract {
     int lookup(std::string key) {
       int key_pos = 0;
       uint8_t key_char = key[key_pos];
-      node *cur_node = first_node;
+      node *cur_node = &all_nodes[1];
       uint8_t trie_char = get_first_char(cur_node);
       do {
         while (key_char > trie_char) {
-          cur_node = all_nodes[cur_node->next_sibling];
+          cur_node = &all_nodes[cur_node->next_sibling];
           if (cur_node == NULL)
             return ~INSERT_AFTER;
           trie_char = get_first_char(cur_node);
@@ -1292,11 +1338,11 @@ class builder : public builder_abstract {
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           } else
             cmp = 0;
-          if (cmp == 0 && key_pos + cur_node->tail_len == key.size() && cur_node->is_leaf)
+          if (cmp == 0 && key_pos + cur_node->tail_len == key.size() && (cur_node->flags & NFLAG_LEAF))
             return 0;
           if (cmp == 0 || abs(cmp) - 1 == cur_node->tail_len) {
             key_pos += cur_node->tail_len;
-            cur_node = all_nodes[cur_node->first_child];
+            cur_node = &all_nodes[cur_node->first_child];
             if (key_pos >= key.size())
               return ~INSERT_THREAD;
             key_char = key[key_pos];
@@ -1342,10 +1388,10 @@ class builder : public builder_abstract {
 
     void find_rpt_nodes(FILE *fp) {
       clock_t t = clock();
-      std::sort(all_nodes.begin(), all_nodes.end(), [this](const node *lhs, const node *rhs) -> bool {
-        return lhs->node_id < rhs->node_id;
-      });
-      t = print_time_taken(t, "Time taken to sort all_nodes: ");
+      // std::sort(all_nodes.begin(), all_nodes.end(), [this](const node *lhs, const node *rhs) -> bool {
+      //   return lhs->node_id < rhs->node_id;
+      // });
+      // t = print_time_taken(t, "Time taken to sort all_nodes: ");
       std::vector<nodes_for_grp> for_node_grp;
       for (int i = 0; i < level_nodes.size(); i++) {
         std::vector<node *>& cur_lvl_nodes = level_nodes[i];
@@ -1353,7 +1399,7 @@ class builder : public builder_abstract {
           node *cur_node = cur_lvl_nodes[j];
           if (cur_node->next_sibling == NULL)
             continue;
-          node *next_node = all_nodes[cur_node->next_sibling];
+          node *next_node = &all_nodes[cur_node->next_sibling];
           if (cur_node->first_child == NULL && next_node->first_child == NULL) {
             for_node_grp.push_back((nodes_for_grp) {cur_node->node_id, 2, 0});
           }
@@ -1361,24 +1407,24 @@ class builder : public builder_abstract {
       }
       t = print_time_taken(t, "Time taken to push to for_node_grp: ");
       std::sort(for_node_grp.begin(), for_node_grp.end(), [this](const struct nodes_for_grp& lhs, const struct nodes_for_grp& rhs) -> bool {
-        node *lhs_node1 = all_nodes[lhs.start_node_id];
-        node *lhs_node2 = all_nodes[lhs.start_node_id + 1];
-        node *rhs_node1 = all_nodes[rhs.start_node_id];
-        node *rhs_node2 = all_nodes[rhs.start_node_id + 1];
+        node *lhs_node1 = &all_nodes[lhs.start_node_id];
+        node *lhs_node2 = &all_nodes[lhs.start_node_id + 1];
+        node *rhs_node1 = &all_nodes[rhs.start_node_id];
+        node *rhs_node2 = &all_nodes[rhs.start_node_id + 1];
         return get_node_val(lhs_node1) == get_node_val(rhs_node1) ? 
                 (get_node_val(lhs_node2) < get_node_val(rhs_node2)) :
                 (get_node_val(lhs_node1) < get_node_val(rhs_node1));
       });
       t = print_time_taken(t, "Time taken to sort for_node_grp: ");
       fprintf(fp, "Total node grps: %u\n", for_node_grp.size());
-      node *prev_node = all_nodes[for_node_grp[0].start_node_id];
+      node *prev_node = &all_nodes[for_node_grp[0].start_node_id];
       uint32_t count = 0;
       for (int i = 0; i < for_node_grp.size(); i++) {
-        if (get_node_val(all_nodes[for_node_grp[i].start_node_id]) == get_node_val(prev_node)) {
+        if (get_node_val(&all_nodes[for_node_grp[i].start_node_id]) == get_node_val(prev_node)) {
           count++;
         } else {
-          node *node1 = all_nodes[for_node_grp[i].start_node_id];
-          node *node2 = all_nodes[node1->next_sibling];
+          node *node1 = &all_nodes[for_node_grp[i].start_node_id];
+          node *node2 = &all_nodes[node1->next_sibling];
           uniq_tails_info *ti1 = uniq_tails_rev[node1->rev_node_info_pos];
           uniq_tails_info *ti2 = uniq_tails_rev[node2->rev_node_info_pos];
           fprintf(fp, "%010u\t", count);
@@ -1391,7 +1437,7 @@ class builder : public builder_abstract {
           else
             fprintf(fp, "[%d][%u]\n", ti2->grp_no, ti2->tail_ptr);
           count = 0;
-          prev_node = all_nodes[for_node_grp[i].start_node_id];
+          prev_node = &all_nodes[for_node_grp[i].start_node_id];
         }
       }
       t = print_time_taken(t, "Time taken to push to print for_node_grp: ");
