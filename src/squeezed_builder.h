@@ -162,9 +162,11 @@ struct freq_grp {
 static const int NFLAG_LEAF = 1;
 static const int NFLAG_TERM = 2;
 struct node {
-  uint32_t node_id;
   uint32_t first_child;
-  uint32_t next_sibling;
+  union {
+    uint32_t next_sibling;
+    uint32_t node_id;
+  };
   //node *parent;
   uint32_t tail_pos;
   uint32_t rev_node_info_pos;
@@ -247,11 +249,9 @@ class builder : public builder_abstract {
         new_all_nodes[nxt].first_child = node_id;
         node n = all_nodes[nxt_n];
         do {
-          all_nodes[nxt_n].node_id = node_id;
           nxt_n = n.next_sibling;
           n.flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
           n.node_id = node_id++;
-          n.next_sibling = (nxt_n == 0 ? 0 : node_id);
           new_all_nodes.push_back(n);
           n = all_nodes[nxt_n];
         } while (nxt_n != 0);
