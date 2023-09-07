@@ -141,7 +141,7 @@ class static_dict {
       for (int i = 0; i < grp_count; i++)
         grp_tails.push_back(dict_buf + read_uint32(grp_tails_idx_start + i * 4));
 
-      printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
+      printf("%u,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
                 leaf_bv_loc-dict_buf, select_lkup_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
 
     }
