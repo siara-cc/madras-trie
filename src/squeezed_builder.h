@@ -161,6 +161,7 @@ struct freq_grp {
 
 static const int NFLAG_LEAF = 1;
 static const int NFLAG_TERM = 2;
+static const int NFLAG_NODEID_SET = 4;
 struct node {
   uint32_t first_child;
   union {
@@ -172,7 +173,10 @@ struct node {
   uint32_t rev_node_info_pos;
   uint32_t tail_len;
   uint8_t flags;
-  uint8_t v0;
+  union {
+    uint32_t alt_pos;
+    uint32_t v0;
+  };
   node() {
     memset(this, '\0', sizeof(node));
   }
@@ -234,30 +238,36 @@ class builder : public builder_abstract {
     //builder(builder const&);
     //builder& operator=(builder const&);
 
+    node *swap_node(uint32_t pos_from, uint32_t pos_to) {
+      while (all_nodes[pos_from].flags & NFLAG_NODEID_SET)
+        pos_from = all_nodes[pos_from].alt_pos;
+      node n = all_nodes[pos_to];
+      all_nodes[pos_to] = all_nodes[pos_from];
+      all_nodes[pos_from] = n;
+      all_nodes[pos_to].alt_pos = pos_from;
+      all_nodes[pos_to].flags |= NFLAG_NODEID_SET;
+      return &all_nodes[pos_to];
+    }
+
     void sort_nodes() {
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
-      std::vector<node> new_all_nodes;
-      new_all_nodes.push_back(all_nodes[0]);
       while (node_id < all_nodes.size()) {
-        if (new_all_nodes[nxt].first_child == 0) {
+        if (all_nodes[nxt].first_child == 0) {
           nxt++;
           continue;
         }
-        uint32_t nxt_n = new_all_nodes[nxt].first_child;
-        new_all_nodes[nxt].first_child = node_id;
-        node n = all_nodes[nxt_n];
+        uint32_t nxt_n = all_nodes[nxt].first_child;
+        all_nodes[nxt].first_child = node_id;
         do {
-          nxt_n = n.next_sibling;
-          n.flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
-          n.node_id = node_id++;
-          new_all_nodes.push_back(n);
-          n = all_nodes[nxt_n];
+          node *n = swap_node(nxt_n, node_id);
+          nxt_n = n->next_sibling;
+          n->flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
+          n->node_id = node_id++;
         } while (nxt_n != 0);
         nxt++;
       }
-      all_nodes = new_all_nodes;
       print_time_taken(t, "Time taken for sort_nodes(): ");
       printf("New all_nodes size: %lu\n", all_nodes.size());
     }
