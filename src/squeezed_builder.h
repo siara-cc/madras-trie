@@ -469,13 +469,6 @@ class builder : public builder_abstract {
       for (int i = 0; i < prev_val_len; i++)
         uniq_tails.push_back(prev_val[i]);
       t = print_time_taken(t, "Time taken for uniq_tails_rev: ");
-      uniq_tails_freq = uniq_tails_rev;
-      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        uint32_t lhs_freq = lhs->freq_count / 10;
-        uint32_t rhs_freq = rhs->freq_count / 10;
-        return (lhs_freq == rhs_freq) ? lhs->rev_pos > rhs->rev_pos : (lhs_freq > rhs_freq);
-      });
-      t = print_time_taken(t, "Time taken for uniq_tails freq: ");
 
     }
 
@@ -540,6 +533,13 @@ class builder : public builder_abstract {
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
       make_uniq_tails(uniq_tails, uniq_tails_rev, uniq_tails_freq);
       clock_t t = clock();
+      uniq_tails_freq = uniq_tails_rev;
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
+        uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
+        return (ceil(log10(lhs_freq)) == ceil(log10(rhs_freq)) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq));
+      });
+      t = print_time_taken(t, "Time taken for uniq_tails freq: ");
       uniq_tails_fwd = uniq_tails_rev;
       std::sort(uniq_tails_fwd.begin(), uniq_tails_fwd.end(), [uniq_tails](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         return compare(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
@@ -557,85 +557,6 @@ class builder : public builder_abstract {
       int freq_pos = 0;
       freq_grp_vec.push_back((freq_grp) {0, 0, 0, 0, 0, 0});
       freq_grp_vec.push_back((freq_grp) {1, 7, 128, 0, 0, 0});
-      while (freq_pos < uniq_tails_freq.size()) {
-        s_no++;
-        uniq_tails_info *ti = uniq_tails_freq[freq_pos];
-        ti->tail_ptr = 0;
-        freq_pos++;
-        if (ti->grp_no != 0) {
-          if (cur_limit < 128)
-            printf("%u*\t%u*\t%u\t[%.*s]\t0\t[1]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos);
-          continue;
-        }
-        cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, ti->tail_len + 1);
-        if (grp_no > suffix_grp_limit)
-          break;
-        if (cur_limit < 128) {
-          printf("%u\t%u\t%u\t[%.*s]\t0\t[%.*s]\n", s_no, freq_grp_vec[grp_no].count, ti->freq_count, ti->tail_len, uniq_tails.data() + ti->tail_pos,
-                  ti->link_rev_idx == 0xFFFFFFFF ? 1 : uniq_tails_rev[ti->link_rev_idx]->tail_len,
-                  ti->link_rev_idx == 0xFFFFFFFF ? "-" : (const char *) uniq_tails.data() + uniq_tails_rev[ti->link_rev_idx]->tail_pos);
-        }
-        update_current_grp(freq_grp_vec, grp_no, ti->tail_len + 1, ti->freq_count);
-        ti->grp_no = grp_no;
-        if (ti->tail_len > 2) {
-          uint8_t *val = uniq_tails.data() + ti->tail_pos;
-          for (int j = ti->rev_pos - 1; j > 0; j--) {
-            uniq_tails_info *ti_rev = uniq_tails_rev[j];
-            if (ti_rev->grp_no != 0 && ti_rev->grp_no != ti->grp_no)
-              continue;
-            if (ti_rev->tail_len >= ti->tail_len)
-              continue;
-            int cmp = compare_rev(val, ti->tail_len, uniq_tails.data() + ti_rev->tail_pos, ti_rev->tail_len);
-            if (cmp < 3)
-              break;
-            cmp--;
-            if (cmp == ti_rev->tail_len) {
-              if ((ti_rev->flags & UTI_FLAG_SUFFIX_FULL) == 0 || ti_rev->grp_no == 0) {
-                if (cur_limit < 128) {
-                  printf("%u\t%u*\t%u\t[%.*s]\t0\t[%.*s]\t%s\n", s_no, freq_grp_vec[grp_no].count,
-                          ti_rev->freq_count, ti_rev->tail_len, uniq_tails.data() + ti_rev->tail_pos,
-                          ti->tail_len, val, (ti_rev->freq_count > ti->freq_count ? "**" : ""));
-                }
-                update_current_grp(freq_grp_vec, grp_no, 0, ti_rev->freq_count);
-                ti_rev->tail_ptr = 0;
-                if ((ti_rev->flags & UTI_FLAG_SUFFIX_FULL) == 0 && ti_rev->grp_no != 0)
-                  update_current_grp(freq_grp_vec, grp_no, -ti_rev->tail_len-1, -ti_rev->freq_count);
-                ti_rev->link_rev_idx = ti->rev_pos;
-                ti_rev->flags |= UTI_FLAG_SUFFIX_FULL;
-                ti_rev->grp_no = ti->grp_no;
-              } else {
-                if (uniq_tails_rev[ti_rev->link_rev_idx]->tail_len < ti->tail_len) {
-                  ti_rev->link_rev_idx = ti->rev_pos;
-                  ti_rev->flags |= UTI_FLAG_SUFFIX_FULL;
-                  ti_rev->tail_ptr = 0;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      for (int i = 0; i < uniq_tails_freq.size(); i++) {
-        uniq_tails_info *ti = uniq_tails_freq[i];
-        if (ti->grp_no == 0)
-          continue;
-        if (ti->flags & UTI_FLAG_SUFFIXES) {
-          uniq_tails_info *ti_link = uniq_tails_rev[ti->link_rev_idx];
-          if (ti_link->tail_ptr == 0)
-            ti_link->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti_link, ti_link->grp_no);
-          ti->tail_ptr = ti_link->tail_ptr + ti_link->tail_len - ti->tail_len;
-          savings_full += ti->tail_len;
-          savings_count_full++;
-        } else {
-          if (ti->tail_ptr == 0)
-            ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, ti, ti->grp_no);
-        }
-      }
-
-      freq_pos--;
-      uint32_t freq_pos_save = freq_pos;
-
-      // uint32_t freq_pos_save = 0;
 
       uniq_tails_info *ti0 = uniq_tails_freq[freq_pos];
       uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
@@ -668,7 +589,7 @@ class builder : public builder_abstract {
         }
       }
 
-      freq_pos = freq_pos_save;
+      freq_pos = 0;
       uint32_t sfx_set_len = 0;
       uint32_t sfx_set_max = 64;
       uint32_t savings_prefix = 0;
