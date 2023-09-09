@@ -174,7 +174,7 @@ struct node {
   uint32_t tail_len;
   uint8_t flags;
   union {
-    uint32_t alt_pos;
+    uint32_t swap_pos;
     uint32_t v0;
   };
   node() {
@@ -238,13 +238,13 @@ class builder : public builder_abstract {
     //builder(builder const&);
     //builder& operator=(builder const&);
 
-    node *swap_node(uint32_t pos_from, uint32_t pos_to) {
+    node *swap_nodes(uint32_t pos_from, uint32_t pos_to) {
       while (all_nodes[pos_from].flags & NFLAG_NODEID_SET)
-        pos_from = all_nodes[pos_from].alt_pos;
+        pos_from = all_nodes[pos_from].swap_pos;
       node n = all_nodes[pos_to];
       all_nodes[pos_to] = all_nodes[pos_from];
       all_nodes[pos_from] = n;
-      all_nodes[pos_to].alt_pos = pos_from;
+      all_nodes[pos_to].swap_pos = pos_from;
       all_nodes[pos_to].flags |= NFLAG_NODEID_SET;
       return &all_nodes[pos_to];
     }
@@ -261,7 +261,7 @@ class builder : public builder_abstract {
         uint32_t nxt_n = all_nodes[nxt].first_child;
         all_nodes[nxt].first_child = node_id;
         do {
-          node *n = swap_node(nxt_n, node_id);
+          node *n = swap_nodes(nxt_n, node_id);
           nxt_n = n->next_sibling;
           n->flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
           n->node_id = node_id++;
@@ -414,7 +414,7 @@ class builder : public builder_abstract {
     struct tails_sort_data {
       uint8_t *tail_data;
       uint32_t tail_len;
-      node *n;
+      uint32_t n;
     };
 
     clock_t print_time_taken(clock_t t, const char *msg) {
@@ -427,12 +427,12 @@ class builder : public builder_abstract {
     void make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev, uniq_tails_info_vec& uniq_tails_freq) {
       clock_t t = clock();
       std::vector<tails_sort_data> nodes_for_sort;
-      for (int i = 0; i < all_nodes.size(); i++) {
+      for (uint32_t i = i; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
         uint8_t *v = sort_tails.data() + n->tail_pos;
         n->v0 = v[0];
         if (n->tail_len > 1)
-          nodes_for_sort.push_back((struct tails_sort_data) { v, n->tail_len, n } );
+          nodes_for_sort.push_back((struct tails_sort_data) { v, n->tail_len, i } );
       }
       t = print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
       std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct tails_sort_data& lhs, const struct tails_sort_data& rhs) -> bool {
@@ -461,7 +461,7 @@ class builder : public builder_abstract {
           prev_ti_ptr = ti_ptr;
           ti_ptr = new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, ++vec_pos, freq_count);
         }
-        it->n->rev_node_info_pos = vec_pos;
+        all_nodes[it->n].rev_node_info_pos = vec_pos;
         it++;
       }
       ti_ptr->freq_count = freq_count;
@@ -1015,10 +1015,10 @@ class builder : public builder_abstract {
       fwrite(trie.data(), trie.size(), 1, fp);
       fclose(fp);
 
-      fp = fopen("nodes.txt", "wb+");
+      //fp = fopen("nodes.txt", "wb+");
       //dump_nodes(first_node, fp);
-      find_rpt_nodes(fp);
-      fclose(fp);
+      //find_rpt_nodes(fp);
+      //fclose(fp);
 
       return out_filename;
 
