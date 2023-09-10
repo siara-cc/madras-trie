@@ -9,9 +9,6 @@
 #include <math.h>
 #include <time.h>
 
-#include "var_array.h"
-#include "bit_vector.h"
-#include "bitset_vector.h"
 #include "../../index_research/src/art.h"
 #include "../../index_research/src/basix.h"
 #include "../../index_research/src/univix_util.h"
@@ -67,6 +64,94 @@ struct tail_token {
   uint32_t token_len;
   uint32_t fwd_pos;
   uint32_t cmp_max;
+};
+
+class bit_vector {
+  private:
+    std::vector<uint8_t> bv;
+    bool all_ones;
+  public:
+    bit_vector(bool _all_ones = false) {
+      all_ones = _all_ones;
+    }
+    // bit_no starts from 0
+    void set(size_t bit_no, bool val) {
+      size_t byte_pos = bit_no / 8;
+      if ((bit_no % 8) == 0)
+        byte_pos++;
+      while (bv.size() < byte_pos + 1)
+        bv.push_back(all_ones ? 0xFF : 0x00);
+      uint8_t mask = 0x80 >> (bit_no % 8);
+      if (val)
+        bv[byte_pos] |= mask;
+      else
+        bv[byte_pos] &= ~mask;
+    }
+    bool operator[](size_t bit_no) {
+      size_t byte_pos = bit_no / 8;
+      if ((bit_no % 8) == 0)
+        byte_pos++;
+      uint8_t mask = 0x80 >> (bit_no % 8);
+      return (bv[byte_pos] & mask) > 0;
+    }
+};
+
+class byte_block {
+  private:
+    std::vector<uint8_t *> blocks;
+    bit_vector is_allocated;
+    size_t block_remaining;
+    uint8_t *reserve(size_t val_len, size_t& pos) {
+      if (val_len > block_remaining) {
+        size_t needed_bytes = val_len;
+        int needed_blocks = needed_bytes / block_size;
+        if (needed_bytes % block_size)
+          needed_blocks++;
+        pos = blocks.size() * block_size;
+        block_remaining = needed_blocks * block_size;
+        uint8_t *new_block = new uint8_t[block_remaining];
+        for (int i = 0; i < needed_blocks; i++) {
+          is_allocated.set(blocks.size(), i == 0);
+          blocks.push_back(new_block + i * block_size);
+        }
+        block_remaining -= val_len;
+        return new_block;
+      } else {
+        pos = blocks.size();
+        pos--;
+        uint8_t *ret = blocks[pos];
+        pos *= block_size;
+        size_t block_pos = (block_size - block_remaining);
+        pos += block_pos;
+        block_remaining -= val_len;
+        return ret + block_pos;
+      }
+      return NULL;
+    }
+  public:
+    const static size_t block_size = 4096;
+    byte_block() {
+      block_remaining = 0;
+    }
+    ~byte_block() {
+      release_blocks();
+    }
+    void release_blocks() {
+      for (size_t i = 0; i < blocks.size(); i++) {
+        if (is_allocated[i])
+          delete blocks[i];
+      }
+      blocks.resize(0);
+    }
+    size_t push_back(uint8_t *val, int val_len) {
+      size_t pos;
+      uint8_t *buf = reserve(val_len, pos);
+      memcpy(buf, val, val_len);
+      return pos;
+    }
+    uint8_t *operator[](size_t pos) {
+      return blocks[pos / block_size] + (pos % block_size);
+    }
 };
 
 template<class T>
@@ -228,8 +313,8 @@ class builder : public builder_abstract {
     node first_node;
     int node_count;
     int key_count;
-    vector<node> all_nodes;
-    vector<uint32_t> last_children;
+    std::vector<node> all_nodes;
+    std::vector<uint32_t> last_children;
     std::string prev_key;
     //dfox uniq_basix_map;
     //basix uniq_basix_map;
@@ -269,23 +354,15 @@ class builder : public builder_abstract {
         nxt++;
       }
       print_time_taken(t, "Time taken for sort_nodes(): ");
-      printf("New all_nodes size: %lu\n", all_nodes.size());
     }
 
     void append_tail_vec(std::string val, uint32_t node_pos) {
-      all_nodes[node_pos].tail_pos = sort_tails.size();
+      all_nodes[node_pos].tail_pos = sort_tails.push_back((uint8_t *) val.c_str(), val.length());
       all_nodes[node_pos].tail_len = val.length();
-      for (int i = 0; i < val.length(); i++)
-        sort_tails.push_back(val[i]);
-    }
-
-    bool compareNodeTails(const node *lhs, const node *rhs) const {
-      return compare(sort_tails.data() + lhs->tail_pos, lhs->tail_len,
-                     sort_tails.data() + rhs->tail_pos, rhs->tail_len);
     }
 
   public:
-    byte_vec sort_tails;
+    byte_block sort_tails;
     byte_vec uniq_tails;
     uniq_tails_info_vec uniq_tails_rev;
     std::vector<freq_grp> freq_grp_vec;
@@ -321,7 +398,7 @@ class builder : public builder_abstract {
       //delete root; // now part of all_nodes
     }
 
-    void append(string key) {
+    void append(std::string key) {
       if (key == prev_key)
          return;
       key_count++;
@@ -336,7 +413,7 @@ class builder : public builder_abstract {
       int level = 0;
       node *last_child = &all_nodes[last_children[level]];
       do {
-        std::string val((const char *) sort_tails.data() + last_child->tail_pos, last_child->tail_len);
+        std::string val((const char *) sort_tails[last_child->tail_pos], last_child->tail_len);
         int i = 0;
         for (; i < val.length(); i++) {
           if (key[key_pos] != val[i]) {
@@ -424,12 +501,12 @@ class builder : public builder_abstract {
       return clock();
     }
 
-    void make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev, uniq_tails_info_vec& uniq_tails_freq) {
+    uint32_t make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev) {
       clock_t t = clock();
       std::vector<tails_sort_data> nodes_for_sort;
       for (uint32_t i = i; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
-        uint8_t *v = sort_tails.data() + n->tail_pos;
+        uint8_t *v = sort_tails[n->tail_pos];
         n->v0 = v[0];
         if (n->tail_len > 1)
           nodes_for_sort.push_back((struct tails_sort_data) { v, n->tail_len, i } );
@@ -441,6 +518,7 @@ class builder : public builder_abstract {
       t = print_time_taken(t, "Time taken to sort: ");
       uint32_t vec_pos = 0;
       uint32_t freq_count = 0;
+      uint32_t max_freq_count = 0;
       std::vector<tails_sort_data>::iterator it = nodes_for_sort.begin();
       uint8_t *prev_val = it->tail_data;
       uint32_t prev_val_len = it->tail_len;
@@ -452,6 +530,8 @@ class builder : public builder_abstract {
           freq_count++;
         } else {
           ti_ptr->freq_count = freq_count;
+          if (max_freq_count < freq_count)
+            max_freq_count = freq_count;
           uniq_tails_rev.push_back(ti_ptr);
           for (int i = 0; i < prev_val_len; i++)
             uniq_tails.push_back(prev_val[i]);
@@ -465,10 +545,15 @@ class builder : public builder_abstract {
         it++;
       }
       ti_ptr->freq_count = freq_count;
+      if (max_freq_count < freq_count)
+        max_freq_count = freq_count;
       uniq_tails_rev.push_back(ti_ptr);
       for (int i = 0; i < prev_val_len; i++)
         uniq_tails.push_back(prev_val[i]);
       t = print_time_taken(t, "Time taken for uniq_tails_rev: ");
+      sort_tails.release_blocks();
+
+      return max_freq_count;
 
     }
 
@@ -509,7 +594,7 @@ class builder : public builder_abstract {
       freq_grp_vec[grp_no].count += (len < 0 ? -1 : 1);
     }
 
-    uint32_t append_to_grp_tails(byte_vec& uniq_tails, vector<byte_vec>& grp_tails,
+    uint32_t append_to_grp_tails(byte_vec& uniq_tails, std::vector<byte_vec>& grp_tails,
               uniq_tails_info *ti, uint32_t grp_no, uint32_t len = 0) {
       grp_no--;
       while (grp_no >= grp_tails.size()) {
@@ -527,17 +612,40 @@ class builder : public builder_abstract {
       return ptr;
     }
 
+    static uint32_t log8(uint32_t val) {
+      return (val < 8 ? 1 : (val < 64 ? 2 : (val < 512 ? 3 : (val < 4096 ? 4 : (val < 32768 ? 5 : (val < 262144 ? 6 : (val < 2097152 ? 7 : 8)))))));
+    }
+
+    static uint32_t lg10(uint32_t val) {
+      return (val < 10 ? 1 : (val < 100 ? 2 : (val < 1000 ? 3 : (val < 10000 ? 4 : (val < 100000 ? 5 : (val < 1000000 ? 6 : (val < 10000000 ? 7 : 8)))))));
+    }
+
+    static uint32_t log12(uint32_t val) {
+      return (val < 12 ? 1 : (val < 96 ? 2 : (val < 768 ? 3 : (val < 6144 ? 4 : (val < 49152 ? 5 : (val < 393216 ? 6 : (val < 3145728 ? 7 : 8)))))));
+    }
+
+    static uint32_t log16(uint32_t val) {
+      return (val < 16 ? 1 : (val < 256 ? 2 : (val < 4096 ? 3 : (val < 65536 ? 4 : (val < 1048576 ? 5 : (val < 16777216 ? 6 : (val < 268435456 ? 7 : 8)))))));
+    }
+
+    static uint32_t log256(uint32_t val) {
+      return (val < 256 ? 1 : (val < 65536 ? 2 : (val < 16777216 ? 3 : 4)));
+    }
+
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev,
-                 std::vector<freq_grp>& freq_grp_vec, vector<byte_vec>& grp_tails, byte_vec& tail_ptrs) {
+                 std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, byte_vec& tail_ptrs) {
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
-      make_uniq_tails(uniq_tails, uniq_tails_rev, uniq_tails_freq);
+      uint32_t max_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
+      uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
       clock_t t = clock();
       uniq_tails_freq = uniq_tails_rev;
-      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this, max_freq_count](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
         uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
-        return (ceil(log10(lhs_freq)) == ceil(log10(rhs_freq)) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq));
+        lhs_freq = ceil(log10(lhs_freq));
+        rhs_freq = ceil(log10(rhs_freq));
+        return (lhs_freq == rhs_freq) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq);
       });
       t = print_time_taken(t, "Time taken for uniq_tails freq: ");
       uniq_tails_fwd = uniq_tails_rev;
@@ -668,7 +776,7 @@ class builder : public builder_abstract {
       printf("Savings partial: %u, %u\n", savings_partial, savings_count_partial);
       printf("Savings prefix: %u, %u\n", savings_prefix, savings_count_prefix);
 
-      vector<uint32_t> freqs;
+      std::vector<uint32_t> freqs;
       for (int i = 1; i < freq_grp_vec.size(); i++)
         freqs.push_back(freq_grp_vec[i].freq_count);
       huffman<uint32_t> _huffman(freqs);
@@ -729,7 +837,7 @@ class builder : public builder_abstract {
     }
 
     uint8_t get_tail_ptr(node *cur_node, uniq_tails_info_vec& uniq_tail_vec, byte_vec& uniq_tails,
-             vector<freq_grp>& freq_grp_vec, vector<byte_vec>& grp_tails, byte_vec& tail_ptrs,
+             std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, byte_vec& tail_ptrs,
              int& last_byte_bits) {
       uint8_t node_val;
       uniq_tails_info *ti = uniq_tail_vec[cur_node->rev_node_info_pos];
@@ -1146,7 +1254,7 @@ class builder : public builder_abstract {
 
     const uint8_t *get_tail_str(node *n, uint32_t& tail_len) {
       tail_len = n->tail_len;
-      return sort_tails.data() + n->tail_pos;
+      return sort_tails[n->tail_pos];
     }
 
     std::string get_tail_str(node *n) {
@@ -1262,10 +1370,6 @@ class builder : public builder_abstract {
 
     void find_rpt_nodes(FILE *fp) {
       clock_t t = clock();
-      // std::sort(all_nodes.begin(), all_nodes.end(), [this](const node *lhs, const node *rhs) -> bool {
-      //   return lhs->node_id < rhs->node_id;
-      // });
-      // t = print_time_taken(t, "Time taken to sort all_nodes: ");
       std::vector<nodes_for_grp> for_node_grp;
       for (int i = 1; i < all_nodes.size(); i++) {
           node *cur_node = &all_nodes[i];
