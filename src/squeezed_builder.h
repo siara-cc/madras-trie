@@ -129,7 +129,7 @@ class byte_block {
       return NULL;
     }
   public:
-    const static size_t block_size = 4096;
+    const static size_t block_size = 256;
     byte_block() {
       block_remaining = 0;
     }
