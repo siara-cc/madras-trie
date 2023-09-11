@@ -96,6 +96,70 @@ class bit_vector {
     }
 };
 
+class gen {
+  public:
+    static uint32_t log4(uint32_t val) {
+      return (val < 4 ? 1 : (val < 16 ? 2 : (val < 64 ? 3 : (val < 256 ? 4 : (val < 1024 ? 5 : (val < 4096 ? 6 : (val < 16384 ? 7 : (val < 65536 ? 8 : 9))))))));
+    }
+    static uint32_t log5(uint32_t val) {
+      return (val < 5 ? 1 : (val < 25 ? 2 : (val < 125 ? 3 : (val < 625 ? 4 : (val < 3125 ? 5 : (val < 15625 ? 6 : (val < 78125 ? 7 : (val < 390625 ? 8 : 9))))))));
+    }
+    static uint32_t log8(uint32_t val) {
+      return (val < 8 ? 1 : (val < 64 ? 2 : (val < 512 ? 3 : (val < 4096 ? 4 : (val < 32768 ? 5 : (val < 262144 ? 6 : (val < 2097152 ? 7 : 8)))))));
+    }
+    static uint32_t lg10(uint32_t val) {
+      return (val < 10 ? 1 : (val < 100 ? 2 : (val < 1000 ? 3 : (val < 10000 ? 4 : (val < 100000 ? 5 : (val < 1000000 ? 6 : (val < 10000000 ? 7 : 8)))))));
+    }
+    static uint32_t log12(uint32_t val) {
+      return (val < 12 ? 1 : (val < 96 ? 2 : (val < 768 ? 3 : (val < 6144 ? 4 : (val < 49152 ? 5 : (val < 393216 ? 6 : (val < 3145728 ? 7 : 8)))))));
+    }
+    static uint32_t log16(uint32_t val) {
+      return (val < 16 ? 1 : (val < 256 ? 2 : (val < 4096 ? 3 : (val < 65536 ? 4 : (val < 1048576 ? 5 : (val < 16777216 ? 6 : (val < 268435456 ? 7 : 8)))))));
+    }
+    static uint32_t log256(uint32_t val) {
+      return (val < 256 ? 1 : (val < 65536 ? 2 : (val < 16777216 ? 3 : 4)));
+    }
+    static clock_t print_time_taken(clock_t t, const char *msg) {
+      t = clock() - t;
+      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
+      std::cout << msg << time_taken << std::endl;
+      return clock();
+    }
+    static int compare(const uint8_t *v1, int len1, const uint8_t *v2,
+            int len2, int k = 0) {
+        int lim = (len2 < len1 ? len2 : len1);
+        do {
+            uint8_t c1 = v1[k];
+            uint8_t c2 = v2[k];
+            k++;
+            if (c1 < c2)
+                return -k;
+            else if (c1 > c2)
+                return k;
+        } while (k < lim);
+        if (len1 == len2)
+            return 0;
+        k++;
+        return (len1 < len2 ? -k : k);
+    }
+    static int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
+            int len2) {
+        int lim = (len2 < len1 ? len2 : len1);
+        int k = 1;
+        do {
+            uint8_t c1 = v1[len1 - k];
+            uint8_t c2 = v2[len2 - k];
+            if (c1 < c2)
+                return -k;
+            else if (c1 > c2)
+                return k;
+        } while (k++ < lim);
+        if (len1 == len2)
+            return 0;
+        return (len1 < len2 ? -k : k);
+    }
+};
+
 class byte_block {
   private:
     std::vector<uint8_t *> blocks;
@@ -267,46 +331,7 @@ struct node {
   }
 };
 
-int compare(const uint8_t *v1, int len1, const uint8_t *v2,
-        int len2, int k = 0) {
-    int lim = (len2 < len1 ? len2 : len1);
-    do {
-        uint8_t c1 = v1[k];
-        uint8_t c2 = v2[k];
-        k++;
-        if (c1 < c2)
-            return -k;
-        else if (c1 > c2)
-            return k;
-    } while (k < lim);
-    if (len1 == len2)
-        return 0;
-    k++;
-    return (len1 < len2 ? -k : k);
-}
-
-int compare_rev(const uint8_t *v1, int len1, const uint8_t *v2,
-        int len2) {
-    int lim = (len2 < len1 ? len2 : len1);
-    int k = 1;
-    do {
-        uint8_t c1 = v1[len1 - k];
-        uint8_t c2 = v2[len2 - k];
-        if (c1 < c2)
-            return -k;
-        else if (c1 > c2)
-            return k;
-    } while (k++ < lim);
-    if (len1 == len2)
-        return 0;
-    return (len1 < len2 ? -k : k);
-}
-
-class builder_abstract {
-  public:
-};
-
-class builder : public builder_abstract {
+class builder {
 
   private:
     node root;
@@ -353,7 +378,7 @@ class builder : public builder_abstract {
         } while (nxt_n != 0);
         nxt++;
       }
-      print_time_taken(t, "Time taken for sort_nodes(): ");
+      gen::print_time_taken(t, "Time taken for sort_nodes(): ");
     }
 
     void append_tail_vec(std::string val, uint32_t node_pos) {
@@ -494,13 +519,6 @@ class builder : public builder_abstract {
       uint32_t n;
     };
 
-    clock_t print_time_taken(clock_t t, const char *msg) {
-      t = clock() - t;
-      double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
-      std::cout << msg << time_taken << std::endl;
-      return clock();
-    }
-
     uint32_t make_uniq_tails(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_rev) {
       clock_t t = clock();
       std::vector<tails_sort_data> nodes_for_sort;
@@ -511,11 +529,11 @@ class builder : public builder_abstract {
         if (n->tail_len > 1)
           nodes_for_sort.push_back((struct tails_sort_data) { v, n->tail_len, i } );
       }
-      t = print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
+      t = gen::print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
       std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct tails_sort_data& lhs, const struct tails_sort_data& rhs) -> bool {
-        return compare_rev(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
+        return gen::compare_rev(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
       });
-      t = print_time_taken(t, "Time taken to sort: ");
+      t = gen::print_time_taken(t, "Time taken to sort: ");
       uint32_t vec_pos = 0;
       uint32_t freq_count = 0;
       uint32_t max_freq_count = 0;
@@ -525,7 +543,7 @@ class builder : public builder_abstract {
       uniq_tails_info *ti_ptr = new uniq_tails_info((uint32_t) uniq_tails.size(), prev_val_len, vec_pos, freq_count);
       uniq_tails_info *prev_ti_ptr = ti_ptr;
       while (it != nodes_for_sort.end()) {
-        int cmp = compare_rev(it->tail_data, it->tail_len, prev_val, prev_val_len);
+        int cmp = gen::compare_rev(it->tail_data, it->tail_len, prev_val, prev_val_len);
         if (cmp == 0) {
           freq_count++;
         } else {
@@ -550,7 +568,7 @@ class builder : public builder_abstract {
       uniq_tails_rev.push_back(ti_ptr);
       for (int i = 0; i < prev_val_len; i++)
         uniq_tails.push_back(prev_val[i]);
-      t = print_time_taken(t, "Time taken for uniq_tails_rev: ");
+      t = gen::print_time_taken(t, "Time taken for uniq_tails_rev: ");
       sort_tails.release_blocks();
 
       return max_freq_count;
@@ -612,32 +630,12 @@ class builder : public builder_abstract {
       return ptr;
     }
 
-    static uint32_t log8(uint32_t val) {
-      return (val < 8 ? 1 : (val < 64 ? 2 : (val < 512 ? 3 : (val < 4096 ? 4 : (val < 32768 ? 5 : (val < 262144 ? 6 : (val < 2097152 ? 7 : 8)))))));
-    }
-
-    static uint32_t lg10(uint32_t val) {
-      return (val < 10 ? 1 : (val < 100 ? 2 : (val < 1000 ? 3 : (val < 10000 ? 4 : (val < 100000 ? 5 : (val < 1000000 ? 6 : (val < 10000000 ? 7 : 8)))))));
-    }
-
-    static uint32_t log12(uint32_t val) {
-      return (val < 12 ? 1 : (val < 96 ? 2 : (val < 768 ? 3 : (val < 6144 ? 4 : (val < 49152 ? 5 : (val < 393216 ? 6 : (val < 3145728 ? 7 : 8)))))));
-    }
-
-    static uint32_t log16(uint32_t val) {
-      return (val < 16 ? 1 : (val < 256 ? 2 : (val < 4096 ? 3 : (val < 65536 ? 4 : (val < 1048576 ? 5 : (val < 16777216 ? 6 : (val < 268435456 ? 7 : 8)))))));
-    }
-
-    static uint32_t log256(uint32_t val) {
-      return (val < 256 ? 1 : (val < 65536 ? 2 : (val < 16777216 ? 3 : 4)));
-    }
-
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev,
                  std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, byte_vec& tail_ptrs) {
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
       uint32_t max_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
-      uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
+      //uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
       clock_t t = clock();
       uniq_tails_freq = uniq_tails_rev;
       std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this, max_freq_count](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
@@ -647,14 +645,14 @@ class builder : public builder_abstract {
         rhs_freq = ceil(log10(rhs_freq));
         return (lhs_freq == rhs_freq) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq);
       });
-      t = print_time_taken(t, "Time taken for uniq_tails freq: ");
+      t = gen::print_time_taken(t, "Time taken for uniq_tails freq: ");
       uniq_tails_fwd = uniq_tails_rev;
       std::sort(uniq_tails_fwd.begin(), uniq_tails_fwd.end(), [uniq_tails](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        return compare(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
+        return gen::compare(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
       });
       for (int i = 0; i < uniq_tails_fwd.size(); i++)
         uniq_tails_fwd[i]->fwd_pos = i;
-      t = print_time_taken(t, "Time taken for uniq_tails fwd sort: ");
+      t = gen::print_time_taken(t, "Time taken for uniq_tails fwd sort: ");
 
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
@@ -678,7 +676,7 @@ class builder : public builder_abstract {
         freq_pos++;
         if (ti->grp_no != 0)
           continue;
-        int cmp = compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
+        int cmp = gen::compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
         cmp = cmp ? abs(cmp) - 1 : 0;
         uniq_tails_info *prev_ti = uniq_tails_freq[prev_val_idx];
         if (cmp == ti->tail_len) {
@@ -721,8 +719,9 @@ class builder : public builder_abstract {
             update_current_grp(freq_grp_vec, link_ti->grp_no, 0, ti->freq_count);
             ti->tail_ptr = link_ti->tail_ptr + link_ti->tail_len - ti->tail_len;
             ti->grp_no = link_ti->grp_no;
+            fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, ti->tail_len, ti->tail_len, uniq_tails.data() + ti->tail_pos);
         } else {
-          int cmp = compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
+          int cmp = gen::compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
           cmp = cmp ? abs(cmp) - 1 : 0;
           uniq_tails_info *prev_ti = uniq_tails_freq[prev_val_idx];
           if (cmp > 1) {
@@ -796,7 +795,7 @@ class builder : public builder_abstract {
         limit = uniq_tails_fwd.size();
       for (uint32_t i = ti->fwd_pos; i < limit; i++) {
         uniq_tails_info *ti_fwd = uniq_tails_fwd[i];
-        int cmp = compare(uniq_tails.data() + ti_fwd->tail_pos, ti_fwd->tail_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
+        int cmp = gen::compare(uniq_tails.data() + ti_fwd->tail_pos, ti_fwd->tail_len, uniq_tails.data() + ti->tail_pos, ti->tail_len);
         cmp = abs(cmp) - 1;
         if (cmp > ti->tail_len - cmp_sfx)
           cmp = ti->tail_len - cmp_sfx;
@@ -807,13 +806,13 @@ class builder : public builder_abstract {
           ti->cmp_fwd = cmp;
           ti_fwd->cmp_fwd = cmp;
           uint32_t remain_len = ti->tail_len - cmp_sfx - cmp;
-          fprintf(fp, "[%.*s]%.*s[%.*s]\n", cmp, uniq_tails.data() + ti->tail_pos, 
+          fprintf(fp, "%u\t%u\t%u\t%u\t<%.*s>%.*s[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, remain_len, cmp, uniq_tails.data() + ti->tail_pos, 
                   remain_len, uniq_tails.data() + ti->tail_pos + cmp,
                   ti->tail_len - remain_len - cmp, uniq_tails.data() + ti->tail_pos + cmp + remain_len);
           return cmp;
         }
       }
-      fprintf(fp, "%.*s[%.*s]\n", ti->tail_len - cmp_sfx, uniq_tails.data() + ti->tail_pos, cmp_sfx, uniq_tails.data() + ti->tail_pos + ti->tail_len - cmp_sfx);
+      fprintf(fp, "%u\t%u\t%u\t%u\t%.*s[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, ti->tail_len - cmp_sfx, ti->tail_len - cmp_sfx, uniq_tails.data() + ti->tail_pos, cmp_sfx, uniq_tails.data() + ti->tail_pos + ti->tail_len - cmp_sfx);
       // fprintf(fp, "%.*s\n", ti->tail_len - cmp_sfx, uniq_tails.data() + ti->tail_pos);
       return 0;
     }
@@ -1322,9 +1321,9 @@ class builder : public builder_abstract {
           if (cur_node->tail_len > 1) {
             uint32_t tail_len;
             // const uint8_t *tail_str = get_tail_str(cur_node, tail_len);
-            // cmp = compare(tail_str, tail_len, 
+            // cmp = gen::compare(tail_str, tail_len, 
             std::string tail_str = get_tail_str(cur_node);
-            cmp = compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
+            cmp = gen::compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
             // printf("%d\t%d\t%.*s =========== ", cmp, tail_len, tail_len, tail_data);
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
@@ -1380,7 +1379,7 @@ class builder : public builder_abstract {
             for_node_grp.push_back((nodes_for_grp) {cur_node->node_id, 2, 0});
           }
       }
-      t = print_time_taken(t, "Time taken to push to for_node_grp: ");
+      t = gen::print_time_taken(t, "Time taken to push to for_node_grp: ");
       std::sort(for_node_grp.begin(), for_node_grp.end(), [this](const struct nodes_for_grp& lhs, const struct nodes_for_grp& rhs) -> bool {
         node *lhs_node1 = &all_nodes[lhs.start_node_id];
         node *lhs_node2 = &all_nodes[lhs.start_node_id + 1];
@@ -1390,7 +1389,7 @@ class builder : public builder_abstract {
                 (get_node_val(lhs_node2) < get_node_val(rhs_node2)) :
                 (get_node_val(lhs_node1) < get_node_val(rhs_node1));
       });
-      t = print_time_taken(t, "Time taken to sort for_node_grp: ");
+      t = gen::print_time_taken(t, "Time taken to sort for_node_grp: ");
       fprintf(fp, "Total node grps: %lu\n", for_node_grp.size());
       node *prev_node = &all_nodes[for_node_grp[0].start_node_id];
       uint32_t count = 0;
@@ -1415,7 +1414,7 @@ class builder : public builder_abstract {
           prev_node = &all_nodes[for_node_grp[i].start_node_id];
         }
       }
-      t = print_time_taken(t, "Time taken to push to print for_node_grp: ");
+      t = gen::print_time_taken(t, "Time taken to push to print for_node_grp: ");
       
     }
 
@@ -1517,7 +1516,7 @@ class builder : public builder_abstract {
       int cmp;
     };
 
-    int compare_nodes(sort_nodes& sn1, sort_nodes& sn2) {
+    int gen::compare_nodes(sort_nodes& sn1, sort_nodes& sn2) {
       int lim = (sn2.count < sn1.count ? sn2.count : sn1.count);
       do {
         k++;
@@ -1540,7 +1539,7 @@ class builder : public builder_abstract {
       vector<sort_nodes> nodes_for_sort;
       add_to_sort_nodes(first_node, nodes_for_sort);
       std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct sort_nodes& lhs, const struct sort_nodes& rhs) -> bool {
-        int cmp = this->compare_nodes(lhs, rhs);
+        int cmp = this->gen::compare_nodes(lhs, rhs);
         if (cmp > lhs.cmp) {
           lhs.cmp = cmp;
           if (lhs.count < rhs.count)
