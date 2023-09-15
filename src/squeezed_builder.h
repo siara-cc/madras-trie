@@ -38,7 +38,10 @@ struct uniq_tails_info {
     uint32_t cmp_rev_max;
     uint32_t freq_count;
     uint32_t tail_ptr;
-    uint32_t link_rev_idx;
+    union {
+      uint32_t link_rev_idx;
+      uint32_t node_id;
+    };
     uint32_t token_arr_pos;
     uint8_t grp_no;
     uint8_t flags;
@@ -546,6 +549,8 @@ class builder {
           freq_count++;
         } else {
           ti_ptr->freq_count = freq_count;
+          if (ti_ptr->freq_count == 1)
+            ti_ptr->node_id = (it - 1)->n;
           if (max_freq_count < freq_count)
             max_freq_count = freq_count;
           uniq_tails_rev.push_back(ti_ptr);
@@ -731,7 +736,7 @@ class builder {
               savings_partial -= len_len;
               savings_count_partial++;
               update_current_grp(freq_grp_vec, grp_no, remain_len, ti->freq_count);
-              ti->link_rev_idx = prev_ti->rev_pos;
+              //ti->link_rev_idx = prev_ti->rev_pos;
               ti->flags |= UTI_FLAG_SUFFIX_PARTIAL;
               if (ti->cmp_rev_max < cmp)
                 ti->cmp_rev_max = cmp;
@@ -781,6 +786,8 @@ class builder {
       while (freq_pos < uniq_tails_freq.size()) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
         freq_pos++;
+        if (ti->flags & UTI_FLAG_SUFFIX_FULL)
+          continue;
         uint32_t remain_len = ti->tail_len - ti->cmp_rev_max;
         if (remain_len > 3) {
           // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
@@ -789,6 +796,7 @@ class builder {
           savings_prefix--;
           savings_count_prefix++;
         }
+        // fprintf(fp, "%u\t%u\t%u\t%u\t%u\n", ti->freq_count, ti->tail_len, ti->node_id, ti->rev_pos, ti->cmp_rev_max);
         if (ti->cmp_rev_min != 0xFFFFFFFF && ti->cmp_rev_min > 4) {
           cmp_rev_min_tot += (ti->cmp_rev_min - 1);
           cmp_rev_min_cnt++;
@@ -803,6 +811,7 @@ class builder {
       for (int i = 1; i < freq_grp_vec.size(); i++)
         freqs.push_back(freq_grp_vec[i].freq_count);
       huffman<uint32_t> _huffman(freqs);
+      printf("bits\tcd\tct\tfct\tlen\tcdln\tmxsz\n");
       for (int i = 1; i < freq_grp_vec.size(); i++) {
         freq_grp& fg = freq_grp_vec[i];
         int len;
@@ -959,7 +968,7 @@ class builder {
           if (cur_node->tail_len == 1) {
             node_val = cur_node->v0;
           } else {
-            char_counts[(cur_node->tail_len > 7) ? 7 : (cur_node->tail_len-2)]++;
+            char_counts[(cur_node->tail_len > 8) ? 7 : (cur_node->tail_len-2)]++;
             node_val = get_tail_ptr(cur_node, uniq_tails_rev, uniq_tails, 
                          freq_grp_vec, grp_tails, tail_ptrs, last_byte_bits);
             ptr_count++;
@@ -1064,6 +1073,33 @@ class builder {
       fwrite(trie.data(), trie.size(), 1, fp);
       fclose(fp);
 
+      // std::vector<nodes_ptr_grp> ptr_grp_vec;
+      // for (uint32_t i = 1; i < all_nodes.size(); i++) {
+      //   node *cur_node = &all_nodes[i];
+      //   if (cur_node->tail_len > 1) {
+      //     uniq_tails_info *ti = uniq_tails_rev[cur_node->rev_node_info_pos];
+      //     ptr_grp_vec.push_back((nodes_ptr_grp) {i, (ti->grp_no << 28) | ti->tail_ptr});
+      //   }
+      // }
+      // std::sort(ptr_grp_vec.begin(), ptr_grp_vec.end(), [this](const struct nodes_ptr_grp& lhs, const struct nodes_ptr_grp& rhs) -> bool {
+      //   return lhs.ptr == rhs.ptr ? (lhs.node_id < rhs.node_id) : (lhs.ptr < rhs.ptr);
+      // });
+      // uint32_t ptr_grp_count = 0;
+      // nodes_ptr_grp& prev_ptr_grp = ptr_grp_vec[0];
+      // fp = fopen("node_ptrs.txt", "wb+");
+      // for (uint32_t i = 0; i < ptr_grp_vec.size(); i++) {
+      //   nodes_ptr_grp& ptr_grp = ptr_grp_vec[i];
+      //   if (ptr_grp.ptr == prev_ptr_grp.ptr) {
+      //     ptr_grp_count++;
+      //   } else {
+      //     fprintf(fp, "%8u\t%u\t%u\t%u\t%u\t%u\n", ptr_grp_count, all_nodes[prev_ptr_grp.node_id].tail_len, prev_ptr_grp.node_id, all_nodes[prev_ptr_grp.node_id].rev_node_info_pos,
+      //             prev_ptr_grp.ptr >> 28, prev_ptr_grp.ptr & 0x0FFFFFFF);
+      //     prev_ptr_grp = ptr_grp;
+      //     ptr_grp_count = 1;
+      //   }
+      // }
+      // fclose(fp);
+
       fp = fopen("nodes.txt", "wb+");
       // dump_nodes(first_node, fp);
       find_rpt_nodes(fp);
@@ -1072,6 +1108,11 @@ class builder {
       return out_filename;
 
     }
+
+    // struct nodes_ptr_grp {
+    //   uint32_t node_id;
+    //   uint32_t ptr;
+    // };
 
     static void write_uint32(uint32_t input, FILE *fp) {
       // int i = 4;
@@ -1383,56 +1424,82 @@ class builder {
       int32_t node_grp_id;
     };
 
-    uint32_t get_node_val(node *n) {
-      uniq_tails_info *n1 = uniq_tails_rev[n->rev_node_info_pos];
-      return n->tail_len > 1 ? (n1->grp_no << 28) + n1->tail_ptr : n->v0;
+    int compare_nodes_rev(uint32_t nid_1, int len1, uint32_t nid_2, int len2) {
+        int lim = (len2 < len1 ? len2 : len1);
+        int k = 1;
+        do {
+            uint32_t v1 = all_nodes[nid_1 + len1 - k].v0;
+            uint32_t v2 = all_nodes[nid_2 + len2 - k].v0;
+            if (v1 < v2)
+                return -k;
+            else if (v1 > v2)
+                return k;
+        } while (k++ < lim);
+        if (len1 == len2)
+            return 0;
+        return (len1 < len2 ? -k : k);
     }
 
     void find_rpt_nodes(FILE *fp) {
       clock_t t = clock();
       std::vector<nodes_for_grp> for_node_grp;
-      for (int i = 1; i < all_nodes.size(); i++) {
+      uint32_t start_node_id = 1;
+      for (uint32_t i = 1; i < all_nodes.size(); i++) {
           node *cur_node = &all_nodes[i];
-          if (cur_node->flags & NFLAG_TERM)
-            continue;
-          node *next_node = &all_nodes[i + 1];
-          if (cur_node->first_child == 0 && next_node->first_child == 0) {
-            for_node_grp.push_back((nodes_for_grp) {cur_node->node_id, 2, 0});
+          uniq_tails_info *ti = uniq_tails_rev[cur_node->rev_node_info_pos];
+          if (cur_node->tail_len > 1)
+            cur_node->v0 = (ti->grp_no << 28) + ti->tail_ptr;
+          if (cur_node->first_child != 0 || cur_node->flags & NFLAG_TERM) {
+            if (i - start_node_id > (cur_node->first_child == 0 ? 0 : 1))
+              for_node_grp.push_back((nodes_for_grp) {start_node_id, (uint8_t) (i - start_node_id + (cur_node->first_child == 0 ? 1 : 0))});
+            start_node_id = i + 1;
           }
+          // if (cur_node->flags & NFLAG_TERM)
+          //   continue;
+          // node *next_node = &all_nodes[i + 1];
+          // if (cur_node->first_child == 0 && next_node->first_child == 0) {
+          //   for_node_grp.push_back((nodes_for_grp) {cur_node->node_id, 2, 0});
+          // }
       }
       t = gen::print_time_taken(t, "Time taken to push to for_node_grp: ");
       std::sort(for_node_grp.begin(), for_node_grp.end(), [this](const struct nodes_for_grp& lhs, const struct nodes_for_grp& rhs) -> bool {
-        node *lhs_node1 = &all_nodes[lhs.start_node_id];
-        node *lhs_node2 = &all_nodes[lhs.start_node_id + 1];
-        node *rhs_node1 = &all_nodes[rhs.start_node_id];
-        node *rhs_node2 = &all_nodes[rhs.start_node_id + 1];
-        return get_node_val(lhs_node1) == get_node_val(rhs_node1) ? 
-                (get_node_val(lhs_node2) < get_node_val(rhs_node2)) :
-                (get_node_val(lhs_node1) < get_node_val(rhs_node1));
+        return compare_nodes_rev(lhs.start_node_id, lhs.len, rhs.start_node_id, rhs.len) < 0;
       });
-      t = gen::print_time_taken(t, "Time taken to sort for_node_grp: ");
-      fprintf(fp, "Total node grps: %lu\n", for_node_grp.size());
-      node *prev_node = &all_nodes[for_node_grp[0].start_node_id];
+      // std::sort(for_node_grp.begin(), for_node_grp.end(), [this](const struct nodes_for_grp& lhs, const struct nodes_for_grp& rhs) -> bool {
+      //   node *lhs_node1 = &all_nodes[lhs.start_node_id];
+      //   node *lhs_node2 = &all_nodes[lhs.start_node_id + 1];
+      //   node *rhs_node1 = &all_nodes[rhs.start_node_id];
+      //   node *rhs_node2 = &all_nodes[rhs.start_node_id + 1];
+      //   return lhs_node1->v0 == rhs_node1->v0 ? 
+      //           (lhs_node2->v0 < rhs_node2->v0) :
+      //           (lhs_node1->v0 < rhs_node1->v0);
+      // });
+      // t = gen::print_time_taken(t, "Time taken to sort for_node_grp: ");
+      // printf("Total node grps: %lu\n", for_node_grp.size());
+      nodes_for_grp *prev_node_grp = &for_node_grp[0];
       uint32_t count = 0;
       for (int i = 0; i < for_node_grp.size(); i++) {
-        if (get_node_val(&all_nodes[for_node_grp[i].start_node_id]) == get_node_val(prev_node)) {
+        nodes_for_grp *cur_node_grp = &for_node_grp[i];
+        int cmp = compare_nodes_rev(cur_node_grp->start_node_id, cur_node_grp->len, prev_node_grp->start_node_id, prev_node_grp->len);
+        if (cmp == 0) {
           count++;
         } else {
-          node *node1 = &all_nodes[for_node_grp[i].start_node_id];
-          node *node2 = &all_nodes[for_node_grp[i].start_node_id + 1];
-          uniq_tails_info *ti1 = uniq_tails_rev[node1->rev_node_info_pos];
-          uniq_tails_info *ti2 = uniq_tails_rev[node2->rev_node_info_pos];
-          fprintf(fp, "%010u\t", count);
-          if (node1->tail_len == 1)
-            fprintf(fp, "[%c]\t", node1->v0);
-          else
-            fprintf(fp, "[%d][%u]\t", ti1->grp_no, ti1->tail_ptr);
-          if (node2->tail_len == 1)
-            fprintf(fp, "[%c]\n", node2->v0);
-          else
-            fprintf(fp, "[%d][%u]\n", ti2->grp_no, ti2->tail_ptr);
+          cmp = abs(cmp) - 1;
+          if (count > 0 || cmp > 0) {
+            fprintf(fp, "%06u\t%d\t", count, cmp);
+            for (int j = 0; j < prev_node_grp->len; j++) {
+              node *node1 = &all_nodes[prev_node_grp->start_node_id + j];
+              if (node1->tail_len == 1)
+                fprintf(fp, "[%u] ", node1->v0);
+              else {
+                uniq_tails_info *ti1 = uniq_tails_rev[node1->rev_node_info_pos];
+                fprintf(fp, "[%d][%u] ", ti1->grp_no, ti1->tail_ptr);
+              }
+            }
+            fprintf(fp, "\n");
+          }
           count = 0;
-          prev_node = &all_nodes[for_node_grp[i].start_node_id];
+          prev_node_grp = &for_node_grp[i];
         }
       }
       t = gen::print_time_taken(t, "Time taken to push to print for_node_grp: ");
