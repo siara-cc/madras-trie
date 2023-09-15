@@ -337,8 +337,11 @@ class builder {
   private:
     node root;
     node first_node;
-    int node_count;
-    int key_count;
+    uint32_t node_count;
+    uint32_t key_count;
+    uint32_t common_node_count;
+    uint32_t two_byte_count;
+    uint32_t idx2_ptr_count;
     std::vector<node> all_nodes;
     std::vector<uint32_t> last_children;
     std::string prev_key;
@@ -394,9 +397,12 @@ class builder {
     std::vector<freq_grp> freq_grp_vec;
     std::vector<byte_vec> grp_tails;
     byte_vec tail_ptrs;
+    byte_vec two_byte_tails;
+    byte_vec idx2_ptrs_map;
     std::string out_filename;
     builder(const char *out_file) {
       node_count = 0;
+      common_node_count = 0;
       key_count = 0;
       //root->parent = NULL;
       root.flags = NFLAG_TERM;
@@ -537,7 +543,7 @@ class builder {
       t = gen::print_time_taken(t, "Time taken to sort: ");
       uint32_t vec_pos = 0;
       uint32_t freq_count = 0;
-      uint32_t max_freq_count = 0;
+      uint32_t tot_freq_count = 0;
       std::vector<tails_sort_data>::iterator it = nodes_for_sort.begin();
       uint8_t *prev_val = it->tail_data;
       uint32_t prev_val_len = it->tail_len;
@@ -551,8 +557,7 @@ class builder {
           ti_ptr->freq_count = freq_count;
           if (ti_ptr->freq_count == 1)
             ti_ptr->node_id = (it - 1)->n;
-          if (max_freq_count < freq_count)
-            max_freq_count = freq_count;
+          tot_freq_count += freq_count;
           uniq_tails_rev.push_back(ti_ptr);
           for (int i = 0; i < prev_val_len; i++)
             uniq_tails.push_back(prev_val[i]);
@@ -566,15 +571,14 @@ class builder {
         it++;
       }
       ti_ptr->freq_count = freq_count;
-      if (max_freq_count < freq_count)
-        max_freq_count = freq_count;
+      tot_freq_count += freq_count;
       uniq_tails_rev.push_back(ti_ptr);
       for (int i = 0; i < prev_val_len; i++)
         uniq_tails.push_back(prev_val[i]);
       t = gen::print_time_taken(t, "Time taken for uniq_tails_rev: ");
       sort_tails.release_blocks();
 
-      return max_freq_count;
+      return tot_freq_count;
 
     }
 
@@ -633,15 +637,51 @@ class builder {
       return ptr;
     }
 
+    bool is_code_near(uint32_t freq, uint32_t tot_freq, int code_len) {
+      double code_len_dbl = log2(tot_freq/freq);
+      int code_len_int = (int) code_len_dbl;
+      if (code_len_dbl - code_len_int < 0.2)
+        return true;
+      return false;
+    }
+
+    void make_two_byte_tails(uniq_tails_info_vec& uniq_tails_freq, uint32_t tot_freq_count) {
+      uint32_t freq_pos = 0;
+      uint32_t freq_count32 = 0;
+      uint32_t freq_count64 = 0;
+      while (freq_pos < uniq_tails_freq.size()) {
+        uniq_tails_info *ti = uniq_tails_freq[freq_pos];
+        freq_pos++;
+        if (ti->tail_len == 2) {
+          two_byte_tails.push_back(uniq_tails[ti->tail_pos]);
+          two_byte_tails.push_back(uniq_tails[ti->tail_pos + 1]);
+          if (two_byte_tails.size() < 64)
+            freq_count32 += ti->freq_count;
+          if (two_byte_tails.size() < 128)
+            freq_count64 += ti->freq_count;
+          else {
+            if (is_code_near(freq_count64, tot_freq_count, 2)) {
+              return;
+            } else if (is_code_near(freq_count32, tot_freq_count, 2)) {
+              two_byte_tails.resize(64);
+            } else {
+              two_byte_tails.clear();
+            }
+            break;
+          }
+        }
+      }
+    }
+
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev,
                  std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, byte_vec& tail_ptrs) {
       uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
-      uint32_t max_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
+      uint32_t tot_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
       //uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
       clock_t t = clock();
       uniq_tails_freq = uniq_tails_rev;
-      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this, max_freq_count](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
         uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
         lhs_freq = ceil(log10(lhs_freq));
@@ -658,9 +698,11 @@ class builder {
         uniq_tails_fwd[i]->fwd_pos = i;
       t = gen::print_time_taken(t, "Time taken for uniq_tails fwd sort: ");
 
+      make_two_byte_tails(uniq_tails_freq, tot_freq_count);
+
+      uint32_t freq_pos = 0;
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
-      uint32_t freq_pos = 0;
       uniq_tails_info *ti0 = uniq_tails_freq[freq_pos];
       uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
       uint32_t prev_val_len = ti0->tail_len;
@@ -693,7 +735,7 @@ class builder {
       uint32_t grp_no = 1;
       uint32_t cur_limit = 128;
       freq_grp_vec.push_back((freq_grp) {0, 0, 0, 0, 0, 0});
-      freq_grp_vec.push_back((freq_grp) {1, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
+      freq_grp_vec.push_back((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0});
       uint32_t savings_partial = 0;
       uint32_t savings_count_partial = 0;
       uint32_t sfx_set_len = 0;
@@ -1041,7 +1083,7 @@ class builder {
       FILE *fp = fopen(out_filename.c_str(), "wb+");
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
-      uint32_t grp_tails_loc = 2 + 9 * 4; // 26
+      uint32_t grp_tails_loc = 2 + 14 * 4; // 58
       uint32_t grp_tails_size = 513 // group_count + huffman lookup table
                        + grp_tails.size() * 4 // tail_locations
                        + total_tails;
@@ -1051,9 +1093,17 @@ class builder {
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t select_lkup_loc = leaf_bv_loc + leaf_bv;
       uint32_t tail_ptrs_loc = select_lkup_loc + select_lookup;
-      uint32_t trie_loc = tail_ptrs_loc + tail_ptrs.size();
+      uint32_t two_byte_tails_loc = tail_ptrs_loc + tail_ptrs.size();
+      uint32_t idx2_ptrs_map_loc = two_byte_tails_loc + two_byte_tails.size();
+      uint32_t common_nodes_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
+      uint32_t trie_loc = common_nodes_loc + ceil(common_node_count * 1.5);
+      two_byte_count = two_byte_tails.size() / 2;
+      idx2_ptr_count = idx2_ptrs_map.size() / 3;
       printf("%u,%u,%u,%u,%u,%u,%u,%u\n", node_count, cache_loc, ptr_lookup_tbl_loc, trie_bv_loc, leaf_bv_loc, select_lkup_loc, tail_ptrs_loc, trie_loc);
       write_uint32(node_count, fp);
+      write_uint32(common_node_count, fp);
+      write_uint32(two_byte_count, fp);
+      write_uint32(idx2_ptr_count, fp);
       write_uint32(max_tail_len, fp);
       write_uint32(cache_loc, fp);
       write_uint32(ptr_lookup_tbl_loc, fp);
@@ -1061,6 +1111,8 @@ class builder {
       write_uint32(leaf_bv_loc, fp);
       write_uint32(select_lkup_loc, fp);
       write_uint32(tail_ptrs_loc, fp);
+      write_uint32(two_byte_tails_loc, fp);
+      write_uint32(idx2_ptrs_map_loc, fp);
       write_uint32(trie_loc, fp);
       write_grp_tails(freq_grp_vec, grp_tails, grp_tails_loc + 513, fp); // group count, 512 lookup tbl, tail locs, tails
       //write_cache(fp, cache_size);
@@ -1070,6 +1122,7 @@ class builder {
       write_leaf_bv(fp);
       write_select_lkup(fp);
       fwrite(tail_ptrs.data(), tail_ptrs.size(), 1, fp);
+      fwrite(trie.data(), two_byte_tails.size(), 1, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
       fclose(fp);
 

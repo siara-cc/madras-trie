@@ -64,6 +64,9 @@ class static_dict {
     size_t dict_size;
 
     uint32_t node_count;
+    uint32_t common_node_count;
+    uint32_t two_byte_tail_count;
+    uint32_t idx2_ptr_count;
     uint32_t bv_block_count;
     uint32_t max_tail_len;
     uint8_t *grp_tails_loc;
@@ -75,6 +78,9 @@ class static_dict {
     uint8_t *select_lkup_loc_end;
     uint8_t *tail_ptrs_loc;
     uint8_t *trie_loc;
+    uint8_t *two_byte_tails_loc;
+    uint8_t *idx2_ptrs_map_loc;
+    uint8_t *common_nodes_loc;
 
     uint8_t grp_count;
     uint8_t *code_lookup_tbl;
@@ -122,18 +128,23 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 9 * 4; // 38
+      grp_tails_loc = dict_buf + 2 + 14 * 4; // 58
       node_count = read_uint32(dict_buf + 2);
-      max_tail_len = read_uint32(dict_buf + 6);
+      common_node_count = read_uint32(dict_buf + 6);
+      two_byte_tail_count = read_uint32(dict_buf + 10);
+      idx2_ptr_count = read_uint32(dict_buf + 14);
+      max_tail_len = read_uint32(dict_buf + 18);
       bv_block_count = node_count / nodes_per_bv_block;
-      cache_loc = dict_buf + read_uint32(dict_buf + 10);
-      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 14);
-      trie_bv_loc =  dict_buf + read_uint32(dict_buf + 18);
-      leaf_bv_loc =  dict_buf + read_uint32(dict_buf + 22);
-      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 26);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 30);
+      cache_loc = dict_buf + read_uint32(dict_buf + 22);
+      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 26);
+      trie_bv_loc = dict_buf + read_uint32(dict_buf + 30);
+      leaf_bv_loc = dict_buf + read_uint32(dict_buf + 34);
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 38);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 42);
       select_lkup_loc_end = tail_ptrs_loc;
-      trie_loc = dict_buf + read_uint32(dict_buf + 34);
+      two_byte_tails_loc = dict_buf + read_uint32(dict_buf + 46);
+      idx2_ptrs_map_loc = dict_buf + read_uint32(dict_buf + 50);
+      trie_loc = dict_buf + read_uint32(dict_buf + 54);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
