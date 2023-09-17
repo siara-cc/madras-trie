@@ -990,6 +990,12 @@ class builder {
       tail_ptrs.push_back(0);
       last_byte_bits = 8;
       uint32_t ptr_count = 0;
+      int32_t ptr_delta_savings = 0;
+      uint32_t ptrs_upto[20];
+      int32_t block_delta_savings[20];
+      memset(ptrs_upto, '\0', sizeof(ptrs_upto));
+      memset(block_delta_savings, '\0', sizeof(block_delta_savings));
+      FILE *fp = fopen("ptrs_deltas.txt", "wb+");
       for (int i = 1; i < all_nodes.size(); i++) {
           node *cur_node = &all_nodes[i];
           if (cur_node->tail_len > 1) {
@@ -998,8 +1004,30 @@ class builder {
               sfx_full_count++;
             if (ti->flags & UTI_FLAG_SUFFIX_PARTIAL)
               sfx_partial_count++;
+            int32_t assigned_bit_len = freq_grp_vec[ti->grp_no].grp_log2 + (8-freq_grp_vec[ti->grp_no].code_len);
+            int32_t delta_bit_len = ceil(log2(abs((int)(ti->tail_ptr - ptrs_upto[ti->grp_no])) + 1));
+            int32_t actual_bit_len = assigned_bit_len;
+            if (ptrs_upto[ti->grp_no] == 0)
+              actual_bit_len = delta_bit_len = assigned_bit_len;
+            else {
+              if (delta_bit_len >= (assigned_bit_len - 1))
+                actual_bit_len = assigned_bit_len + 1;
+              else {
+                if (delta_bit_len < assigned_bit_len / 4)
+                  actual_bit_len = assigned_bit_len / 4 + 4;
+                else if (delta_bit_len < assigned_bit_len / 2)
+                  actual_bit_len = assigned_bit_len / 2 + 4;
+                else if (delta_bit_len < assigned_bit_len * 3 / 4)
+                  actual_bit_len = assigned_bit_len * 3 / 4 + 3;
+                else
+                  actual_bit_len = assigned_bit_len;
+              }
+            }
+            fprintf(fp, "%u\t%u\t%u\t%d\t%d\t%d\t%d\t%d\n", cur_node->node_id / 64, ti->grp_no,
+                ti->tail_ptr, assigned_bit_len, ti->tail_ptr - ptrs_upto[ti->grp_no], delta_bit_len, actual_bit_len, assigned_bit_len - actual_bit_len);
+            block_delta_savings[ti->grp_no] += (assigned_bit_len - actual_bit_len);
+            ptrs_upto[ti->grp_no] = ti->tail_ptr;
           }
-          cur_node->node_id = node_count + 1;
           if (cur_node->flags & NFLAG_TERM)
             term_count++;
           uint8_t flags = (cur_node->flags & NFLAG_LEAF) +
@@ -1016,6 +1044,12 @@ class builder {
             ptr_count++;
           }
           if (node_count && (node_count % 64) == 0) {
+            for (int j = 1; j < freq_grp_vec.size(); j++) {
+              if (block_delta_savings[j] > 0)
+                ptr_delta_savings += block_delta_savings[j];
+            }
+            memset(block_delta_savings, '\0', sizeof(block_delta_savings));
+            memset(ptrs_upto, '\0', sizeof(ptrs_upto));
             append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
             bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
             bm_mask = 1UL;
@@ -1038,11 +1072,13 @@ class builder {
           //fwrite(&flags, 1, 1, fout);
           //fwrite(&node_val, 1, 1, fout);
       }
+      fclose(fp);
       if (node_count % 64) {
         append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
         append_byte_vec(trie, byte_vec64);
       }
       std::cout << std::endl;
+      std::cout << "Ptr delta savings: " << ptr_delta_savings << std::endl;
       for (int i = 0; i < 8; i++) {
         std::cout << "Flag " << i << ": " << flag_counts[i] << "\t";
         std::cout << "Char " << i + 2 << ": " << char_counts[i] << std::endl;
@@ -1080,7 +1116,7 @@ class builder {
       std::cout << "Total size: " << total_size << std::endl;
       std::cout << "Node struct size: " << sizeof(node) << std::endl;
 
-      FILE *fp = fopen(out_filename.c_str(), "wb+");
+      fp = fopen(out_filename.c_str(), "wb+");
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       uint32_t grp_tails_loc = 2 + 14 * 4; // 58
