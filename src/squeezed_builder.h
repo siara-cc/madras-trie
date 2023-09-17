@@ -38,10 +38,9 @@ struct uniq_tails_info {
     uint32_t cmp_rev_max;
     uint32_t freq_count;
     uint32_t tail_ptr;
-    union {
+    uint32_t avg_nid;
       uint32_t link_rev_idx;
       uint32_t node_id;
-    };
     uint32_t token_arr_pos;
     uint8_t grp_no;
     uint8_t flags;
@@ -55,6 +54,7 @@ struct uniq_tails_info {
       link_rev_idx = 0xFFFFFFFF;
       token_arr_pos = 0xFFFFFFFF;
       tail_ptr = 0;
+      avg_nid = 0;
       grp_no = 0;
       flags = 0;
     }
@@ -537,10 +537,12 @@ class builder {
           nodes_for_sort.push_back((struct tails_sort_data) { v, n->tail_len, i } );
       }
       t = gen::print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
+      std::cout << "Nodes for sort size: " << nodes_for_sort.size() << std::endl;
       std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct tails_sort_data& lhs, const struct tails_sort_data& rhs) -> bool {
         return gen::compare_rev(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
       });
       t = gen::print_time_taken(t, "Time taken to sort: ");
+      std::cout << "Nodes for sort size: " << nodes_for_sort.size() << std::endl;
       uint32_t vec_pos = 0;
       uint32_t freq_count = 0;
       uint32_t tot_freq_count = 0;
@@ -676,20 +678,10 @@ class builder {
     const static uint32_t suffix_grp_limit = 3;
     void build_tail_maps(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info_vec& uniq_tails_rev,
                  std::vector<freq_grp>& freq_grp_vec, std::vector<byte_vec>& grp_tails, byte_vec& tail_ptrs) {
-      uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
-      uint32_t tot_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
-      //uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
-      clock_t t = clock();
-      uniq_tails_freq = uniq_tails_rev;
-      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
-        uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
-        lhs_freq = ceil(log10(lhs_freq));
-        rhs_freq = ceil(log10(rhs_freq));
-        return (lhs_freq == rhs_freq) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq);
-      });
-      t = gen::print_time_taken(t, "Time taken for uniq_tails freq: ");
 
+      uint32_t tot_freq_count = make_uniq_tails(uniq_tails, uniq_tails_rev);
+
+      clock_t t = clock();
       uniq_tails_fwd = uniq_tails_rev;
       std::sort(uniq_tails_fwd.begin(), uniq_tails_fwd.end(), [uniq_tails](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         return gen::compare(uniq_tails.data() + lhs->tail_pos, lhs->tail_len, uniq_tails.data() + rhs->tail_pos, rhs->tail_len) < 0;
@@ -698,15 +690,76 @@ class builder {
         uniq_tails_fwd[i]->fwd_pos = i;
       t = gen::print_time_taken(t, "Time taken for uniq_tails fwd sort: ");
 
+      //uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
+      uniq_tails_info_vec uniq_tails_freq;
+      uniq_tails_info_vec uniq_tails_freq1;
+      for (int i = 0; i < uniq_tails_rev.size(); i++) {
+        uniq_tails_info *ti = uniq_tails_rev[i];
+        if (ti->freq_count == 1)
+          uniq_tails_freq1.push_back(ti);
+        else
+          uniq_tails_freq.push_back(ti);
+      }
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
+        uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
+        lhs_freq = ceil(log10(lhs_freq));
+        rhs_freq = ceil(log10(rhs_freq));
+        return (lhs_freq == rhs_freq) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq);
+      });
+      std::sort(uniq_tails_freq1.begin(), uniq_tails_freq1.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return lhs->rev_pos > rhs->rev_pos;
+      });
+      uint32_t freq_pos = 1;
+      uint32_t avg_node_id = 0;
+      uint32_t count_for_avg = 1;
+      uint32_t prev_val_idx = 0;
+      while (freq_pos < uniq_tails_freq1.size()) {
+        uniq_tails_info *ti = uniq_tails_freq1[freq_pos];
+        uniq_tails_info *prev_ti = uniq_tails_freq1[prev_val_idx];
+        if (avg_node_id == 0)
+          avg_node_id += prev_ti->node_id;
+        if (ti->rev_pos != prev_ti->rev_pos - count_for_avg) {
+          avg_node_id = (avg_node_id / count_for_avg);
+          //printf("%u\t%u\n", avg_node_id, count_for_avg);
+          while (count_for_avg--) {
+            prev_ti = uniq_tails_freq1[prev_val_idx + count_for_avg];
+            prev_ti->avg_nid = avg_node_id;
+          }
+          prev_val_idx = freq_pos;
+          avg_node_id = 0;
+          count_for_avg = 0;
+        }
+        avg_node_id += ti->node_id;
+        count_for_avg++;
+        freq_pos++;
+      }
+      std::sort(uniq_tails_freq1.begin(), uniq_tails_freq1.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return (lhs->avg_nid == rhs->avg_nid ? (lhs->rev_pos > rhs->rev_pos) : (lhs->avg_nid < rhs->avg_nid));
+      });
+      freq_pos = 0;
+      while (freq_pos < uniq_tails_freq1.size()) {
+        uniq_tails_freq.push_back(uniq_tails_freq1[freq_pos++]);
+      }
+      uniq_tails_freq1.clear();
+      t = gen::print_time_taken(t, "Time taken for uniq_tails freq: ");
+
       make_two_byte_tails(uniq_tails_freq, tot_freq_count);
 
-      uint32_t freq_pos = 0;
+      freq_pos = 0;
+      while (freq_pos < uniq_tails_freq.size()) {
+        uniq_tails_info *ti = uniq_tails_freq[freq_pos];
+        freq_pos++;
+        printf("%u\t%u\t%u\t%u\t%u\t%u\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->tail_len, ti->avg_nid, ti->rev_pos, ti->grp_no);
+      }
+
+      freq_pos = 0;
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
       uniq_tails_info *ti0 = uniq_tails_freq[freq_pos];
       uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
       uint32_t prev_val_len = ti0->tail_len;
-      uint32_t prev_val_idx = freq_pos;
+      prev_val_idx = freq_pos;
       while (freq_pos < uniq_tails_freq.size()) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
         freq_pos++;
@@ -731,7 +784,6 @@ class builder {
       }
 
       freq_pos = 0;
-
       uint32_t grp_no = 1;
       uint32_t cur_limit = 128;
       freq_grp_vec.push_back((freq_grp) {0, 0, 0, 0, 0, 0});
