@@ -367,7 +367,7 @@ class builder {
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
-      while (node_id < all_nodes.size()) {
+      while (node_id < all_nodes.size() && nxt < all_nodes.size()) {
         if (all_nodes[nxt].first_child == 0) {
           nxt++;
           continue;
@@ -585,13 +585,13 @@ class builder {
     }
 
     uint32_t get_var_len(uint32_t len, byte_vec *vec = NULL) {
-      uint32_t var_len = (len < 64 ? 2 : (len < 8192 ? 3 : (len < 1024768 ? 4 : 5)));
+      uint32_t var_len = (len < 16 ? 2 : (len < 2048 ? 3 : (len < 262144 ? 4 : 5)));
       if (vec != NULL) {
         vec->push_back(15);
         int bit7s = var_len - 2;
         for (int i = bit7s - 1; i >= 0; i--)
-          vec->push_back((len >> (i * 7 + 6)) & 0x7F);
-        vec->push_back(0x40 + (len & 0x3F));
+          vec->push_back(0x80 + ((len >> (i * 7 + 4)) & 0x7F));
+        vec->push_back(0x10 + (len & 0x0F));
       }
       return var_len;
     }
@@ -691,15 +691,7 @@ class builder {
       t = gen::print_time_taken(t, "Time taken for uniq_tails fwd sort: ");
 
       //uint32_t log10_max_freq_count = ceil(log10(max_freq_count));
-      uniq_tails_info_vec uniq_tails_freq;
-      uniq_tails_info_vec uniq_tails_freq1;
-      for (int i = 0; i < uniq_tails_rev.size(); i++) {
-        uniq_tails_info *ti = uniq_tails_rev[i];
-        if (ti->freq_count == 1)
-          uniq_tails_freq1.push_back(ti);
-        else
-          uniq_tails_freq.push_back(ti);
-      }
+      uniq_tails_info_vec uniq_tails_freq = uniq_tails_rev;
       std::sort(uniq_tails_freq.begin(), uniq_tails_freq.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
         uint32_t lhs_freq = lhs->freq_count / lhs->tail_len;
         uint32_t rhs_freq = rhs->freq_count / rhs->tail_len;
@@ -707,59 +699,17 @@ class builder {
         rhs_freq = ceil(log10(rhs_freq));
         return (lhs_freq == rhs_freq) ? (lhs->rev_pos > rhs->rev_pos) : (lhs_freq > rhs_freq);
       });
-      std::sort(uniq_tails_freq1.begin(), uniq_tails_freq1.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        return lhs->rev_pos > rhs->rev_pos;
-      });
-      uint32_t freq_pos = 1;
-      uint32_t avg_node_id = 0;
-      uint32_t count_for_avg = 1;
-      uint32_t prev_val_idx = 0;
-      while (freq_pos < uniq_tails_freq1.size()) {
-        uniq_tails_info *ti = uniq_tails_freq1[freq_pos];
-        uniq_tails_info *prev_ti = uniq_tails_freq1[prev_val_idx];
-        if (avg_node_id == 0)
-          avg_node_id += prev_ti->node_id;
-        if (ti->rev_pos != prev_ti->rev_pos - count_for_avg) {
-          avg_node_id = (avg_node_id / count_for_avg);
-          //printf("%u\t%u\n", avg_node_id, count_for_avg);
-          while (count_for_avg--) {
-            prev_ti = uniq_tails_freq1[prev_val_idx + count_for_avg];
-            prev_ti->avg_nid = avg_node_id;
-          }
-          prev_val_idx = freq_pos;
-          avg_node_id = 0;
-          count_for_avg = 0;
-        }
-        avg_node_id += ti->node_id;
-        count_for_avg++;
-        freq_pos++;
-      }
-      std::sort(uniq_tails_freq1.begin(), uniq_tails_freq1.end(), [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
-        return (lhs->avg_nid == rhs->avg_nid ? (lhs->rev_pos > rhs->rev_pos) : (lhs->avg_nid < rhs->avg_nid));
-      });
-      freq_pos = 0;
-      while (freq_pos < uniq_tails_freq1.size()) {
-        uniq_tails_freq.push_back(uniq_tails_freq1[freq_pos++]);
-      }
-      uniq_tails_freq1.clear();
       t = gen::print_time_taken(t, "Time taken for uniq_tails freq: ");
 
       make_two_byte_tails(uniq_tails_freq, tot_freq_count);
 
-      freq_pos = 0;
-      while (freq_pos < uniq_tails_freq.size()) {
-        uniq_tails_info *ti = uniq_tails_freq[freq_pos];
-        freq_pos++;
-        printf("%u\t%u\t%u\t%u\t%u\t%u\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->tail_len, ti->avg_nid, ti->rev_pos, ti->grp_no);
-      }
-
-      freq_pos = 0;
+      uint32_t freq_pos = 0;
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
       uniq_tails_info *ti0 = uniq_tails_freq[freq_pos];
       uint8_t *prev_val = uniq_tails.data() + ti0->tail_pos;
       uint32_t prev_val_len = ti0->tail_len;
-      prev_val_idx = freq_pos;
+      uint32_t prev_val_idx = freq_pos;
       while (freq_pos < uniq_tails_freq.size()) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
         freq_pos++;
@@ -804,13 +754,19 @@ class builder {
         if (ti->grp_no != 0)
           continue;
         if (ti->flags & UTI_FLAG_SUFFIX_FULL) {
-            savings_full += ti->tail_len;
-            savings_full++;
-            savings_count_full++;
-            uniq_tails_info *link_ti = uniq_tails_rev[ti->link_rev_idx];
-            update_current_grp(freq_grp_vec, link_ti->grp_no, 0, ti->freq_count);
-            ti->tail_ptr = link_ti->tail_ptr + link_ti->tail_len - ti->tail_len;
-            ti->grp_no = link_ti->grp_no;
+          savings_full += ti->tail_len;
+          savings_full++;
+          savings_count_full++;
+          uniq_tails_info *link_ti = uniq_tails_rev[ti->link_rev_idx];
+          if (link_ti->grp_no == 0) {
+            cur_limit = check_next_grp(freq_grp_vec, grp_no, cur_limit, link_ti->tail_len + 1);
+            link_ti->grp_no = grp_no;
+            update_current_grp(freq_grp_vec, link_ti->grp_no, link_ti->tail_len + 1, link_ti->freq_count);
+            link_ti->tail_ptr = append_to_grp_tails(uniq_tails, grp_tails, link_ti, grp_no);
+          }
+          update_current_grp(freq_grp_vec, link_ti->grp_no, 0, ti->freq_count);
+          ti->tail_ptr = link_ti->tail_ptr + link_ti->tail_len - ti->tail_len;
+          ti->grp_no = link_ti->grp_no;
         } else {
           int cmp = gen::compare_rev(uniq_tails.data() + ti->tail_pos, ti->tail_len, prev_val, prev_val_len);
           cmp = cmp ? abs(cmp) - 1 : 0;
@@ -875,6 +831,8 @@ class builder {
       uint32_t savings_count_prefix = 0;
       uint32_t cmp_rev_min_tot = 0;
       uint32_t cmp_rev_min_cnt = 0;
+      uint32_t free_tot = 0;
+      uint32_t free_cnt = 0;
       FILE *fp = fopen("remain.txt", "w+");
       freq_pos = 0;
       while (freq_pos < uniq_tails_freq.size()) {
@@ -882,9 +840,15 @@ class builder {
         freq_pos++;
         if (ti->flags & UTI_FLAG_SUFFIX_FULL)
           continue;
+        if ((ti->flags & 0x07) == 0) {
+          // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
+          //printf("%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->grp_no, ti->tail_len, ti->tail_len, uniq_tails.data() + ti->tail_pos);
+          free_tot += ti->tail_len;
+          free_cnt++;
+        }
         uint32_t remain_len = ti->tail_len - ti->cmp_rev_max;
         if (remain_len > 3) {
-          // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
+          // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
           fprintf(fp, "%.*s\n", remain_len - 1, uniq_tails.data() + ti->tail_pos + 1);
           savings_prefix += remain_len;
           savings_prefix--;
@@ -898,6 +862,7 @@ class builder {
         //uint32_t prefix_len = find_prefix(uniq_tails, uniq_tails_fwd, ti, ti->grp_no, savings_prefix, savings_count_prefix, ti->cmp_rev_max, fp);
       }
       fclose(fp);
+      printf("Free entries: %u, %u\n", free_tot, free_cnt);
       printf("Savings prefix: %u, %u\n", savings_prefix, savings_count_prefix);
       printf("Cmp_rev_min_tot: %u, %u\n", cmp_rev_min_tot, cmp_rev_min_cnt);
 
@@ -1130,7 +1095,7 @@ class builder {
         append_byte_vec(trie, byte_vec64);
       }
       std::cout << std::endl;
-      std::cout << "Ptr delta savings: " << ptr_delta_savings << std::endl;
+      std::cout << "Ptr delta savings: " << ptr_delta_savings / 8 << std::endl;
       for (int i = 0; i < 8; i++) {
         std::cout << "Flag " << i << ": " << flag_counts[i] << "\t";
         std::cout << "Char " << i + 2 << ": " << char_counts[i] << std::endl;

@@ -180,7 +180,8 @@ class static_dict {
         len_len++;
       }
       len_len++;
-      ret |= (tail[ptr] & 0x3F);
+      ret <<= 4;
+      ret |= (tail[ptr] & 0x0F);
       return ret + 15;
     }
 
@@ -249,8 +250,8 @@ class static_dict {
       return tail[tail_ptr];
     }
 
-    const int max_tailset_len = 65;
-    void get_tail_str(byte_str& ret, uint32_t tail_ptr, uint8_t grp_no) {
+    //const int max_tailset_len = 129;
+    void get_tail_str(byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
       uint32_t ptr = tail_ptr;
       uint8_t *tail = grp_tails[grp_no];
       ret.clear();
@@ -479,7 +480,7 @@ class static_dict {
           int cmp = 0;
           uint32_t tail_len = 1;
           if (bm_mask & bm_ptr) {
-            get_tail_str(tail_str, tail_ptr, grp_no);
+            get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len + 1);
             tail_len = tail_str.length();
             cmp = compare(tail_str.data(), tail_len,
                     (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
