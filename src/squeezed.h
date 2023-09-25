@@ -70,6 +70,7 @@ class static_dict {
     uint32_t bv_block_count;
     uint32_t max_tail_len;
     uint8_t *grp_tails_loc;
+    uint8_t *grp_vals_loc;
     uint8_t *cache_loc;
     uint8_t *ptr_lookup_tbl_loc;
     uint8_t *trie_bv_loc;
@@ -128,23 +129,24 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 14 * 4; // 58
+      grp_tails_loc = dict_buf + 2 + 15 * 4; // 62
       node_count = read_uint32(dict_buf + 2);
       common_node_count = read_uint32(dict_buf + 6);
       two_byte_tail_count = read_uint32(dict_buf + 10);
       idx2_ptr_count = read_uint32(dict_buf + 14);
       max_tail_len = read_uint32(dict_buf + 18);
       bv_block_count = node_count / nodes_per_bv_block;
-      cache_loc = dict_buf + read_uint32(dict_buf + 22);
-      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 26);
-      trie_bv_loc = dict_buf + read_uint32(dict_buf + 30);
-      leaf_bv_loc = dict_buf + read_uint32(dict_buf + 34);
-      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 38);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 42);
+      grp_vals_loc = dict_buf + read_uint32(dict_buf + 22);
+      cache_loc = dict_buf + read_uint32(dict_buf + 24);
+      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 30);
+      trie_bv_loc = dict_buf + read_uint32(dict_buf + 34);
+      leaf_bv_loc = dict_buf + read_uint32(dict_buf + 38);
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 42);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 46);
       select_lkup_loc_end = tail_ptrs_loc;
-      two_byte_tails_loc = dict_buf + read_uint32(dict_buf + 46);
-      idx2_ptrs_map_loc = dict_buf + read_uint32(dict_buf + 50);
-      trie_loc = dict_buf + read_uint32(dict_buf + 54);
+      two_byte_tails_loc = dict_buf + read_uint32(dict_buf + 50);
+      idx2_ptrs_map_loc = dict_buf + read_uint32(dict_buf + 54);
+      trie_loc = dict_buf + read_uint32(dict_buf + 58);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
