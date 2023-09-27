@@ -390,7 +390,7 @@ class grp_ptrs {
       }
       return _ptr;
     }
-    constexpr static int idx_map_arr[] = {0, 384, 3456, 27648, 221184, 1769472};
+    constexpr static int idx_map_arr[] = {0, 384, 3456, 28032, 224640, 1797504};
     uint32_t get_ptr_from_idx(uint32_t grp_no, uint32_t idx) {
       if (grp_no <= idx_limit) {
         int idx_pos = idx_map_arr[grp_no - 1];

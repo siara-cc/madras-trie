@@ -245,7 +245,7 @@ class static_dict {
       return ret;
     }
 
-    constexpr static int idx_map_arr[] = {0, 384, 3456, 27648, 221184, 1769472};
+    constexpr static int idx_map_arr[] = {0, 384, 3456, 28032, 224640, 1797504};
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       grp_no = *lookup_tbl_ptr & 0x1F;
