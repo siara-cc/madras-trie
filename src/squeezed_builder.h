@@ -382,13 +382,13 @@ class grp_ptrs {
       freq_grp_vec[grp_no].grp_size += len;
       freq_grp_vec[grp_no].freq_count += freq;
       freq_grp_vec[grp_no].count += (len < 0 ? -1 : 1);
+      next_idx++;
     }
     uint32_t append_ptr(uint32_t grp_no, uint32_t _ptr) {
-      if (grp_no <= idx_limit) {
-        gen::append_uint24(_ptr, idx2_ptrs_map);
-        return next_idx++;
-      }
-      return _ptr;
+      if (idx2_ptrs_map.size() == idx_map_arr[grp_no - 1])
+        next_idx = 0;
+      gen::append_uint24(_ptr, idx2_ptrs_map);
+      return next_idx++;
     }
     constexpr static int idx_map_arr[] = {0, 384, 3456, 28032, 224640, 1797504};
     uint32_t get_ptr_from_idx(uint32_t grp_no, uint32_t idx) {
@@ -410,11 +410,6 @@ class grp_ptrs {
         grp_data[grp_no].push_back(val[k]);
       if (append0)
         grp_data[grp_no].push_back(0);
-      grp_no++;
-      if (grp_no <= idx_limit) {
-        gen::append_uint24(ptr, idx2_ptrs_map);
-        return next_idx++;
-      }
       return ptr;
     }
     int append_bits(int grp_no, uint32_t ptr) {
@@ -517,6 +512,7 @@ class grp_ptrs {
         fg.grp_log2 -= (8 - len);
         printf("%d\t%2x\t%u\t%u\t%u\t%d\t%u\n", (int) fg.grp_log2, fg.code, fg.count, fg.freq_count, fg.grp_size, fg.code_len, fg.grp_limit);
       }
+      printf("Idx limit; %d\n", idx_limit);
     }
 };
 
@@ -912,7 +908,7 @@ class builder {
         if (cumu_freq_idx == nxt_idx_limit) {
           start_bits += 3;
           nxt_idx_limit += pow(2, start_bits);
-          if (remain_freq < pow(2, start_bits) * 3)
+          if (remain_freq < pow(2, start_bits) * 3 || start_bits == 19)
             break;
           // printf("%.1f\t%d\t%u\t%u\n", ceil(log2(freq_idx)), freq_idx, ftot, tail_len_tot);
           grp_no++;
@@ -1046,7 +1042,7 @@ class builder {
           }
           cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, 0);
           tail_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
-          ti->tail_ptr = tail_ptrs.append_ptr(link_ti->grp_no, tail_ptrs.get_ptr_from_idx(link_ti->grp_no, link_ti->tail_ptr) + link_ti->tail_len - ti->tail_len);
+          ti->tail_ptr = link_ti->tail_ptr + link_ti->tail_len - ti->tail_len;
           ti->grp_no = link_ti->grp_no;
         } else {
           // uint32_t prefix_len = find_prefix(uniq_tails, uniq_tails_fwd, ti, ti->grp_no, savings_prefix, savings_count_prefix, ti->cmp_rev_max);
@@ -1106,6 +1102,14 @@ class builder {
       printf("Savings full: %u, %u\n", savings_full, savings_count_full);
       printf("Savings partial: %u, %u\n", savings_partial, savings_count_partial);
       printf("Suffix set: %u, %u\n", sfx_set_tot_len, sfx_set_tot_cnt);
+
+      std::sort(uniq_tails_freq.begin(), uniq_tails_freq.begin() + cumu_freq_idx, [this](const struct uniq_tails_info *lhs, const struct uniq_tails_info *rhs) -> bool {
+        return (lhs->grp_no == rhs->grp_no) ? (lhs->fwd_pos < rhs->fwd_pos) : (lhs->grp_no < rhs->grp_no);
+      });
+      for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
+        uniq_tails_info *ti = uniq_tails_freq[freq_pos];
+        ti->tail_ptr = tail_ptrs.append_ptr(ti->grp_no, ti->tail_ptr);
+      }
 
       uint32_t remain_tot = 0;
       uint32_t remain_cnt = 0;
@@ -1272,21 +1276,37 @@ class builder {
             if (ptrs_upto[ti->grp_no] == 0)
               actual_bit_len = delta_bit_len = assigned_bit_len;
             else {
-              if (delta_bit_len >= (assigned_bit_len - 1))
+              if (delta_bit_len >= (assigned_bit_len - 2))
                 actual_bit_len = assigned_bit_len + 1;
               else {
-                if (delta_bit_len < assigned_bit_len / 4)
-                  actual_bit_len = assigned_bit_len / 4 + 4;
-                else if (delta_bit_len < assigned_bit_len / 2)
-                  actual_bit_len = assigned_bit_len / 2 + 4;
-                else if (delta_bit_len < assigned_bit_len * 3 / 4)
-                  actual_bit_len = assigned_bit_len * 3 / 4 + 3;
-                else
-                  actual_bit_len = assigned_bit_len;
+                if (actual_bit_len < 8) {
+                  if (delta_bit_len <= assigned_bit_len - 4)
+                    actual_bit_len = assigned_bit_len - 4 + 3;
+                  else
+                    actual_bit_len = assigned_bit_len;
+                } else if (actual_bit_len < 16) {
+                  if (delta_bit_len <= assigned_bit_len - 5)
+                    actual_bit_len = assigned_bit_len - 5 + 4;
+                  else if (delta_bit_len <= assigned_bit_len - 4)
+                    actual_bit_len = assigned_bit_len - 4 + 4;
+                  else
+                    actual_bit_len = assigned_bit_len;
+                } else {
+                  if (delta_bit_len <= assigned_bit_len - 10)
+                    actual_bit_len = assigned_bit_len - 10 + 5;
+                  else if (delta_bit_len < assigned_bit_len - 7)
+                    actual_bit_len = assigned_bit_len - 7 + 5;
+                  else if (delta_bit_len <= assigned_bit_len - 4)
+                    actual_bit_len = assigned_bit_len - 4 + 4;
+                  else
+                    actual_bit_len = assigned_bit_len;
+                }
               }
             }
-            fprintf(fp, "%u\t%u\t%u\t%d\t%d\t%d\t%d\t%d\n", cur_node->node_id / 64, ti->grp_no,
-                ti->tail_ptr, assigned_bit_len, ti->tail_ptr - ptrs_upto[ti->grp_no], delta_bit_len, actual_bit_len, assigned_bit_len - actual_bit_len);
+            if (ti->grp_no <= tail_ptrs.get_idx_limit() || (cur_node->flags & NFLAG_TERM)) {
+              fprintf(fp, "%u\t%u%c\t%u\t%d\t%d\t%d\t%d\t%d\n", cur_node->node_id / 64, ti->grp_no, (cur_node->flags & NFLAG_TERM ? '*' : ' '),
+                  ti->tail_ptr, assigned_bit_len, ti->tail_ptr - ptrs_upto[ti->grp_no], delta_bit_len, actual_bit_len, assigned_bit_len - actual_bit_len);
+            }
             block_delta_savings[ti->grp_no] += (assigned_bit_len - actual_bit_len);
             ptrs_upto[ti->grp_no] = ti->tail_ptr;
           }
