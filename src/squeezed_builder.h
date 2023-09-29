@@ -26,6 +26,32 @@ namespace squeezed {
 
 typedef std::vector<uint8_t> byte_vec;
 
+static const int NFLAG_LEAF = 1;
+static const int NFLAG_TERM = 2;
+static const int NFLAG_NODEID_SET = 4;
+static const int NFLAG_SORTED = 8;
+struct node {
+  uint32_t first_child;
+  union {
+    uint32_t next_sibling;
+    uint32_t node_id;
+  };
+  //node *parent;
+  uint32_t tail_pos;
+  uint32_t rev_node_info_pos;
+  uint32_t tail_len;
+  uint8_t flags;
+  union {
+    uint32_t swap_pos;
+    uint32_t v0;
+  };
+  uint32_t freq_count;
+  node() {
+    memset(this, '\0', sizeof(node));
+    freq_count = 1;
+  }
+};
+
 const uint8_t UTI_FLAG_SUFFIX_FULL = 0x01;
 const uint8_t UTI_FLAG_SUFFIX_PARTIAL = 0x02;
 const uint8_t UTI_FLAG_SUFFIXES = 0x03;
@@ -49,19 +75,13 @@ struct uniq_tails_info {
     uint8_t grp_no;
     uint8_t flags;
     uniq_tails_info(uint32_t _tail_pos, uint32_t _tail_len, uint32_t _rev_pos, uint32_t _freq_count) {
+      memset(this, '\0', sizeof(uniq_tails_info));
       tail_pos = _tail_pos; tail_len = _tail_len;
       rev_pos = _rev_pos;
-      cmp_fwd = 0;
-      cmp_rev = 0;
       cmp_rev_min = 0xFFFFFFFF;
-      cmp_rev_max = 0;
       freq_count = _freq_count;
       link_rev_idx = 0xFFFFFFFF;
       token_arr_pos = 0xFFFFFFFF;
-      tail_ptr = 0;
-      avg_nid = 0;
-      grp_no = 0;
-      flags = 0;
     }
 };
 
@@ -516,29 +536,6 @@ class grp_ptrs {
     }
 };
 
-static const int NFLAG_LEAF = 1;
-static const int NFLAG_TERM = 2;
-static const int NFLAG_NODEID_SET = 4;
-struct node {
-  uint32_t first_child;
-  union {
-    uint32_t next_sibling;
-    uint32_t node_id;
-  };
-  //node *parent;
-  uint32_t tail_pos;
-  uint32_t rev_node_info_pos;
-  uint32_t tail_len;
-  uint8_t flags;
-  union {
-    uint32_t swap_pos;
-    uint32_t v0;
-  };
-  node() {
-    memset(this, '\0', sizeof(node));
-  }
-};
-
 struct vals_for_sort {
   uint8_t *val;
   uint32_t val_len;
@@ -576,6 +573,7 @@ class builder {
       return &all_nodes[pos_to];
     }
 
+    const bool to_sort_nodes_on_freq = true;
     void sort_nodes() {
       clock_t t = clock();
       uint32_t nxt = 0;
@@ -587,12 +585,31 @@ class builder {
         }
         uint32_t nxt_n = all_nodes[nxt].first_child;
         all_nodes[nxt].first_child = node_id;
+        node *n;
+        std::vector<uint32_t> swap_pos_vec;
         do {
-          node *n = swap_nodes(nxt_n, node_id);
+          n = swap_nodes(nxt_n, node_id);
+          swap_pos_vec.push_back(n->swap_pos);
           nxt_n = n->next_sibling;
           n->flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
           n->node_id = node_id++;
         } while (nxt_n != 0);
+        if (to_sort_nodes_on_freq) {
+          n->flags &= ~NFLAG_TERM;
+          uint32_t start_nid = all_nodes[nxt].first_child;
+          std::sort(all_nodes.begin() + start_nid, all_nodes.begin() + node_id, [this](struct node& lhs, struct node& rhs) -> bool {
+            return (lhs.freq_count == rhs.freq_count) ? *(this->sort_tails[lhs.tail_pos]) < *(this->sort_tails[rhs.tail_pos]) : (lhs.freq_count > rhs.freq_count);
+          });
+          std::vector<uint32_t>::iterator it = swap_pos_vec.begin();
+          while (start_nid < node_id) {
+            node *n = &all_nodes[start_nid];
+            n->node_id = start_nid;
+            n->swap_pos = *it++;
+            start_nid++;
+          }
+          all_nodes[start_nid - 1].flags |= NFLAG_TERM;
+        }
+        swap_pos_vec.clear();
         nxt++;
       }
       gen::print_time_taken(t, "Time taken for sort_nodes(): ");
@@ -670,7 +687,7 @@ class builder {
         for (; i < val.length(); i++) {
           if (key[key_pos] != val[i]) {
             if (i == 0) {
-              node new_node = node();
+              node new_node;
               uint32_t new_node_pos = all_nodes.size();
               new_node.flags |= NFLAG_LEAF;
               //new_node->parent = last_child->parent;
@@ -684,8 +701,8 @@ class builder {
               last_children.resize(level + 1);
               node_count++;
             } else {
-              node child1 = node();
-              node child2 = node();
+              node child1;
+              node child2;
               uint32_t child1_pos = all_nodes.size();
               uint32_t child2_pos = child1_pos + 1;
               child1.flags |= (last_child->flags & NFLAG_LEAF);
@@ -708,6 +725,7 @@ class builder {
               last_child->first_child = child1_pos;
               last_child->flags |= NFLAG_LEAF;
               last_child->tail_len = i; // do these before push_back all_nodes
+              last_child->freq_count++;
               all_nodes.push_back(child1);
               all_nodes.push_back(child2);
               append_tail_vec(key.substr(key_pos), child2_pos);
@@ -720,7 +738,7 @@ class builder {
         }
         if (i == val.length() && key_pos < key.length()
             && (last_child->flags & NFLAG_LEAF) && last_child->first_child == 0) {
-          node child1 = node();
+          node child1;
           uint32_t child1_pos = all_nodes.size();
           child1.flags |= NFLAG_LEAF;
           //child1->parent = last_child;
@@ -728,6 +746,7 @@ class builder {
           //    if (child1->val == string(" discuss"))
           //      cout << "Ext node: " << key << endl;
           last_child->first_child = child1_pos;
+          last_child->freq_count++;
           all_nodes.push_back(child1);
           append_tail_vec(key.substr(key_pos), child1_pos);
           last_children.resize(level + 1);
@@ -735,6 +754,7 @@ class builder {
           node_count++;
           return;
         }
+        last_child->freq_count++;
         level++;
         last_child = &all_nodes[last_children[level]];
       } while (last_child != 0);

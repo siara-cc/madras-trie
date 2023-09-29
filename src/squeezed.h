@@ -491,7 +491,7 @@ class static_dict {
           child_count++;
         if (bm_mask & bm_term)
           term_count++;
-        if (key_byte > trie_byte) {
+        if (key_byte != trie_byte) {
           if (bm_mask & bm_term)
             return ~INSERT_AFTER;
           bm_mask <<= 1;
