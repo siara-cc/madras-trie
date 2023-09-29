@@ -85,9 +85,13 @@ class static_dict {
 
     uint8_t grp_count;
     int8_t grp_idx_limit;
+    uint8_t idx2_ptr_size;
     uint8_t *code_lookup_tbl;
     std::vector<uint8_t *> grp_tails;
     builder *sb;
+
+    int idx_map_arr[6] = {0, 384, 3456, 28032, 224640, 1797504};
+    uint32_t (*read_idx_ptr)(uint8_t *) = &read_uint24;
 
     static_dict(static_dict const&);
     static_dict& operator=(static_dict const&);
@@ -124,6 +128,20 @@ class static_dict {
       return ret;
     }
 
+    static uint32_t read_uint16(uint8_t *pos) {
+      uint32_t ret = *pos++;
+      ret <<= 8;
+      ret |= *pos;
+      return ret;
+    }
+
+    uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
+      int idx_map_start = idx_map_arr[grp_no];
+      // std::cout << (int) grp_no << ", " << (int) grp_idx_limit << ", " << idx_map_start << ", " << ptr << std::endl;
+      ptr = read_idx_ptr(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size);
+      return ptr;
+    }
+
   public:
     static_dict(std::string filename, builder *_sb = NULL) {
 
@@ -144,7 +162,8 @@ class static_dict {
       common_node_count = read_uint32(dict_buf + 6);
       two_byte_tail_count = read_uint32(dict_buf + 10);
       idx2_ptr_count = read_uint32(dict_buf + 14);
-      grp_idx_limit = idx2_ptr_count >> 24;
+      idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
+      grp_idx_limit = (idx2_ptr_count >> 23) & 0x7F;
       idx2_ptr_count &= 0x00FFFFFF;
       max_tail_len = read_uint32(dict_buf + 18);
       bv_block_count = node_count / nodes_per_bv_block;
@@ -168,6 +187,13 @@ class static_dict {
 
       printf("%u,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
                 leaf_bv_loc-dict_buf, select_lkup_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
+
+      if (idx2_ptr_size == 2) {
+        idx_map_arr[1] = 256;
+        idx_map_arr[2] = 256 + 2048;
+        idx_map_arr[3] = 256 + 2048 + 16384;
+        read_idx_ptr = &read_uint16;
+      }
 
     }
 
@@ -245,7 +271,6 @@ class static_dict {
       return ret;
     }
 
-    constexpr static int idx_map_arr[] = {0, 384, 3456, 28032, 224640, 1797504};
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       grp_no = *lookup_tbl_ptr & 0x1F;
@@ -255,11 +280,8 @@ class static_dict {
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
       if (bit_len > 0)
         ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits);
-      if (grp_no <= grp_idx_limit) {
-        int idx_map_start = idx_map_arr[grp_no];
-//        std::cout << (int) grp_no << ", " << (int) grp_idx_limit << ", " << idx_map_start << ", " << ptr << std::endl;
-        ptr = read_uint24(idx2_ptrs_map_loc + idx_map_start + ptr * 3);
-      }
+      if (grp_no <= grp_idx_limit)
+        ptr = read_ptr_from_idx(grp_no, ptr);
       return ptr;
     }
 
