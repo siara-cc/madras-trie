@@ -184,6 +184,10 @@ class gen {
             return 0;
         return (len1 < len2 ? -k : k);
     }
+    static void write_uint16(uint32_t input, FILE *fp) {
+      fputc(input >> 8, fp);
+      fputc(input & 0xFF, fp);
+    }
     static void write_uint32(uint32_t input, FILE *fp) {
       // int i = 4;
       // while (i--)
@@ -395,7 +399,9 @@ class grp_ptrs {
     void set_idx_ptr_size(uint8_t _idx_ptr_size) {
       idx_ptr_size = _idx_ptr_size;
       if (idx_ptr_size == 2) {
-        idx_map_arr[1] = 256; idx_map_arr[2] = 256 + 2048; idx_map_arr[3] = 16384 + 2048 + 256;
+        idx_map_arr[1] = 256;
+        idx_map_arr[2] = 256 + 2048;
+        idx_map_arr[3] = 256 + 2048 + 16384;
       }
     }
     void add_freq_grp(freq_grp freq_grp) {
@@ -1420,7 +1426,7 @@ class builder {
       uint32_t ptr_lookup_tbl = (ceil(node_count/64) + 1) * 4;
       uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
       uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
-      uint32_t select_lookup = (ceil(term_count/term_divisor) + 1) * 4;
+      uint32_t select_lookup = (ceil(term_count/term_divisor) + 2) * 2;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
       std::cout << "Trie bit vectors: " << trie_bv << std::endl;
       std::cout << "Leaf bit vectors: " << leaf_bv << std::endl;
@@ -1594,18 +1600,20 @@ class builder {
     void write_select_lkup(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
-     gen::write_uint32(0, fp);
+      gen::write_uint16(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
           node *cur_node = &all_nodes[i];
           if (cur_node->flags & NFLAG_TERM) {
             if (term_count && (term_count % term_divisor) == 0) {
-              gen::write_uint32(node_id / nodes_per_bv_block, fp);
-              //printf("%u\t%u\n", term_count, node_id / nodes_per_bv_block);
+              gen::write_uint16(node_id / nodes_per_bv_block, fp);
+              if (node_id / nodes_per_bv_block > 65535)
+                printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block);
             }
             term_count++;
           }
           node_id++;
       }
+      gen::write_uint16(node_count/nodes_per_bv_block, fp);
     }
 
     const int nodes_per_ptr_block = 64;

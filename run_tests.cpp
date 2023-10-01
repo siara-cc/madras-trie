@@ -60,6 +60,10 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;;
     // if (line.compare("a 18 year old") == 0) // child aligns to 64
     //   std::cout << line << std::endl;;
+    // if (line.compare("!Adios_Amigos!") == 0)
+    //   std::cout << line << std::endl;
+    // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
+    //   std::cout << line << std::endl;
     int ret = dict_reader.lookup(line);
     // int ret = sb.lookup(line);
     if (ret != 0)

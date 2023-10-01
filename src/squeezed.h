@@ -420,13 +420,12 @@ class static_dict {
     uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
-      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 4;
+      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 2;
       if ((target_term_count % term_divisor) == 0) {
-        child_block = read_uint32(select_loc);
+        child_block = read_uint16(select_loc);
       } else {
-        uint32_t start_block = read_uint32(select_loc);
-        uint32_t end_block = read_uint32(select_loc + 4);
-        end_block = end_block < bv_block_count ? end_block : bv_block_count;
+        uint32_t start_block = read_uint16(select_loc);
+        uint32_t end_block = read_uint16(select_loc + 2);
         if (start_block + 4 >= end_block) {
           do {
             start_block++;
