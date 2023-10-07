@@ -853,6 +853,7 @@ class tail_maps {
       uint32_t savings_count_partial = 0;
       uint32_t sfx_set_len = 0;
       uint32_t sfx_set_count = 0;
+      uint32_t sfx_set_freq = 0;
       uint32_t sfx_set_tot_cnt = 0;
       uint32_t sfx_set_tot_len = 0;
       while (freq_pos < uniq_tails_freq.size()) {
@@ -898,6 +899,7 @@ class tail_maps {
                 sfx_set_len += cmp;
               sfx_set_len += remain_len;
               sfx_set_count++;
+              sfx_set_freq += ti->freq_count;
               savings_partial += cmp;
               savings_partial -= len_len;
               savings_count_partial++;
@@ -907,9 +909,11 @@ class tail_maps {
               byte_vec *tail_data = tail_ptrs.get_data(grp_no);
               get_len_len(cmp, tail_data);
             } else {
+              // printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               sfx_set_len = 1;
               sfx_set_tot_len += ti->tail_len;
               sfx_set_count = 1;
+              sfx_set_freq = ti->freq_count;
               sfx_set_tot_cnt++;
               tail_ptrs.update_current_grp(grp_no, ti->tail_len + 1, ti->freq_count);
               ti->tail_ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + ti->tail_pos, ti->tail_len, true);
@@ -917,9 +921,11 @@ class tail_maps {
               //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails.data() + ti->tail_pos);
             cur_limit = new_limit;
           } else {
+            // printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
             sfx_set_len = 1;
             sfx_set_tot_len += ti->tail_len;
             sfx_set_count = 1;
+            sfx_set_freq = ti->freq_count;
             sfx_set_tot_cnt++;
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, ti->tail_len + 1);
             tail_ptrs.update_current_grp(grp_no, ti->tail_len + 1, ti->freq_count);
@@ -1364,6 +1370,13 @@ class builder {
       // t = gen::print_time_taken(t, "Time taken to sort: ");
     }
 
+    int32_t total_savings;
+    uint32_t upto_thres1;
+    uint32_t upto_thres2;
+    uint32_t delta_thres1;
+    uint32_t delta_thres2;
+    uint32_t savings0;
+    uint32_t savings_1;
     uint8_t get_tail_ptr(node *cur_node) {
       uint8_t node_val;
       uniq_tails_info *ti = get_ti(cur_node);
@@ -1379,6 +1392,51 @@ class builder {
       int node_val_bits = 8 - huf_code_len;
       node_val = (huf_code << node_val_bits) | (ptr & ((1 << node_val_bits) - 1));
       ptr >>= node_val_bits;
+      uint32_t grp_ptr_bit_len = fg->grp_log2 + (8 - fg->code_len);
+      int32_t delta = (fg->grp_size / (cur_node->level == 0 ? 1 : cur_node->level)) - ti->tail_ptr;
+      int32_t delta_log2 = ceil(log2(abs(delta == 0 ? 1 : delta)));
+      int32_t upto_log2 = ceil(log2(ti->tail_ptr == 0 ? 2 : ti->tail_ptr));
+      int32_t savings = 0;
+      int32_t thres1 = grp_ptr_bit_len - 5;
+      int32_t thres2 = grp_ptr_bit_len - 4;
+      if (thres2 >= grp_ptr_bit_len - 2)
+        std::cout << "Unexpected" << std::endl;
+      if (grp_no > 1 && grp_no <= tail_ptrs->get_idx_limit()) {
+        if (delta_log2 >= upto_log2) {
+          if (upto_log2 <= thres1) {
+            savings = (grp_ptr_bit_len - thres1) - 3;
+            upto_thres1++;
+          } else if (upto_log2 <= thres2) {
+            savings = (grp_ptr_bit_len - thres2) - 3;
+            upto_thres2++;
+          } else if (upto_log2 <= grp_ptr_bit_len - 2) {
+            savings = -1;
+            savings0++;
+          } else {
+            savings = -1;
+            savings_1++;
+          }
+        } else {
+          if (delta_log2 <= thres1) {
+            savings = (grp_ptr_bit_len - thres1) - 4;
+            delta_thres1++;
+          } else if (delta_log2 <= thres2) {
+            savings = (grp_ptr_bit_len - thres2) - 4;
+            delta_thres2++;
+          } else if (delta_log2 <= grp_ptr_bit_len - 2) {
+            savings = -1;
+            savings0++;
+          } else {
+            savings = -1;
+            savings_1++;
+          }
+        }
+      }
+      // int32_t diff = ((cur_node->node_id * fg->grp_size) / node_count) - ti->tail_ptr;
+      if (grp_no > 1 && grp_no <= tail_ptrs->get_idx_limit()) {
+        //printf("%1u\t%08u\t%u\t%u\t%d\t%d\t%d\t%d\t%d\n", grp_no, ti->tail_ptr, cur_node->level, grp_ptr_bit_len, upto_log2, delta, delta_log2, diff, savings);
+        total_savings += savings;
+      }
       tail_ptrs->append_bits(grp_no, ptr);
       return node_val;
     }
@@ -1437,6 +1495,7 @@ class builder {
       byte_vec byte_vec64;
       //trie.reserve(node_count + (node_count >> 1));
       uint32_t ptr_count = 0;
+      total_savings = 0;
       for (int i = 1; i < all_nodes.size(); i++) {
           node *cur_node = &all_nodes[i];
           if (cur_node->tail_len > 1) {
@@ -1497,6 +1556,10 @@ class builder {
       byte_vec *idx2_ptrs_map = tails.get_grp_ptrs()->get_idx2_ptrs_map();
       uint32_t total_tails = tails.get_grp_ptrs()->get_data_size();
       uint32_t total_vals = val_ptrs.get_data_size();
+      printf("Upto thres1, Upto thres2:\t%u\t%u\n", upto_thres1, upto_thres2);
+      printf("Delta thres1, Delta thres2:\t%u\t%u\n", delta_thres1, delta_thres2);
+      printf("Savings 0, Savings -1:\t%u\t%u\n", savings0, savings_1);
+      std::cout << "Total savings: " << total_savings / 8 << std::endl;
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Full suffix count: " << sfx_full_count << std::endl;
       std::cout << "Partial suffix count: " << sfx_partial_count << std::endl;
