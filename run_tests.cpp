@@ -64,8 +64,9 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    int ret = dict_reader.lookup(line);
-    // int ret = sb.lookup(line);
+    // int ret = dict_reader.lookup(line);
+    int ret, key_pos, cmp;
+    squeezed::node *n = sb.lookup(line, ret, key_pos, cmp);
     if (ret != 0)
       std::cout << ret << ": " << line << std::endl;
     line_count++;

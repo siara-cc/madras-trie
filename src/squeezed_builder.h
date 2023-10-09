@@ -497,8 +497,8 @@ class grp_ptrs {
     uint32_t get_total_size() {
       return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size();
     }
-    byte_vec *get_data(int grp_no) {
-      return &grp_data[grp_no - 1];
+    byte_vec& get_data(int grp_no) {
+      return grp_data[grp_no - 1];
     }
     void write_code_lookup_tbl(FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -913,8 +913,8 @@ class tail_maps {
               tail_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
               ti->tail_ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + ti->tail_pos, remain_len);
-              byte_vec *tail_data = tail_ptrs.get_data(grp_no);
-              get_len_len(cmp, tail_data);
+              byte_vec& tail_data = tail_ptrs.get_data(grp_no);
+              get_len_len(cmp, &tail_data);
             } else {
               // printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               sfx_set_len = 1;
@@ -1058,8 +1058,8 @@ class tail_maps {
       uniq_tails_info *ti = uniq_tails_rev[n->rev_node_info_pos];
       uint32_t grp_no = ti->grp_no;
       uint32_t ptr = get_tail_ptr(grp_no, ti);
-      byte_vec *tail = tail_ptrs.get_data(grp_no);
-      return *(tail->data() + ptr);
+      byte_vec& tail = tail_ptrs.get_data(grp_no);
+      return *(tail.data() + ptr);
     }
 
     uint32_t read_len(byte_vec& tail, uint32_t ptr, uint8_t& len_len) {
@@ -1087,40 +1087,40 @@ class tail_maps {
       uint32_t grp_no = ti->grp_no;
       uint32_t tail_ptr = get_tail_ptr(grp_no, ti);
       uint32_t ptr = tail_ptr;
-      byte_vec *tail = tail_ptrs.get_data(grp_no);
+      byte_vec& tail = tail_ptrs.get_data(grp_no);
       std::string ret;
-      int byt = (*tail)[ptr++];
+      int byt = tail[ptr++];
       while (byt > 31) {
         ret.append(1, byt);
-        byt = (*tail)[ptr++];
+        byt = tail[ptr++];
       }
-      if ((*tail)[--ptr] == 0)
+      if (tail[--ptr] == 0)
         return ret;
       uint8_t len_len = 0;
-      uint32_t sfx_len = read_len(*tail, ptr, len_len);
+      uint32_t sfx_len = read_len(tail, ptr, len_len);
       uint32_t ptr_end = tail_ptr;
       ptr = tail_ptr;
       do {
-        byt = (*tail)[ptr--];
+        byt = tail[ptr--];
       } while (byt != 0);
       do {
-        byt = (*tail)[ptr--];
+        byt = tail[ptr--];
       } while (byt > 31);
       ptr++;
       std::string prev_str;
-      byt = (*tail)[++ptr];
+      byt = tail[++ptr];
       while (byt != 0) {
         prev_str.append(1, byt);
-        byt = (*tail)[++ptr];
+        byt = tail[++ptr];
       }
       std::string last_str;
       while (ptr < ptr_end) {
-        byt = (*tail)[++ptr];
+        byt = tail[++ptr];
         while (byt > 31) {
           last_str.append(1, byt);
-          byt = (*tail)[++ptr];
+          byt = tail[++ptr];
         }
-        uint32_t prev_sfx_len = read_len(*tail, ptr, len_len);
+        uint32_t prev_sfx_len = read_len(tail, ptr, len_len);
         last_str.append(prev_str.substr(prev_str.length()-prev_sfx_len));
         ptr += len_len;
         ptr--;
@@ -1150,12 +1150,12 @@ class builder {
 
   private:
     node root;
-    node first_node;
     uint32_t node_count;
     uint32_t key_count;
     uint32_t common_node_count;
     uint32_t two_byte_count;
     uint32_t idx2_ptr_count;
+    bool nodes_sorted;
     std::vector<node> all_nodes;
     std::vector<uint32_t> last_children;
     std::string prev_key;
@@ -1219,6 +1219,7 @@ class builder {
         swap_pos_vec.clear();
         nxt++;
       }
+      nodes_sorted = true;
       gen::print_time_taken(t, "Time taken for sort_nodes(): ");
     }
 
@@ -1239,12 +1240,14 @@ class builder {
       node_count = 0;
       common_node_count = 0;
       key_count = 0;
+      nodes_sorted = false;
       //root->parent = NULL;
       root.flags = NFLAG_TERM;
       root.node_id = 0;
       root.first_child = 1;
       root.next_sibling = 0;
       //first_node->parent = root;
+      node first_node;
       first_node.next_sibling = 0;
       all_nodes.push_back(root);
       all_nodes.push_back(first_node);
@@ -1265,12 +1268,116 @@ class builder {
       //delete root; // now part of all_nodes
     }
 
+    void set_first_node(std::string& key) {
+      append_tail_vec(key, 1);
+      all_nodes[1].flags |= NFLAG_LEAF;
+      node_count++;
+    }
+
     std::string dflt_val = "default";
     void insert(std::string key) {
-      append(key, dflt_val);
+      insert(key, dflt_val);
     }
 
     void insert(std::string key, std::string& val) {
+      if (node_count == 0) {
+        set_first_node(key);
+        return;
+      }
+      int result, key_pos, cmp;
+      node *ins_node = lookup(key, result, key_pos, cmp);
+      if (result == 0)
+        return;
+      switch (result) {
+        case INSERT_AFTER:
+          add_sibling(ins_node, key, key_pos);
+          break;
+        case INSERT_BEFORE:
+          // what happens if ins_node is first node for level?
+          add_sibling(ins_node, key, key_pos);
+          break;
+        case INSERT_THREAD:
+          cmp = abs(cmp) - 1;
+          if (cmp == ins_node->tail_len)
+            add_child_leaf(ins_node, key, key_pos);
+          else
+            add_children(ins_node, key, key_pos, cmp);
+          break;
+      }
+      // set value
+    }
+
+    uint32_t add_sibling(node *last_child, std::string& key, int key_pos) {
+      node new_node;
+      uint32_t new_node_pos = all_nodes.size();
+      new_node.flags |= NFLAG_LEAF;
+      //new_node->parent = last_child->parent;
+      new_node.next_sibling = last_child->next_sibling;
+      new_node.level = last_child->level;
+      //if (new_node->val == string(" discuss"))
+      //  cout << "New node: " << key << endl;
+      last_child->next_sibling = new_node_pos;
+      all_nodes.push_back(new_node);
+      append_tail_vec(key.substr(key_pos), new_node_pos);
+      node_count++;
+      return new_node_pos;
+    }
+
+    uint32_t add_children(node *last_child, std::string& key, int key_pos, uint32_t child_at) {
+      node child1;
+      uint32_t child1_pos = all_nodes.size();
+      uint32_t child2_pos = child1_pos + 1;
+      child1.flags |= (last_child->flags & NFLAG_LEAF);
+      //child1.parent = last_child;
+      child1.next_sibling = child2_pos;
+      child1.tail_pos = last_child->tail_pos + child_at;
+      child1.tail_len = last_child->tail_len - child_at;
+      child1.level = last_child->level + 1;
+      //if (child1->val == string(" discuss"))
+      //  cout << "Child1 node: " << key << endl;
+      if (last_child->first_child != 0) {
+        child1.first_child = last_child->first_child;
+        uint32_t c = child1.first_child;
+        do {
+          node *n = &all_nodes[c];
+          n->level++;
+          c = n->first_child;
+        } while (c != 0);
+      }
+      node child2;
+      child2.flags |= NFLAG_LEAF;
+      //child2->parent = last_child;
+      child2.next_sibling = 0;
+      child2.level = child1.level;
+      //if (child2->val == string(" discuss"))
+      //  cout << "Child2 node: " << key << endl;
+      // do these before push_back all_nodes
+      // as push_back could invalidate last_child pointer
+      last_child->first_child = child1_pos;
+      last_child->flags &= ~NFLAG_LEAF;
+      last_child->tail_len = child_at;
+      last_child->freq_count++;
+      all_nodes.push_back(child1);
+      all_nodes.push_back(child2);
+      append_tail_vec(key.substr(key_pos), child2_pos);
+      node_count += 2;
+      return child2_pos;
+    }
+
+    uint32_t add_child_leaf(node *last_child, std::string& key, int key_pos) {
+      node child1;
+      uint32_t child1_pos = all_nodes.size();
+      child1.flags |= NFLAG_LEAF;
+      //child1->parent = last_child;
+      child1.next_sibling = 0;
+      child1.level = last_child->level + 1;
+      //    if (child1->val == string(" discuss"))
+      //      cout << "Ext node: " << key << endl;
+      last_child->first_child = child1_pos;
+      last_child->freq_count++;
+      all_nodes.push_back(child1);
+      append_tail_vec(key.substr(key_pos), child1_pos);
+      return child1_pos;
     }
 
     void append(std::string key) {
@@ -1300,58 +1407,13 @@ class builder {
         for (; i < val.length(); i++) {
           if (key[key_pos] != val[i]) {
             if (i == 0) {
-              node new_node;
-              uint32_t new_node_pos = all_nodes.size();
-              new_node.flags |= NFLAG_LEAF;
-              //new_node->parent = last_child->parent;
-              new_node.next_sibling = 0;
-              new_node.level = level;
-              //if (new_node->val == string(" discuss"))
-              //  cout << "New node: " << key << endl;
-              last_child->next_sibling = new_node_pos;
-              all_nodes.push_back(new_node);
-              append_tail_vec(key.substr(key_pos), new_node_pos);
+              uint32_t new_node_pos = add_sibling(last_child, key, key_pos);
               last_children[level] = new_node_pos;
               last_children.resize(level + 1);
-              node_count++;
             } else {
-              node child1;
-              node child2;
-              uint32_t child1_pos = all_nodes.size();
-              uint32_t child2_pos = child1_pos + 1;
-              child1.flags |= (last_child->flags & NFLAG_LEAF);
-              //child1.parent = last_child;
-              child1.next_sibling = child2_pos;
-              child1.tail_pos = last_child->tail_pos + i;
-              child1.tail_len = last_child->tail_len - i;
-              child1.level = level + 1;
-              //if (child1->val == string(" discuss"))
-              //  cout << "Child1 node: " << key << endl;
-              if (last_child->first_child != 0) {
-                child1.first_child = last_child->first_child;
-                uint32_t c = child1.first_child;
-                do {
-                  node *n = &all_nodes[c];
-                  n->level++;
-                  c = n->first_child;
-                } while (c != 0);
-              }
+              uint32_t child2_pos = add_children(last_child, key, key_pos, i);
               last_children.resize(level + 1);
               last_children.push_back(child2_pos);
-              child2.flags |= NFLAG_LEAF;
-              //child2->parent = last_child;
-              child2.next_sibling = 0;
-              child2.level = child1.level;
-              //if (child2->val == string(" discuss"))
-              //  cout << "Child2 node: " << key << endl;
-              last_child->first_child = child1_pos;
-              last_child->flags &= ~NFLAG_LEAF;
-              last_child->tail_len = i; // do these before push_back all_nodes
-              last_child->freq_count++;
-              all_nodes.push_back(child1);
-              all_nodes.push_back(child2);
-              append_tail_vec(key.substr(key_pos), child2_pos);
-              node_count += 2;
               //last_child->tail_pos += i;
             }
             return;
@@ -1360,18 +1422,7 @@ class builder {
         }
         if (i == val.length() && key_pos < key.length()
             && (last_child->flags & NFLAG_LEAF) && last_child->first_child == 0) {
-          node child1;
-          uint32_t child1_pos = all_nodes.size();
-          child1.flags |= NFLAG_LEAF;
-          //child1->parent = last_child;
-          child1.next_sibling = 0;
-          child1.level = level + 1;
-          //    if (child1->val == string(" discuss"))
-          //      cout << "Ext node: " << key << endl;
-          last_child->first_child = child1_pos;
-          last_child->freq_count++;
-          all_nodes.push_back(child1);
-          append_tail_vec(key.substr(key_pos), child1_pos);
+          uint32_t child1_pos = add_child_leaf(last_child, key, key_pos);
           last_children.resize(level + 1);
           last_children.push_back(child1_pos);
           node_count++;
@@ -1736,22 +1787,26 @@ class builder {
       gen::write_uint16(node_count/nodes_per_bv_block, fp);
     }
 
-    int lookup(std::string key) {
-      int key_pos = 0;
+    node *lookup(std::string key, int& result, int& key_pos, int& cmp) {
+      key_pos = 0;
       uint8_t key_byte = key[key_pos];
       uint32_t node_id = 1;
       node *cur_node = &all_nodes[node_id];
       do {
         uint8_t trie_byte = tails_lvl_set1.get_first_byte(sort_tails, cur_node);
-        while (key_byte != trie_byte) {
-          if (cur_node->flags & NFLAG_TERM)
-            return ~INSERT_AFTER;
-          node_id++;
+        while (nodes_sorted ? (key_byte != trie_byte) : (key_byte < trie_byte)) {
+          if (cur_node->flags & NFLAG_TERM) {
+            result = INSERT_AFTER;
+            return cur_node;
+          }
+          if (nodes_sorted)
+            node_id++;
+          else
+            node_id = cur_node->next_sibling;
           cur_node = &all_nodes[node_id];
           trie_byte = tails_lvl_set1.get_first_byte(sort_tails, cur_node);
         }
         if (key_byte == trie_byte) {
-          int cmp;
           if (cur_node->tail_len > 1) {
             std::string tail_str = tails_lvl_set1.get_tail_str(sort_tails, cur_node);
             cmp = gen::compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
@@ -1760,20 +1815,26 @@ class builder {
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           } else
             cmp = 0;
-          if (cmp == 0 && key_pos + cur_node->tail_len == key.size() && (cur_node->flags & NFLAG_LEAF))
-            return 0;
+          if (cmp == 0 && key_pos + cur_node->tail_len == key.size() && (cur_node->flags & NFLAG_LEAF)) {
+            result = 0;
+            return cur_node;
+          }
           if (cmp == 0 || abs(cmp) - 1 == cur_node->tail_len) {
             key_pos += cur_node->tail_len;
             node_id = cur_node->first_child;
             cur_node = &all_nodes[node_id];
-            if (key_pos >= key.size())
-              return ~INSERT_THREAD;
+            if (key_pos >= key.size()) {
+              result = INSERT_THREAD;
+              return cur_node;
+            }
             key_byte = key[key_pos];
             continue;
           }
-          return ~INSERT_THREAD;
+          result = INSERT_THREAD;
+          return cur_node;
         }
-        return ~INSERT_BEFORE;
+        result = INSERT_BEFORE;
+        return cur_node;
       } while (1);
       return 0;
     }
