@@ -1277,9 +1277,10 @@ class builder {
       node_count++;
     }
 
-    node *lookup(std::string key, int& result, int& key_pos, int& cmp, uint32_t& node_id) {
+    node *lookup(std::string key, int& result, int& key_pos, int& cmp, uint32_t& node_id, std::vector<uint32_t>& node_path) {
       key_pos = 0;
       node_id = 1;
+      node_path.clear();
       uint8_t key_byte = key[key_pos];
       node *cur_node = &all_nodes[node_id];
       do {
@@ -1297,6 +1298,7 @@ class builder {
           trie_byte = tails_lvl_set1.get_first_byte(sort_tails, cur_node);
         }
         if (key_byte == trie_byte) {
+          node_path.push_back(node_id);
           if (cur_node->tail_len > 1) {
             std::string tail_str = tails_lvl_set1.get_tail_str(sort_tails, cur_node);
             cmp = gen::compare((const uint8_t *) tail_str.c_str(), tail_str.length(),
@@ -1350,7 +1352,10 @@ class builder {
       }
       int result, key_pos, cmp;
       uint32_t ins_node_pos;
-      node *ins_node = lookup(key, result, key_pos, cmp, ins_node_pos);
+      std::vector<uint32_t> node_path;
+      node *ins_node = lookup(key, result, key_pos, cmp, ins_node_pos, node_path);
+      for (int i = 0; i < node_path.size(); i++)
+        all_nodes[node_path[i]].freq_count++;
       if (result == 0) // Key exists. Replace val ?
         return;
       key_count++;
@@ -1390,7 +1395,6 @@ class builder {
       //child1->parent = last_child;
       child1.next_sibling = 0;
       child1.level = last_child->level + 1;
-      last_child->freq_count++;
       uint32_t last_child_len = last_child->tail_len;
       if (reverse) {
         last_child->tail_len = cmp;
@@ -1468,7 +1472,6 @@ class builder {
       last_child->first_child = child1_pos;
       last_child->flags &= ~NFLAG_LEAF;
       last_child->tail_len = child_at;
-      last_child->freq_count++;
       if (reverse) {
         child2_pos = all_nodes.size();
         child1_pos = child2_pos + 1;
@@ -1516,6 +1519,7 @@ class builder {
               uint32_t new_node_pos = add_sibling(last_child, key, key_pos);
               last_children[level] = new_node_pos;
             } else {
+              last_child->freq_count++;
               uint32_t child2_pos = add_children(last_child, key, key_pos, i);
               last_children.push_back(child2_pos);
             }
@@ -1524,6 +1528,7 @@ class builder {
           key_pos++;
         }
         if (key_pos < key.length() && (last_child->flags & NFLAG_LEAF) && last_child->first_child == 0) {
+          last_child->freq_count++;
           uint32_t child1_pos = add_child_leaf(last_child, key, key_pos);
           last_children.resize(level + 1);
           last_children.push_back(child1_pos);
