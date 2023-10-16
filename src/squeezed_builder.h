@@ -123,6 +123,20 @@ class gen {
     static uint32_t log256(uint32_t val) {
       return (val < 256 ? 1 : (val < 65536 ? 2 : (val < 16777216 ? 3 : 4)));
     }
+    static size_t max(size_t v1, size_t v2) {
+      return v1 > v2 ? v1 : v2;
+    }
+    static int8_t get_vlen_of_uint32(uint32_t vint) {
+      return vint > ((1 << 28) - 1) ? 5 : (vint > ((1 << 21) - 1) ? 4 
+          : (vint > ((1 << 14) - 1) ? 3 : (vint > ((1 << 7) - 1) ? 2 : 1)));
+    }
+    static int append_vint32(byte_vec& vec, uint32_t vint) {
+      int len = get_vlen_of_uint32(vint);
+      for (int i = len - 1; i > 0; i--)
+        vec.push_back(0x80 + ((vint >> (7 * i)) & 0x7F));
+      vec.push_back(vint & 0x7F);
+      return len;
+    }
     static clock_t print_time_taken(clock_t t, const char *msg) {
       t = clock() - t;
       double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
@@ -208,6 +222,7 @@ class byte_block {
     bit_vector is_allocated;
     size_t block_remaining;
     bool is_released;
+    size_t count;
     uint8_t *reserve(size_t val_len, size_t& pos) {
       if (val_len > block_remaining) {
         size_t needed_bytes = val_len;
@@ -238,6 +253,7 @@ class byte_block {
   public:
     const static size_t block_size = 4096;
     byte_block() {
+      count = 0;
       block_remaining = 0;
       is_released = false;
     }
@@ -251,15 +267,20 @@ class byte_block {
       }
       blocks.resize(0);
       is_released = true;
+      count = 0;
     }
     size_t push_back(uint8_t *val, int val_len) {
       size_t pos;
       uint8_t *buf = reserve(val_len, pos);
       memcpy(buf, val, val_len);
+      count++;
       return pos;
     }
     uint8_t *operator[](size_t pos) {
       return blocks[pos / block_size] + (pos % block_size);
+    }
+    size_t size() {
+      return count;
     }
 };
 
@@ -379,9 +400,12 @@ struct freq_grp {
   uint32_t grp_no;
   uint8_t grp_log2;
   uint32_t grp_limit;
-  uint32_t count;
-  uint32_t freq_count;
-  uint32_t grp_size;
+  uint32_t count_tail;
+  uint32_t count_val;
+  uint32_t freq_count_tail;
+  uint32_t freq_count_val;
+  uint32_t grp_size_tail;
+  uint32_t grp_size_val;
   uint8_t code;
   uint8_t code_len;
 };
@@ -389,7 +413,8 @@ struct freq_grp {
 class grp_ptrs {
   private:
     std::vector<freq_grp> freq_grp_vec;
-    std::vector<byte_vec> grp_data;
+    std::vector<byte_vec> grp_tail_data;
+    std::vector<byte_vec> grp_val_data;
     byte_vec ptrs;
     byte_vec idx2_ptrs_map;
     int last_byte_bits;
@@ -438,7 +463,7 @@ class grp_ptrs {
           next_idx = 0;
         }
       } else {
-        if ((freq_grp_vec[grp_no].grp_size + len) >= (cur_limit - 1))
+        if ((freq_grp_vec[grp_no].grp_size_tail + len) >= (cur_limit - 1))
           next_grp = true;
       }
       if (next_grp) {
@@ -448,11 +473,16 @@ class grp_ptrs {
       }
       return cur_limit;
     }
-    void update_current_grp(uint32_t grp_no, int32_t len, int32_t freq) {
-      freq_grp_vec[grp_no].grp_size += len;
-      freq_grp_vec[grp_no].freq_count += freq;
-      freq_grp_vec[grp_no].count += (len < 0 ? -1 : 1);
+    void update_current_grp_tails(uint32_t grp_no, int32_t len, int32_t freq) {
+      freq_grp_vec[grp_no].grp_size_tail += len;
+      freq_grp_vec[grp_no].freq_count_tail += freq;
+      freq_grp_vec[grp_no].count_tail += (len < 0 ? -1 : 1);
       next_idx++;
+    }
+    void update_current_grp_vals(uint32_t grp_no, int32_t len, int32_t freq) {
+      freq_grp_vec[grp_no].grp_size_val += len;
+      freq_grp_vec[grp_no].freq_count_val += freq;
+      freq_grp_vec[grp_no].count_val += (len < 0 ? -1 : 1);
     }
     uint32_t append_ptr(uint32_t grp_no, uint32_t _ptr) {
       if (idx2_ptrs_map.size() == idx_map_arr[grp_no - 1])
@@ -463,18 +493,33 @@ class grp_ptrs {
         gen::append_uint24(_ptr, idx2_ptrs_map);
       return next_idx++;
     }
-    uint32_t append_to_grp(uint32_t grp_no, uint8_t *val, uint32_t len, bool append0 = false) {
+    uint32_t append_to_grp_tails(uint32_t grp_no, uint8_t *val, uint32_t len, bool append0 = false) {
       grp_no--;
-      while (grp_no >= grp_data.size()) {
+      while (grp_no >= grp_tail_data.size()) {
         byte_vec tail;
         tail.push_back(0);
-        grp_data.push_back(tail);
+        grp_tail_data.push_back(tail);
       }
-      uint32_t ptr = grp_data[grp_no].size();
+      byte_vec& grp_tails_vec = grp_tail_data[grp_no];
+      uint32_t ptr = grp_tails_vec.size();
       for (int k = 0; k < len; k++)
-        grp_data[grp_no].push_back(val[k]);
+        grp_tails_vec.push_back(val[k]);
       if (append0)
-        grp_data[grp_no].push_back(0);
+        grp_tails_vec.push_back(0);
+      return ptr;
+    }
+    uint32_t append_to_grp_vals(uint32_t grp_no, uint8_t *val, uint32_t len) {
+      grp_no--;
+      while (grp_no >= grp_val_data.size()) {
+        byte_vec vals;
+        vals.push_back(0);
+        grp_val_data.push_back(vals);
+      }
+      byte_vec& grp_vals_vec = grp_val_data[grp_no];
+      uint32_t ptr = grp_vals_vec.size();
+      gen::append_vint32(grp_vals_vec, len);
+      for (int k = 0; k < len; k++)
+        grp_vals_vec.push_back(val[k]);
       return ptr;
     }
     int append_bits(int grp_no, uint32_t ptr) {
@@ -496,22 +541,25 @@ class grp_ptrs {
       return last_byte_bits;
     }
     uint32_t get_hdr_size() {
-      return 513 + grp_data.size() * 4;
+      return 513 + grp_tail_data.size() * 4;
     }
-    uint32_t get_data_size() {
+    uint32_t get_tail_data_size() {
       uint32_t data_size = 0;
-      for (int i = 0; i < grp_data.size(); i++)
-        data_size += grp_data[i].size();
+      for (int i = 0; i < grp_tail_data.size(); i++)
+        data_size += grp_tail_data[i].size();
       return data_size;
     }
     uint32_t get_ptrs_size() {
       return ptrs.size();
     }
     uint32_t get_total_size() {
-      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size();
+      return get_hdr_size() + get_tail_data_size() + get_ptrs_size() + idx2_ptrs_map.size();
     }
-    byte_vec& get_data(int grp_no) {
-      return grp_data[grp_no - 1];
+    byte_vec& get_tail_data(int grp_no) {
+      return grp_tail_data[grp_no - 1];
+    }
+    byte_vec& get_val_data(int grp_no) {
+      return grp_val_data[grp_no - 1];
     }
     void write_code_lookup_tbl(FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -535,16 +583,16 @@ class grp_ptrs {
       }
     }
     void write_grp_data(uint32_t offset, FILE* fp) {
-      uint8_t grp_count = grp_data.size();
+      uint8_t grp_count = grp_tail_data.size();
       fputc(grp_count, fp);
       write_code_lookup_tbl(fp);
       uint32_t total_tail_size = 0;
       for (int i = 0; i < grp_count; i++) {
         gen::write_uint32(offset + grp_count * 4 + total_tail_size, fp);
-        total_tail_size += grp_data[i].size();
+        total_tail_size += grp_tail_data[i].size();
       }
       for (int i = 0; i < grp_count; i++) {
-        fwrite(grp_data[i].data(), grp_data[i].size(), 1, fp);
+        fwrite(grp_tail_data[i].data(), grp_tail_data[i].size(), 1, fp);
       }
     }
     void write_ptrs(FILE *fp) {
@@ -562,9 +610,9 @@ class grp_ptrs {
     void build_freq_codes() {
       std::vector<uint32_t> freqs;
       for (int i = 1; i < freq_grp_vec.size(); i++)
-        freqs.push_back(freq_grp_vec[i].freq_count);
+        freqs.push_back(freq_grp_vec[i].freq_count_tail + freq_grp_vec[i].freq_count_val);
       huffman<uint32_t> _huffman(freqs);
-      printf("bits\tcd\tct\tfct\tlen\tcdln\tmxsz\n");
+      printf("bits\tcd\tct_t\tfct_t\tlen_t\tct_v\tfct_v\tlen_v\tcdln\tmxsz\n");
       for (int i = 1; i < freq_grp_vec.size(); i++) {
         freq_grp *fg = &freq_grp_vec[i];
         int len;
@@ -573,9 +621,10 @@ class grp_ptrs {
         if (i <= idx_limit)
           fg->grp_log2 = ceil(log2(fg->grp_limit));
         else
-          fg->grp_log2 = ceil(log2(fg->grp_size));
+          fg->grp_log2 = ceil(log2(gen::max(fg->grp_size_tail, fg->grp_size_val)));
         fg->grp_log2 -= (8 - len);
-        printf("%d\t%2x\t%u\t%u\t%u\t%d\t%u\n", (int) fg->grp_log2, fg->code, fg->count, fg->freq_count, fg->grp_size, fg->code_len, fg->grp_limit);
+        printf("%d\t%2x\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%u\n", (int) fg->grp_log2, fg->code, fg->count_tail, fg->freq_count_tail,
+              fg->grp_size_tail, fg->code_len, fg->count_val, fg->freq_count_val, fg->grp_size_val, fg->grp_limit);
       }
       printf("Idx limit; %d\n", idx_limit);
     }
@@ -747,8 +796,10 @@ class tail_maps {
 
       uint32_t tot_freq_count = make_uniq(all_nodes, sort_tails, uniq_tails, (ptr_vals_info_vec *) &uniq_tails_rev,
                 to_add_node_for_tails, gen::compare_rev, get_vi_fn_tails, set_pos_fn_tails, end_level, start_level);
-      // make_uniq(all_nodes, all_vals, uniq_vals, (ptr_vals_info_vec *) &uniq_vals_fwd, 
-      //           to_add_node_for_vals, gen::compare, get_vi_fn_vals, end_level, start_level);
+      if (all_vals.size() > 0) {
+        make_uniq(all_nodes, all_vals, uniq_vals, (ptr_vals_info_vec *) &uniq_vals_fwd, 
+                to_add_node_for_vals, gen::compare, get_vi_fn_vals, set_pos_fn_vals, end_level, start_level);
+      }
 
       clock_t t = clock();
       uniq_tails_fwd = uniq_tails_rev;
@@ -907,11 +958,11 @@ class tail_maps {
           if (link_ti->grp_no == 0) {
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, link_ti->len + 1);
             link_ti->grp_no = grp_no;
-            tail_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + link_ti->pos, link_ti->len, true);
+            tail_ptrs.update_current_grp_tails(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
+            link_ti->ptr = tail_ptrs.append_to_grp_tails(grp_no, uniq_tails.data() + link_ti->pos, link_ti->len, true);
           }
           cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, 0);
-          tail_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
+          tail_ptrs.update_current_grp_tails(link_ti->grp_no, 0, ti->freq_count);
           ti->ptr = link_ti->ptr + link_ti->len - ti->len;
           ti->grp_no = link_ti->grp_no;
         } else {
@@ -943,10 +994,10 @@ class tail_maps {
               savings_partial += cmp;
               savings_partial -= len_len;
               savings_count_partial++;
-              tail_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
+              tail_ptrs.update_current_grp_tails(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + ti->pos, remain_len);
-              byte_vec& tail_data = tail_ptrs.get_data(grp_no);
+              ti->ptr = tail_ptrs.append_to_grp_tails(grp_no, uniq_tails.data() + ti->pos, remain_len);
+              byte_vec& tail_data = tail_ptrs.get_tail_data(grp_no);
               get_len_len(cmp, &tail_data);
             } else {
               // printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
@@ -955,8 +1006,8 @@ class tail_maps {
               sfx_set_count = 1;
               sfx_set_freq = ti->freq_count;
               sfx_set_tot_cnt++;
-              tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
+              tail_ptrs.update_current_grp_tails(grp_no, ti->len + 1, ti->freq_count);
+              ti->ptr = tail_ptrs.append_to_grp_tails(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
             }
               //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails.data() + ti->tail_pos);
             cur_limit = new_limit;
@@ -968,8 +1019,8 @@ class tail_maps {
             sfx_set_freq = ti->freq_count;
             sfx_set_tot_cnt++;
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, ti->len + 1);
-            tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = tail_ptrs.append_to_grp(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
+            tail_ptrs.update_current_grp_tails(grp_no, ti->len + 1, ti->freq_count);
+            ti->ptr = tail_ptrs.append_to_grp_tails(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
           }
           ti->grp_no = grp_no;
         }
@@ -1023,7 +1074,27 @@ class tail_maps {
       printf("Remaining: %u, %u\n", remain_tot, remain_cnt);
       printf("Cmp_rev_min_tot: %u, %u\n", cmp_rev_min_tot, cmp_rev_min_cnt);
 
+      if (all_vals.size() > 0) {
+        ptr_vals_info_vec uniq_vals_freq = uniq_vals_fwd;
+        std::sort(uniq_vals_freq.begin(), uniq_vals_freq.end(), [this](const struct ptr_vals_info *lhs, const struct ptr_vals_info *rhs) -> bool {
+          return lhs->freq_count > rhs->freq_count;
+        });
+        freq_pos = 0;
+        grp_no = 0;
+        while (freq_pos < uniq_vals_freq.size()) {
+          ptr_vals_info *vi = uniq_vals_freq[freq_pos];
+          freq_pos++;
+          byte_vec& grp_vals = tail_ptrs.get_val_data(grp_no);
+          freq_grp *fg = tail_ptrs.get_freq_grp(grp_no);
+          if (grp_vals.size() + vi->len > fg->grp_limit)
+            grp_no++;
+          tail_ptrs.append_to_grp_vals(grp_no, uniq_vals.data() + vi->pos, vi->len);
+          tail_ptrs.update_current_grp_vals(grp_no, vi->len, vi->freq_count);
+        }
+      }
+
       tail_ptrs.build_freq_codes();
+
     }
 
     uint32_t get_pfx_len(uint32_t sz) {
@@ -1041,6 +1112,11 @@ class tail_maps {
           if (cur_node->tail_len > 1) {
             uniq_tails_info *ti = uniq_tails_rev[cur_node->uniq_tail_pos];
             freq_grp *fg = tail_ptrs.get_freq_grp(ti->grp_no);
+            bit_count += fg->grp_log2;
+          }
+          if (cur_node->val_len > 0) {
+            ptr_vals_info *vi = uniq_vals_fwd[cur_node->uniq_val_pos];
+            freq_grp *fg = tail_ptrs.get_freq_grp(vi->grp_no);
             bit_count += fg->grp_log2;
           }
           node_id++;
@@ -1105,7 +1181,7 @@ class tail_maps {
       uniq_tails_info *ti = uniq_tails_rev[n->uniq_tail_pos];
       uint32_t grp_no = ti->grp_no;
       uint32_t ptr = get_tail_ptr(grp_no, ti);
-      byte_vec& tail = tail_ptrs.get_data(grp_no);
+      byte_vec& tail = tail_ptrs.get_tail_data(grp_no);
       return *(tail.data() + ptr);
     }
 
@@ -1120,7 +1196,7 @@ class tail_maps {
       uint32_t grp_no = ti->grp_no;
       uint32_t tail_ptr = get_tail_ptr(grp_no, ti);
       uint32_t ptr = tail_ptr;
-      byte_vec& tail = tail_ptrs.get_data(grp_no);
+      byte_vec& tail = tail_ptrs.get_tail_data(grp_no);
       std::string ret;
       int byt = tail[ptr++];
       while (byt > 31) {
@@ -1166,6 +1242,9 @@ class tail_maps {
 
     uniq_tails_info_vec *get_uniq_tails_rev() {
       return &uniq_tails_rev;
+    }
+    ptr_vals_info_vec *get_uniq_vals_fwd() {
+      return &uniq_vals_fwd;
     }
     grp_ptrs *get_grp_ptrs() {
       return &tail_ptrs;
@@ -1216,6 +1295,17 @@ class builder {
       all_nodes[node_pos].val_len = val.length();
     }
 
+    void replace_or_append_val(std::string& val, uint32_t& node_pos) {
+      if (val == dflt_val)
+        return;
+      node *n = &all_nodes[node_pos];
+      if (n->val_len >= val.length()) {
+        memcpy(all_vals[n->val_pos], val.c_str(), val.length());
+        return;
+      }
+      append_val_vec(val, node_pos);
+    }
+
   public:
     byte_block sort_tails;
     byte_block all_vals;
@@ -1254,6 +1344,10 @@ class builder {
       //   delete uniq_tails_fwd[i];
       // }
       //delete root; // now part of all_nodes
+    }
+
+    size_t size() {
+      return key_count;
     }
 
     const bool to_sort_nodes_on_freq = true;
@@ -1304,6 +1398,28 @@ class builder {
       append_val_vec(val, 1);
       all_nodes[1].flags |= NFLAG_LEAF;
       node_count++;
+    }
+
+    bool get(const uint8_t *key, uint8_t key_len, int *in_size_out_value_len, uint8_t *val) {
+      if (key_count == 0)
+        return false;
+      std::string k((const char *) key, key_len);
+      int result, key_pos, cmp;
+      uint32_t node_id;
+      std::vector<uint32_t> node_path;
+      node *n = lookup(k, result, key_pos, cmp, node_id, node_path);
+      if (result == 0) {
+        *in_size_out_value_len = n->val_len;
+        memcpy(val, all_vals[n->val_pos], n->val_len);
+        return true;
+      }
+      return false;
+    }
+
+    bool put(const uint8_t *key, uint8_t key_len, const uint8_t *value, int value_len) {
+      std::string k((const char *) key, key_len);
+      std::string v((const char *) value, value_len);
+      return insert(k, v);
     }
 
     node *lookup(std::string key, int& result, int& key_pos, int& cmp, uint32_t& node_id, std::vector<uint32_t>& node_path) {
@@ -1369,15 +1485,15 @@ class builder {
     }
 
     std::string dflt_val = "default";
-    void insert(std::string key) {
-      insert(key, dflt_val);
+    bool insert(std::string key) {
+      return insert(key, dflt_val);
     }
 
-    void insert(std::string key, std::string& val) {
+    bool insert(std::string key, std::string& val) {
       if (node_count == 0) {
         key_count++;
         set_first_node(key, val);
-        return;
+        return false;
       }
       int result, key_pos, cmp;
       uint32_t ins_node_pos;
@@ -1385,8 +1501,10 @@ class builder {
       node *ins_node = lookup(key, result, key_pos, cmp, ins_node_pos, node_path);
       for (int i = 0; i < node_path.size(); i++)
         all_nodes[node_path[i]].freq_count++;
-      if (result == 0) // Key exists. Replace val ?
-        return;
+      if (result == 0) {
+        replace_or_append_val(val, ins_node_pos);
+        return true;
+      }
       key_count++;
       switch (result) {
         case INSERT_AFTER:
@@ -1403,21 +1521,21 @@ class builder {
           add_child_leaf(ins_node, key, key_pos, val, cmp);
           break;
         case INSERT_THREAD: {
-          bool reverse = (cmp > 0);
+          bool swap = (cmp > 0);
           if (cmp != 0) {
             cmp = abs(cmp) - 1;
             key_pos += cmp;
           }
-          add_children(ins_node, key, key_pos, val, cmp, reverse);
+          add_children(ins_node, key, key_pos, val, cmp, swap);
         } break;
       }
-      // set value
+      return false;
     }
 
     uint32_t add_child_leaf(node *last_child, std::string& key, int key_pos, std::string& val, int cmp = 0) {
-      bool reverse = false;
+      bool swap = false;
       if (cmp > 0)
-        reverse = true;
+        swap = true;
       cmp = abs(cmp) - 1;
       node child1;
       uint32_t child1_pos = all_nodes.size();
@@ -1426,14 +1544,14 @@ class builder {
       child1.next_sibling = 0;
       child1.level = last_child->level + 1;
       uint32_t last_child_len = last_child->tail_len;
-      if (reverse) {
+      if (swap) {
         last_child->tail_len = cmp;
         last_child->flags |= NFLAG_LEAF;
         child1.first_child = last_child->first_child;
       }
       last_child->first_child = child1_pos;
       all_nodes.push_back(child1);
-      if (reverse) {
+      if (swap) {
         std::string str((const char *) sort_tails[last_child->tail_pos] + cmp, last_child_len - cmp);
         append_tail_vec(str, child1_pos);
       } else {
@@ -1475,7 +1593,7 @@ class builder {
       return ins_node_pos;
     }
 
-    uint32_t add_children(node *last_child, std::string& key, int key_pos, std::string& val, uint32_t child_at, bool reverse = false) {
+    uint32_t add_children(node *last_child, std::string& key, int key_pos, std::string& val, uint32_t child_at, bool swap = false) {
       node child1;
       uint32_t child1_pos = all_nodes.size();
       uint32_t child2_pos = child1_pos + 1;
@@ -1512,7 +1630,7 @@ class builder {
         last_child->flags &= ~NFLAG_LEAF;
       }
       last_child->tail_len = child_at;
-      if (reverse) {
+      if (swap) {
         child2_pos = all_nodes.size();
         child1_pos = child2_pos + 1;
         last_child->first_child = child2_pos;
@@ -1580,21 +1698,7 @@ class builder {
       } while (last_child != 0);
     }
 
-    void build_val_maps() {
-      // clock_t t = clock();
-      // std::vector<sort_data> vals_for_sort;
-      // for (uint32_t i = 0; i < all_vals.size(); i++) {
-      //   uint8_t *v = all_vals[i];
-      //   vals_for_sort.push_back((struct sort_data) { v, , i } );
-      // }
-      // t = gen::print_time_taken(t, "Time taken for adding to nodes_for_sort: ");
-      // std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [this](const struct sort_data& lhs, const struct sort_data& rhs) -> bool {
-      //   return gen::compare_rev(lhs.tail_data, lhs.tail_len, rhs.tail_data, rhs.tail_len) < 0;
-      // });
-      // t = gen::print_time_taken(t, "Time taken to sort: ");
-    }
-
-    uint8_t get_tail_ptr(node *cur_node) {
+    uint8_t append_tail_val_ptr(node *cur_node) {
       uint8_t node_val;
       uniq_tails_info *ti = get_ti(cur_node);
       uint32_t ptr = 0;
@@ -1610,6 +1714,10 @@ class builder {
       node_val = (huf_code << node_val_bits) | (ptr & ((1 << node_val_bits) - 1));
       ptr >>= node_val_bits;
       tail_ptrs->append_bits(grp_no, ptr);
+      if (all_vals.size() > 0) {
+        ptr_vals_info *vi = get_vi(cur_node);
+        tail_ptrs->append_bits(grp_no, vi->ptr);
+      }
       return node_val;
     }
 
@@ -1651,7 +1759,6 @@ class builder {
       tails_lvl_set1.build_tail_val_maps(all_nodes, sort_tails, all_vals, 255, 0);
       // tails_lvl_set2.build_tail_val_maps(all_nodes, sort_tails, all_vals, 8, 6);
       // tails_lvl_set3.build_tail_val_maps(all_nodes, sort_tails, all_vals, 255, 9);
-      build_val_maps();
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
@@ -1689,7 +1796,7 @@ class builder {
             node_val = cur_node->v0;
           } else {
             char_counts[(cur_node->tail_len > 8) ? 7 : (cur_node->tail_len-2)]++;
-            node_val = get_tail_ptr(cur_node);
+            node_val = append_tail_val_ptr(cur_node);
             ptr_count++;
           }
           if (node_count && (node_count % 64) == 0) {
@@ -1727,8 +1834,7 @@ class builder {
       // for (int i = 0; i < 8; i++)
       //   std::cout << "Val lens " << i << ": " << val_len_counts[i] << std::endl;
       byte_vec *idx2_ptrs_map = tails_lvl_set1.get_grp_ptrs()->get_idx2_ptrs_map();
-      uint32_t total_tails = tails_lvl_set1.get_grp_ptrs()->get_data_size();
-      uint32_t total_vals = val_ptrs.get_data_size();
+      uint32_t total_tails = tails_lvl_set1.get_grp_ptrs()->get_tail_data_size();
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Full suffix count: " << sfx_full_count << std::endl;
       std::cout << "Partial suffix count: " << sfx_partial_count << std::endl;
@@ -1762,7 +1868,7 @@ class builder {
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       uint32_t grp_tails_loc = 2 + 15 * 4; // 62
-      uint32_t grp_tails_size = tails_lvl_set1.get_grp_ptrs()->get_hdr_size() + tails_lvl_set1.get_grp_ptrs()->get_data_size();
+      uint32_t grp_tails_size = tails_lvl_set1.get_grp_ptrs()->get_hdr_size() + tails_lvl_set1.get_grp_ptrs()->get_tail_data_size();
       uint32_t grp_vals_loc = grp_tails_loc + grp_tails_size;
       uint32_t grp_vals_size = 0; //val_ptrs.get_size();
       uint32_t cache_loc = grp_vals_loc + grp_vals_size;
@@ -1945,9 +2051,15 @@ class builder {
       return (*uniq_tails_rev)[n->uniq_tail_pos];
     }
 
-    uint32_t get_ptr(node *cur_node) {
+    uint32_t get_tail_ptr(node *cur_node) {
       uniq_tails_info *ti = get_ti(cur_node);
       return ti->ptr;
+    }
+
+    ptr_vals_info *get_vi(node *n) {
+      tail_maps *tm = get_tail_maps(n);
+      ptr_vals_info_vec *uniq_vals_fwd = tm->get_uniq_vals_fwd();
+      return (*uniq_vals_fwd)[n->uniq_val_pos];
     }
 
     int compare_nodes_rev(uint32_t nid_1, int len1, uint32_t nid_2, int len2) {
