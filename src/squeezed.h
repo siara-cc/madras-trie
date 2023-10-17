@@ -480,7 +480,7 @@ class static_dict {
     }
 
     static const uint64_t bm_init_mask = 0x0000000000000001UL;
-    int lookup(std::string& key) {
+    int lookup(const uint8_t *key, int key_len) {
       int key_pos = 0;
       uint32_t node_id = 0;
       uint8_t key_byte = key[key_pos];
@@ -525,12 +525,12 @@ class static_dict {
             get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len + 1);
             tail_len = tail_str.length();
             cmp = compare(tail_str.data(), tail_len,
-                    (const uint8_t *) key.c_str() + key_pos, key.size() - key_pos);
+                    (const uint8_t *) key + key_pos, key_len - key_pos);
             // printf("%d\t%d\t%.*s =========== ", cmp, tail_len, tail_len, tail_data);
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           }
           key_pos += tail_len;
-          if (cmp == 0 && key_pos == key.size() && (bm_leaf & bm_mask))
+          if (cmp == 0 && key_pos == key_len && (bm_leaf & bm_mask))
             return 0;
           if (cmp == 0 || cmp - 1 == tail_len) {
             if ((bm_mask & bm_child) == 0)

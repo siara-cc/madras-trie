@@ -32,8 +32,8 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      //sb.append(line);
-      sb.insert(line);
+      //sb.append((const uint8_t *) line.c_str(), line.length());
+      sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
       prev_line = line;
       line_count++;
@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
   }
   infile.close();
   std::cout << std::endl;
+  t = print_time_taken(t, "Time taken for insert/append: ");
 
   std::string out_file = sb.build();
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
@@ -66,7 +67,7 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    int ret = dict_reader.lookup(line);
+    int ret = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
     // int ret, key_pos, cmp;
     // uint32_t n_id;
     // squeezed::node *n = sb.lookup(line, ret, key_pos, cmp, n_id);
