@@ -76,12 +76,12 @@ class static_dict {
     uint8_t *trie_bv_loc;
     uint8_t *leaf_bv_loc;
     uint8_t *select_lkup_loc;
-    uint8_t *select_lkup_loc_end;
     uint8_t *tail_ptrs_loc;
     uint8_t *trie_loc;
     uint8_t *two_byte_tails_loc;
     uint8_t *idx2_ptrs_map_loc;
     uint8_t *common_nodes_loc;
+    uint8_t *fragment_tbl_loc;
 
     uint8_t grp_count;
     int8_t grp_idx_limit;
@@ -157,36 +157,35 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      grp_tails_loc = dict_buf + 2 + 15 * 4; // 62
-      node_count = read_uint32(dict_buf + 2);
-      common_node_count = read_uint32(dict_buf + 6);
-      two_byte_tail_count = read_uint32(dict_buf + 10);
-      idx2_ptr_count = read_uint32(dict_buf + 14);
+      node_count = read_uint32(dict_buf + 3);
+      bv_block_count = node_count / nodes_per_bv_block;
+      common_node_count = read_uint32(dict_buf + 7);
+      max_tail_len = read_uint32(dict_buf + 11);
+      cache_loc = dict_buf + read_uint32(dict_buf + 15);
+
+      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 19);
+      trie_bv_loc = dict_buf + read_uint32(dict_buf + 23);
+      leaf_bv_loc = dict_buf + read_uint32(dict_buf + 27);
+      fragment_tbl_loc = dict_buf + read_uint32(dict_buf + 31);
+
+      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 35);
+      grp_tails_loc = dict_buf + read_uint32(dict_buf + 39);
+      two_byte_tail_count = read_uint32(dict_buf + 43);
+      idx2_ptr_count = read_uint32(dict_buf + 47);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       grp_idx_limit = (idx2_ptr_count >> 23) & 0x7F;
       idx2_ptr_count &= 0x00FFFFFF;
-      max_tail_len = read_uint32(dict_buf + 18);
-      bv_block_count = node_count / nodes_per_bv_block;
-      grp_vals_loc = dict_buf + read_uint32(dict_buf + 22);
-      cache_loc = dict_buf + read_uint32(dict_buf + 24);
-      ptr_lookup_tbl_loc = dict_buf + read_uint32(dict_buf + 30);
-      trie_bv_loc = dict_buf + read_uint32(dict_buf + 34);
-      leaf_bv_loc = dict_buf + read_uint32(dict_buf + 38);
-      select_lkup_loc =  dict_buf + read_uint32(dict_buf + 42);
-      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 46);
-      select_lkup_loc_end = tail_ptrs_loc;
-      two_byte_tails_loc = dict_buf + read_uint32(dict_buf + 50);
-      idx2_ptrs_map_loc = dict_buf + read_uint32(dict_buf + 54);
-      trie_loc = dict_buf + read_uint32(dict_buf + 58);
+      grp_vals_loc = dict_buf + read_uint32(dict_buf + 51);
+      tail_ptrs_loc = dict_buf + read_uint32(dict_buf + 55);
+      two_byte_tails_loc = dict_buf + read_uint32(dict_buf + 59);
+      idx2_ptrs_map_loc = dict_buf + read_uint32(dict_buf + 63);
+      trie_loc = dict_buf + read_uint32(dict_buf + 67);
 
       grp_count = *grp_tails_loc;
       code_lookup_tbl = grp_tails_loc + 1;
       uint8_t *grp_tails_idx_start = code_lookup_tbl + 512;
       for (int i = 0; i < grp_count; i++)
         grp_tails.push_back(dict_buf + read_uint32(grp_tails_idx_start + i * 4));
-
-      printf("%u,%ld,%ld,%ld,%ld,%ld,%ld,%ld\n", node_count, cache_loc-dict_buf, ptr_lookup_tbl_loc-dict_buf, trie_bv_loc-dict_buf, 
-                leaf_bv_loc-dict_buf, select_lkup_loc-dict_buf, tail_ptrs_loc-dict_buf, trie_loc-dict_buf);
 
       if (idx2_ptr_size == 2) {
         idx_map_arr[1] = 256;
