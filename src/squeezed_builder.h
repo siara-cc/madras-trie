@@ -1312,7 +1312,7 @@ class tail_val_maps {
 
 };
 
-class fragment {
+class fragment_builder {
   private:
     byte_block& all_tails;
     byte_block& all_vals;
@@ -1366,7 +1366,7 @@ class fragment {
   public:
     byte_vec trie;
     tail_val_maps tail_vals;
-    fragment(std::vector<node>& _all_nodes, byte_block& _all_tails, byte_block& _all_vals,
+    fragment_builder(std::vector<node>& _all_nodes, byte_block& _all_tails, byte_block& _all_vals,
                 uint32_t& _node_count, uint32_t& _max_tail_len, uint32_t& _term_count,
                 int _start_lvl, int _end_lvl)
             : all_tails (_all_tails), all_vals (_all_vals), all_nodes (_all_nodes),
@@ -1575,7 +1575,7 @@ class builder {
   public:
     byte_block all_tails;
     byte_block all_vals;
-    std::vector<fragment> map_fragments;
+    std::vector<fragment_builder> map_fragments;
     std::string out_filename;
     builder(const char *out_file = NULL) {
       node_count = 0;
@@ -1600,7 +1600,7 @@ class builder {
       fragment_count = 1;
       max_tail_len = 0;
       term_count = 0;
-      map_fragments.push_back(fragment(all_nodes, all_tails, all_vals, node_count, max_tail_len, term_count, 0, 99999999));
+      map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, term_count, 0, 99999999));
     }
 
     ~builder() {
@@ -1973,11 +1973,14 @@ class builder {
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       fputc(fragment_count, fp);
+
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
       uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
       uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
       uint32_t select_lookup = (ceil(term_count/term_divisor) + 2) * 2; // 2 bytes sufficient?
-      uint32_t common_node_loc = 3 + 17 * 4; // 71
+      uint32_t fragment_tbl_size = fragment_count * 8;
+
+      uint32_t common_node_loc = 3 + 8 * 4; // 71
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
       uint32_t select_lkup_loc = cache_loc + cache_size;
       uint32_t trie_bv_loc = select_lkup_loc + select_lookup;
@@ -1994,14 +1997,13 @@ class builder {
       gen::write_uint32(leaf_bv_loc, fp);
       gen::write_uint32(fragment_tbl_loc, fp);
 
-      map_fragments[0].write_header(fp, fragment_tbl_loc);
-
       //write_cache(fp, cache_size);
       fwrite(map_fragments[0].trie.data(), cache_size, 1, fp);
       write_select_lkup(fp);
       write_trie_bv(fp);
       write_leaf_bv(fp);
 
+      map_fragments[0].write_header(fp, fragment_tbl_loc + 9 * 4);
       map_fragments[0].write_fragment(fp);
 
       fclose(fp);
