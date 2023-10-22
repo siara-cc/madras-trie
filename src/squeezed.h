@@ -214,9 +214,14 @@ class fragment {
 
   public:
     uint8_t *trie_loc;
-    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc) : dict_buf (_dict_buf), fragment_loc (_fragment_loc) {
+    uint32_t end_node_id;
+    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _end_node_id)
+        : dict_buf (_dict_buf), fragment_loc (_fragment_loc), end_node_id (_end_node_id) {
       ptr_lookup_tbl_loc = dict_buf + cmn::read_uint32(fragment_loc);
+      std::cout << "Fragment loc: " << fragment_loc - dict_buf << std::endl;
+      std::cout << "Ptr tbl loc: " << ptr_lookup_tbl_loc - dict_buf << std::endl;
       grp_tails_loc = dict_buf + cmn::read_uint32(fragment_loc + 4);
+      std::cout << "Grp tails loc: " << grp_tails_loc - dict_buf << std::endl;
       two_byte_tail_count = cmn::read_uint32(fragment_loc + 8);
       idx2_ptr_count = cmn::read_uint32(fragment_loc + 12);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
@@ -317,6 +322,7 @@ class static_dict {
     uint8_t *select_lkup_loc;
     uint8_t *fragment_tbl_loc;
 
+    uint8_t fragment_count;
     std::vector<fragment> fragments;
 
     builder *sb;
@@ -339,6 +345,7 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
+      fragment_count = dict_buf[2];
       node_count = cmn::read_uint32(dict_buf + 3);
       bv_block_count = node_count / nodes_per_bv_block;
       common_node_count = cmn::read_uint32(dict_buf + 7);
@@ -350,8 +357,13 @@ class static_dict {
       leaf_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 27);
       fragment_tbl_loc = dict_buf + cmn::read_uint32(dict_buf + 31);
 
-      fragments.push_back(fragment(dict_buf, fragment_tbl_loc));
-
+      for (int i = 0; i < fragment_count; i++) {
+        uint32_t fragment_loc = cmn::read_uint32(fragment_tbl_loc + i * 8);
+        uint32_t end_node_id = cmn::read_uint32(fragment_tbl_loc + 4 + i * 8);
+        std::cout << "Fragment loc: " << fragment_loc << std::endl;
+        std::cout << "Start node id: " << end_node_id << std::endl;
+        fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, end_node_id));
+      }
     }
 
     ~static_dict() {
