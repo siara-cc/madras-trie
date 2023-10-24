@@ -24,12 +24,16 @@ enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHA
 
 namespace squeezed {
 
+#define nodes_per_bv_block7 64
+#define nodes_per_bv_block 512
+#define term_divisor 512
+
 typedef std::vector<uint8_t> byte_vec;
 
-static const int NFLAG_LEAF = 1;
-static const int NFLAG_TERM = 2;
-static const int NFLAG_NODEID_SET = 4;
-static const int NFLAG_SORTED = 8;
+#define NFLAG_LEAF 1
+#define NFLAG_TERM 2
+#define NFLAG_NODEID_SET 4
+#define NFLAG_SORTED 8
 struct node {
   uint32_t first_child;
   union {
@@ -216,6 +220,7 @@ class gen {
 
 typedef int (*cmp_fn) (const uint8_t *v1, int len1, const uint8_t *v2, int len2);
 
+#define byte_block_size 4096
 class byte_block {
   private:
     std::vector<uint8_t *> blocks;
@@ -226,15 +231,15 @@ class byte_block {
     uint8_t *reserve(size_t val_len, size_t& pos) {
       if (val_len > block_remaining) {
         size_t needed_bytes = val_len;
-        int needed_blocks = needed_bytes / block_size;
-        if (needed_bytes % block_size)
+        int needed_blocks = needed_bytes / byte_block_size;
+        if (needed_bytes % byte_block_size)
           needed_blocks++;
-        pos = blocks.size() * block_size;
-        block_remaining = needed_blocks * block_size;
+        pos = blocks.size() * byte_block_size;
+        block_remaining = needed_blocks * byte_block_size;
         uint8_t *new_block = new uint8_t[block_remaining];
         for (int i = 0; i < needed_blocks; i++) {
           is_allocated.set(blocks.size(), i == 0);
-          blocks.push_back(new_block + i * block_size);
+          blocks.push_back(new_block + i * byte_block_size);
         }
         block_remaining -= val_len;
         return new_block;
@@ -242,8 +247,8 @@ class byte_block {
         pos = blocks.size();
         pos--;
         uint8_t *ret = blocks[pos];
-        pos *= block_size;
-        size_t block_pos = (block_size - block_remaining);
+        pos *= byte_block_size;
+        size_t block_pos = (byte_block_size - block_remaining);
         pos += block_pos;
         block_remaining -= val_len;
         return ret + block_pos;
@@ -251,7 +256,6 @@ class byte_block {
       return NULL;
     }
   public:
-    const static size_t block_size = 4096;
     byte_block() {
       count = 0;
       block_remaining = 0;
@@ -277,7 +281,7 @@ class byte_block {
       return pos;
     }
     uint8_t *operator[](size_t pos) {
-      return blocks[pos / block_size] + (pos % block_size);
+      return blocks[pos / byte_block_size] + (pos % byte_block_size);
     }
     size_t size() {
       return count;
@@ -2051,9 +2055,6 @@ class builder {
     //   uint32_t ptr;
     // };
 
-    const int nodes_per_bv_block7 = 64;
-    const int nodes_per_bv_block = 512;
-    const int term_divisor = 512;
     void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
                     uint32_t& term1_count7, uint32_t& child_count7,
                     uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {

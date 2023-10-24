@@ -24,7 +24,12 @@ using namespace std;
 
 namespace squeezed {
 
-static const uint64_t bm_init_mask = 0x0000000000000001UL;
+#define bm_init_mask 0x0000000000000001UL
+#define term_divisor 512
+#define nodes_per_bv_block 512
+#define bytes_per_bv_block 768
+#define nodes_per_bv_block7 64
+#define bytes_per_bv_block7 96
 
 class byte_str {
   int max_len;
@@ -214,14 +219,12 @@ class fragment {
 
   public:
     uint8_t *trie_loc;
+    uint32_t start_node_id;
     uint32_t end_node_id;
-    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _end_node_id)
-        : dict_buf (_dict_buf), fragment_loc (_fragment_loc), end_node_id (_end_node_id) {
+    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _start_nid, uint32_t _end_nid)
+        : dict_buf (_dict_buf), fragment_loc (_fragment_loc), start_node_id (_start_nid), end_node_id (_end_nid) {
       ptr_lookup_tbl_loc = dict_buf + cmn::read_uint32(fragment_loc);
-      std::cout << "Fragment loc: " << fragment_loc - dict_buf << std::endl;
-      std::cout << "Ptr tbl loc: " << ptr_lookup_tbl_loc - dict_buf << std::endl;
       grp_tails_loc = dict_buf + cmn::read_uint32(fragment_loc + 4);
-      std::cout << "Grp tails loc: " << grp_tails_loc - dict_buf << std::endl;
       two_byte_tail_count = cmn::read_uint32(fragment_loc + 8);
       idx2_ptr_count = cmn::read_uint32(fragment_loc + 12);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
@@ -357,12 +360,13 @@ class static_dict {
       leaf_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 27);
       fragment_tbl_loc = dict_buf + cmn::read_uint32(dict_buf + 31);
 
+      uint32_t start_node_id = 0;
       for (int i = 0; i < fragment_count; i++) {
         uint32_t fragment_loc = cmn::read_uint32(fragment_tbl_loc + i * 8);
         uint32_t end_node_id = cmn::read_uint32(fragment_tbl_loc + 4 + i * 8);
-        std::cout << "Fragment loc: " << fragment_loc << std::endl;
-        std::cout << "Start node id: " << end_node_id << std::endl;
-        fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, end_node_id));
+        fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, start_node_id, end_node_id));
+        start_node_id = (end_node_id - 1) / 64; // how about edge cases?
+        start_node_id *= 64;
       }
     }
 
@@ -418,12 +422,14 @@ class static_dict {
       return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
     }
 
-    uint8_t *scan_block64(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint32_t target_term_count) {
+    uint8_t *scan_block64(uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint32_t target_term_count) {
 
-      uint64_t bm_term, bm_child;
-      cmn::read_uint64(t + 8, bm_term);
-      cmn::read_uint64(t + 16, bm_child);
-      t += 32;
+      fragment *frag = &fragments[which_fragment(node_id)];
+      uint8_t *t = frag->trie_loc + (node_id - frag->start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
+      t = cmn::read_uint64(t, bm_leaf);
+      t = cmn::read_uint64(t, bm_term);
+      t = cmn::read_uint64(t, bm_child);
+      t = cmn::read_uint64(t, bm_ptr);
       int i = target_term_count - term_count - 1;
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
@@ -448,12 +454,15 @@ class static_dict {
       return t;
     }
 
-    const int term_divisor = 512;
-    const int nodes_per_bv_block = 512;
-    const int bytes_per_bv_block = 768;
-    const int nodes_per_bv_block7 = 64;
-    const int bytes_per_bv_block7 = 96;
-    uint8_t *find_child(uint8_t *t, uint32_t& node_id, uint32_t& child_count, uint32_t& term_count) {
+    int which_fragment(uint32_t node_id) {
+      for (int i = 0; i < fragment_count; i++) {
+        if (node_id < fragments[i].end_node_id)
+          return i;
+      }
+      return fragment_count - 1;
+    }
+
+    uint8_t *find_child(uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
       uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 2;
@@ -480,7 +489,6 @@ class static_dict {
         term_count = cmn::read_uint32(trie_bv_loc + child_block * 22);
         child_count = cmn::read_uint32(trie_bv_loc + child_block * 22 + 4);
         node_id = child_block * nodes_per_bv_block;
-        t = fragments[0].trie_loc + child_block * bytes_per_bv_block;
       } while (term_count >= target_term_count);
       uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
       uint8_t *bv7_child = bv7_term + 7;
@@ -490,11 +498,10 @@ class static_dict {
           term_count += term7;
           child_count += bv7_child[pos7];
           node_id += nodes_per_bv_block7;
-          t += bytes_per_bv_block7;
         } else
           break;
       }
-      return scan_block64(t, node_id, child_count, term_count, target_term_count);
+      return scan_block64(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr, target_term_count);
     }
 
     void read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
@@ -559,9 +566,8 @@ class static_dict {
           if (cmp == 0 || cmp - 1 == tail_len) {
             if ((bm_mask & bm_child) == 0)
               return ~INSERT_LEAF;
-            t = find_child(t, node_id, child_count, term_count);
-            read_flags(fragments[0].trie_loc + (node_id / 64) * 96, bm_leaf, bm_term, bm_child, bm_ptr);
-            bm_mask = (bm_init_mask << (node_id % 64));
+            t = find_child(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr);
+            bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block7));
             key_byte = key[key_pos];
             ptr_bit_count = 0xFFFFFFFF;
             continue;
