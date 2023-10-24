@@ -374,12 +374,12 @@ struct ptr_vals_info {
 };
 typedef std::vector<ptr_vals_info *> ptr_vals_info_vec;
 
-const uint8_t UTI_FLAG_SUFFIX_FULL = 0x01;
-const uint8_t UTI_FLAG_SUFFIX_PARTIAL = 0x02;
-const uint8_t UTI_FLAG_SUFFIXES = 0x03;
-const uint8_t UTI_FLAG_HAS_SUFFIX = 0x04;
-const uint8_t UTI_FLAG_PREFIX_PARTIAL = 0x08;
-const uint8_t UTI_FLAG_HAS_CHILD = 0x10;
+#define UTI_FLAG_SUFFIX_FULL 0x01
+#define UTI_FLAG_SUFFIX_PARTIAL 0x02
+#define UTI_FLAG_SUFFIXES 0x03
+#define UTI_FLAG_HAS_SUFFIX 0x04
+#define UTI_FLAG_PREFIX_PARTIAL 0x08
+#define UTI_FLAG_HAS_CHILD 0x10
 struct uniq_tails_info : ptr_vals_info {
   uint32_t fwd_pos;
   uint32_t cmp_fwd;
@@ -837,7 +837,7 @@ class tail_val_maps {
     }
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
-    const uint32_t sfx_set_max = 64;
+    #define sfx_set_max 64
     void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint8_t start_level, uint8_t end_level) {
 
       FILE *fp;
@@ -1151,7 +1151,7 @@ class tail_val_maps {
       return (sz < 1024 ? 2 : (sz < 131072 ? 3 : (sz < 16777216 ? 4 : 5)));
     }
 
-    const int nodes_per_ptr_block = 64;
+    #define nodes_per_ptr_block 64
     void write_ptr_lookup_tbl(std::vector<node>& all_nodes, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
@@ -1396,6 +1396,7 @@ class fragment_builder {
       //trie.reserve(node_count + (node_count >> 1));
       uint32_t ptr_count = 0;
       uint32_t cur_node_idx = start_node_idx;
+      fragment_node_count = 0;
       for (; cur_node_idx < all_nodes.size(); cur_node_idx++) {
         node *cur_node = &all_nodes[cur_node_idx];
         if (cur_node->level > end_lvl)
@@ -1599,8 +1600,8 @@ class builder {
       return key_count;
     }
 
-    const bool to_sort_nodes_on_freq = true;
     void sort_nodes(bool mark_sorted = true) {
+      const bool to_sort_nodes_on_freq = true;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
