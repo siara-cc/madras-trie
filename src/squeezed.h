@@ -434,7 +434,7 @@ class static_dict {
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
-      node_id = node_id + pos;
+      node_id += pos;
       t += pos;
       term_count = target_term_count;
       child_count = child_count + __builtin_popcountll(bm_child & ((isolated_bit << 1) - 1));
@@ -515,7 +515,8 @@ class static_dict {
       int key_pos = 0;
       uint32_t node_id = 0;
       uint8_t key_byte = key[key_pos];
-      uint8_t *t = fragments[0].trie_loc;
+      fragment *cur_frag = &fragments[0];
+      uint8_t *t = cur_frag->trie_loc;
       uint8_t node_byte;
       uint64_t bm_leaf = 0;
       uint64_t bm_term = 0;
@@ -537,7 +538,7 @@ class static_dict {
           t += 32;
         }
         node_byte = *t++;
-        trie_byte = fragments[0].get_first_byte(node_byte, (bm_ptr & bm_mask), node_id, ptr_bit_count, tail_ptr, grp_no);
+        trie_byte = cur_frag->get_first_byte(node_byte, (bm_ptr & bm_mask), node_id, ptr_bit_count, tail_ptr, grp_no);
         node_id++;
         if (bm_mask & bm_child)
           child_count++;
@@ -553,7 +554,7 @@ class static_dict {
           int cmp = 0;
           uint32_t tail_len = 1;
           if (bm_mask & bm_ptr) {
-            fragments[0].get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len + 1);
+            cur_frag->get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len + 1);
             tail_len = tail_str.length();
             cmp = cmn::compare(tail_str.data(), tail_len,
                     (const uint8_t *) key + key_pos, key_len - key_pos);
@@ -567,6 +568,7 @@ class static_dict {
             if ((bm_mask & bm_child) == 0)
               return ~INSERT_LEAF;
             t = find_child(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr);
+            cur_frag = &fragments[which_fragment(node_id)];
             bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block7));
             key_byte = key[key_pos];
             ptr_bit_count = 0xFFFFFFFF;
