@@ -651,7 +651,7 @@ class tail_val_maps {
     byte_vec two_byte_tails;
     byte_vec uniq_vals;
     ptr_vals_info_vec uniq_vals_fwd;
-    int start_lvl, end_lvl;
+    int start_nid, end_level;
   public:
     tail_val_maps() {
     }
@@ -719,16 +719,16 @@ class tail_val_maps {
       uint32_t n;
     };
 
-    uint32_t make_uniq_tails(std::vector<node>& all_nodes, byte_block& all_tails, int start_level, int end_level) {
-      start_lvl = start_level;
-      end_lvl = end_level;
+    uint32_t make_uniq_tails(std::vector<node>& all_nodes, byte_block& all_tails, int start_node_id, int end_lvl) {
+      start_nid = start_node_id;
+      end_level = end_lvl;
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
       for (uint32_t i = 1; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
         uint8_t *v = all_tails[n->tail_pos];
         n->v0 = v[0];
-        if (n->tail_len > 1 && n->level >= start_level && n->level <= end_level) {
+        if (n->tail_len > 1 && (i - 1) >= start_node_id && n->level <= end_lvl) {
             nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i } );
         }
       }
@@ -778,15 +778,15 @@ class tail_val_maps {
 
     }
 
-    uint32_t make_uniq_vals(std::vector<node>& all_nodes, byte_block& all_vals, int start_level, int end_level) {
-      start_lvl = start_level;
-      end_lvl = end_level;
+    uint32_t make_uniq_vals(std::vector<node>& all_nodes, byte_block& all_vals, int start_node_id, int end_lvl) {
+      start_nid = start_node_id;
+      end_level = end_lvl;
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
       for (uint32_t i = 1; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
         uint8_t *v = all_vals[n->val_pos];
-        if ((n->flags & NFLAG_LEAF) && n->level >= start_level && n->level <= end_level) {
+        if ((n->flags & NFLAG_LEAF) && (i - 1) >= start_node_id && n->level <= end_lvl) {
           nodes_for_sort.push_back((struct sort_data) { v, n->val_len, i } );
         }
       }
@@ -838,13 +838,13 @@ class tail_val_maps {
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
     #define sfx_set_max 64
-    void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint8_t start_level, uint8_t end_level) {
+    void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint32_t start_node_id, uint32_t end_lvl) {
 
       FILE *fp;
 
-      uint32_t tot_freq_count = make_uniq_tails(all_nodes, all_tails, start_level, end_level);
+      uint32_t tot_freq_count = make_uniq_tails(all_nodes, all_tails, start_node_id, end_lvl);
       if (all_vals.size() > 0) {
-        make_uniq_vals(all_nodes, all_vals, start_level, end_level);
+        make_uniq_vals(all_nodes, all_vals, start_node_id, end_lvl);
       }
 
       clock_t t = clock();
@@ -1152,17 +1152,20 @@ class tail_val_maps {
     }
 
     #define nodes_per_ptr_block 64
-    void write_ptr_lookup_tbl(std::vector<node>& all_nodes, FILE* fp) {
+    void write_ptr_lookup_tbl(std::vector<node>& all_nodes, uint32_t end_nid, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
+      gen::write_uint32(bit_count, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
-        if ((node_id % nodes_per_ptr_block) == 0)
-          gen::write_uint32(bit_count, fp);
-        if (cur_node->tail_len > 1) {
-          uniq_tails_info *ti = uniq_tails_rev[cur_node->uniq_tail_pos];
-          freq_grp *fg = tail_ptrs.get_freq_grp(ti->grp_no);
-          bit_count += fg->grp_log2_tail;
+        if (node_id >= start_nid && node_id < end_nid) {
+          if (node_id && (node_id % nodes_per_ptr_block) == 0)
+            gen::write_uint32(bit_count, fp);
+          if (cur_node->tail_len > 1) {
+            uniq_tails_info *ti = uniq_tails_rev[cur_node->uniq_tail_pos];
+            freq_grp *fg = tail_ptrs.get_freq_grp(ti->grp_no);
+            bit_count += fg->grp_log2_tail;
+          }
         }
         node_id++;
       }
@@ -1300,6 +1303,7 @@ class fragment_builder {
     std::vector<node>& all_nodes;
     uint32_t& total_node_count;
     uint32_t& max_tail_len;
+    uint8_t fragment_count;
     int start_lvl, end_lvl;
     uint32_t ptr_lookup_tbl;
     uint32_t ptr_lookup_tbl_loc;
@@ -1346,19 +1350,26 @@ class fragment_builder {
   public:
     byte_vec trie;
     uint32_t fragment_end_loc;
+    uint32_t block_start_node_id;
+    uint32_t start_node_id;
     uint32_t end_node_id;
     tail_val_maps tail_vals;
     fragment_builder(std::vector<node>& _all_nodes, byte_block& _all_tails, byte_block& _all_vals,
-                uint32_t& _node_count, uint32_t& _max_tail_len, int _start_lvl, int _end_lvl)
+        uint32_t& _node_count, uint32_t& _max_tail_len, uint8_t _frag_count, int _start_lvl, int _end_lvl)
             : all_tails (_all_tails), all_vals (_all_vals), all_nodes (_all_nodes),
               max_tail_len (_max_tail_len), total_node_count (_node_count) {
       start_lvl = _start_lvl;
       end_lvl = _end_lvl;
+      fragment_count = _frag_count;
       printf("Start lvl: %d, End lvl: %d\n", start_lvl, end_lvl);
     }
-    uint8_t append_tail_ptr(node *cur_node) {
+    uint8_t append_tail_ptr(node *cur_node, bool to_exit = false) {
       if (cur_node->tail_len == 1)
         return cur_node->v0;
+      if (to_exit)
+        return 0;
+      if (cur_node->node_id < start_node_id + 1)
+        return 0;
       uint8_t node_val;
       uint32_t ptr = 0;
       grp_ptrs *tail_ptrs = tail_vals.get_grp_ptrs();
@@ -1379,8 +1390,10 @@ class fragment_builder {
       return node_val;
     }
 
-   uint32_t build(uint32_t start_node_idx, uint32_t loc_offset) {
-      tail_vals.build_tail_val_maps(all_nodes, all_tails, all_vals, start_lvl, end_lvl);
+    uint32_t build(uint32_t _start_node_id, uint32_t _block_start_node_id, uint32_t _loc_offset) {
+      block_start_node_id = _block_start_node_id++;
+      start_node_id = _start_node_id;
+      tail_vals.build_tail_val_maps(all_nodes, all_tails, all_vals, start_node_id, end_lvl);
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
@@ -1395,13 +1408,18 @@ class fragment_builder {
       byte_vec byte_vec64;
       //trie.reserve(node_count + (node_count >> 1));
       uint32_t ptr_count = 0;
-      uint32_t cur_node_idx = start_node_idx;
       fragment_node_count = 0;
+      uint32_t cur_node_idx = _block_start_node_id;
+      uint32_t prev_block_start_id = block_start_node_id;
+      bool to_exit = false;
+      end_node_id = total_node_count;
       for (; cur_node_idx < all_nodes.size(); cur_node_idx++) {
         node *cur_node = &all_nodes[cur_node_idx];
-        if (cur_node->level > end_lvl)
-          break;
-        if (cur_node->tail_len > 1) {
+        if (!to_exit && cur_node->level > end_lvl) {
+          end_node_id = cur_node_idx - 1;
+          to_exit = true;
+        }
+        if (!to_exit && cur_node->node_id > start_node_id && cur_node->tail_len > 1) {
           uniq_tails_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
           uniq_tails_info *ti = (*uniq_tails_rev)[cur_node->uniq_tail_pos];
           if (ti->flags & UTI_FLAG_SUFFIX_FULL)
@@ -1413,17 +1431,20 @@ class fragment_builder {
           (cur_node->first_child != 0 ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
           (cur_node->flags & NFLAG_TERM ? 8 : 0);
         flag_counts[flags & 0x07]++;
-        uint8_t node_val = append_tail_ptr(cur_node);
+        uint8_t node_val = append_tail_ptr(cur_node, to_exit);
         if (cur_node->tail_len > 1) {
           char_counts[(cur_node->tail_len > 8) ? 7 : (cur_node->tail_len-2)]++;
           ptr_count++;
         }
         if (fragment_node_count && (fragment_node_count % 64) == 0) {
           append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
+          append_byte_vec(trie, byte_vec64);
+          if (to_exit)
+            break;
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
           bm_mask = 1UL;
-          append_byte_vec(trie, byte_vec64);
           byte_vec64.clear();
+          prev_block_start_id = cur_node_idx - 1;
         }
         if (cur_node->flags & NFLAG_LEAF)
           bm_leaf |= bm_mask;
@@ -1447,11 +1468,14 @@ class fragment_builder {
         std::cout << "Flag " << i << ": " << flag_counts[i] << "\t";
         std::cout << "Char " << i + 2 << ": " << char_counts[i] << std::endl;
       }
+      printf("Start node id: %u, end node id: %u\n", start_node_id, end_node_id);
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Full suffix count: " << sfx_full_count << std::endl;
       std::cout << "Partial suffix count: " << sfx_partial_count << std::endl;
-      ptr_lookup_tbl = (ceil(fragment_node_count/64) + 1) * 4;
-      ptr_lookup_tbl_loc = loc_offset;
+      ptr_lookup_tbl = (ceil((fragment_node_count - 1) / 64) + 1) * 4;
+      // if (start_node_id > 0)
+      //   ptr_lookup_tbl += 4;
+      ptr_lookup_tbl_loc = _loc_offset;
       grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
       grp_tails_size = tail_vals.get_grp_ptrs()->get_hdr_size() + tail_vals.get_grp_ptrs()->get_tail_data_size();
       grp_vals_loc = grp_tails_loc + grp_tails_size;
@@ -1463,8 +1487,7 @@ class fragment_builder {
       two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
       idx2_ptr_count = tail_vals.get_grp_ptrs()->get_idx2_ptrs_count();
       fragment_end_loc = trie_loc + trie.size();
-      end_node_id = cur_node_idx;
-      return cur_node_idx;
+      return prev_block_start_id;
     }
     void write_fragment(FILE *fp) {
       gen::write_uint32(ptr_lookup_tbl_loc, fp);
@@ -1476,7 +1499,11 @@ class fragment_builder {
       gen::write_uint32(two_byte_tails_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
       gen::write_uint32(trie_loc, fp);
-      tail_vals.write_ptr_lookup_tbl(all_nodes, fp);
+      uint32_t pts = ftell(fp);
+      tail_vals.write_ptr_lookup_tbl(all_nodes, end_node_id, fp);
+      pts = ftell(fp) - pts;
+      std::cout << "Pts: " << pts << std::endl;
+      std::cout << "Plt: " << ptr_lookup_tbl << std::endl;
       tail_vals.get_grp_ptrs()->write_grp_tail_data(grp_tails_loc + 513, fp); // group count, 512 lookup tbl, tail locs, tails
       //tail_vals.get_grp_ptrs()->write_grp_val_data(grp_vals_loc, fp);
       tail_vals.get_grp_ptrs()->write_ptrs(fp);
@@ -1485,6 +1512,7 @@ class fragment_builder {
       fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
       uint32_t total_tails = tail_vals.get_grp_ptrs()->get_tail_data_size();
+      std::cout << std::endl;
       std::cout << "Total tail size: " << total_tails << std::endl;
       std::cout << "Uniq tail count: " << tail_vals.get_uniq_tails_rev()->size() << std::endl;
       std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
@@ -1493,7 +1521,7 @@ class fragment_builder {
       std::cout << "Trie size: " << trie.size() << std::endl;
     }
     size_t size() {
-      return trie.size() + ptr_lookup_tbl + tail_vals.get_grp_ptrs()->get_total_size() + 9 * 4 + 8;
+      return trie.size() + ptr_lookup_tbl + tail_vals.get_grp_ptrs()->get_total_size() + 9 * 4 + 12;
     }
 };
 
@@ -1601,7 +1629,7 @@ class builder {
     }
 
     void sort_nodes(bool mark_sorted = true) {
-      const bool to_sort_nodes_on_freq = true;
+    const bool to_sort_nodes_on_freq = true;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
@@ -1719,6 +1747,8 @@ class builder {
             // printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           } else
             cmp = 0;
+            if (cur_node->node_id >= 345568 && cur_node->node_id <= 345571)
+              printf("NodeId: %u, Key: [%.*s]\n", cur_node->node_id, key_len, key);
           if (cmp == 0 && key_pos + cur_node->tail_len == key_len && (cur_node->flags & NFLAG_LEAF)) {
             result = 0;
             return cur_node;
@@ -1963,23 +1993,10 @@ class builder {
           std::cout << "WARNING: UNEXPECTED: " << all_nodes[i].node_id << ", " << (int) all_nodes[i].level << ": " << (int) all_nodes[i-1].level << std::endl;
       }
 
-      fragment_count = 1;
-      map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, 0, 99999999));
-      // int nxt_start_lvl = 0;
-      // int lvl_delta = all_nodes[node_count - 1].level / fragment_count;
-      // for (int i = 0; i < fragment_count; i++) {
-      //   if (i == fragment_count - 1)
-      //     lvl_delta = all_nodes[node_count - 1].level;
-      //   map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, nxt_start_lvl, nxt_start_lvl + lvl_delta));
-      //   nxt_start_lvl += lvl_delta;
-      //   nxt_start_lvl++;
-      // }
-
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
-      uint32_t trie_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11 * 2;
-      uint32_t leaf_bv = (ceil(node_count/nodes_per_bv_block) + 1) * 11;
-      uint32_t select_lookup = (ceil(term_count/term_divisor) + 2) * 2; // 2 bytes sufficient?
-      uint32_t fragment_tbl_size = fragment_count * 8;
+      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
+      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11;
+      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 2; // 2 bytes sufficient?
 
       uint32_t common_node_loc = 3 + 8 * 4; // 71
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
@@ -1987,13 +2004,33 @@ class builder {
       uint32_t trie_bv_loc = select_lkup_loc + select_lookup;
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t fragment_tbl_loc = leaf_bv_loc + leaf_bv;
-      uint32_t fragment_tbl = fragment_tbl_loc + fragment_tbl_size;
 
-      uint32_t start_node_id = 1;
-      uint32_t fragment_start = fragment_tbl;
+      fragment_count = 1;
+      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 0, 7));
+      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 8, 10));
+      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 11, 99999999));
+      // // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 0, 99999999));
+      uint32_t fragment_tbl_size = fragment_count * 12;
+      uint32_t fragment_loc = fragment_tbl_loc + fragment_tbl_size;
+
+      int nxt_start_lvl = 0;
+      int lvl_delta = all_nodes[node_count - 1].level / fragment_count - 1;
+      printf("Lvl delta: %d, last level: %d\n", lvl_delta, (int) all_nodes[node_count - 1].level);
       for (int i = 0; i < fragment_count; i++) {
-        start_node_id = map_fragments[i].build(start_node_id, fragment_start + 9 * 4);
+        if (i == fragment_count - 1)
+          lvl_delta = all_nodes[node_count - 1].level - nxt_start_lvl;
+        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, nxt_start_lvl, nxt_start_lvl + lvl_delta));
+        nxt_start_lvl += lvl_delta;
+        nxt_start_lvl++;
+      }
+
+      uint32_t start_node_id = 0;
+      uint32_t block_start_node_id = 0;
+      uint32_t fragment_start = fragment_loc;
+      for (int i = 0; i < fragment_count; i++) {
+        block_start_node_id = map_fragments[i].build(start_node_id, block_start_node_id, fragment_start + 9 * 4);
         fragment_start = map_fragments[i].fragment_end_loc;
+        start_node_id = map_fragments[i].end_node_id;
       }
 
       FILE *fp = fopen(out_filename.c_str(), "wb+");
@@ -2018,19 +2055,23 @@ class builder {
       write_leaf_bv(fp);
 
       for (int i = 0; i < fragment_count; i++) {
-        gen::write_uint32(fragment_tbl, fp);
+        gen::write_uint32(fragment_loc, fp);
+        gen::write_uint32(map_fragments[i].block_start_node_id, fp);
         gen::write_uint32(map_fragments[i].end_node_id, fp);
-        fragment_tbl = map_fragments[i].fragment_end_loc;
+        fragment_loc = map_fragments[i].fragment_end_loc;
       }
 
       uint32_t total_size = 3 + 8 * 4 + cache_size + select_lookup + trie_bv + leaf_bv;
       for (int i = 0; i < fragment_count; i++) {
+        std::cout << "Framgnet " << i << " loc: " << ftell(fp) << std::endl;
         map_fragments[i].write_fragment(fp);
-        total_size += map_fragments[0].size();
+        total_size += map_fragments[i].size();
+        printf("Size of fragment %d: %lu\n", i, map_fragments[i].size());
       }
 
       fclose(fp);
 
+      std::cout << std::endl;
       std::cout << "Node count: " << node_count << std::endl;
       std::cout << "Trie bit vectors: " << trie_bv << std::endl;
       std::cout << "Leaf bit vectors: " << leaf_bv << std::endl;

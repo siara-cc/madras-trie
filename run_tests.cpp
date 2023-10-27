@@ -32,8 +32,8 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      //sb.append((const uint8_t *) line.c_str(), line.length());
-      sb.insert((const uint8_t *) line.c_str(), line.length());
+      sb.append((const uint8_t *) line.c_str(), line.length());
+      //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
       prev_line = line;
       line_count++;
@@ -67,10 +67,25 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    int ret = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
+    int ret = 0;
+    if (line.compare("x multiple snap feature sent") == 0)
+      ret = 1;
+    if (line.compare("x dell ultrasharp 49 curved") == 0)
+      ret = 1;
+    if (line.compare("they arrest") == 0)
+      ret = 1;
+    if (line.compare("they argued") == 0)
+      ret = 1;
+    if (line.compare("they achieve") == 0)
+      ret = 1;
+    if (line.compare("State_Rd_66") == 0)
+      ret = 1;
+    // if (ret == 1)
+      ret = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
     // int ret, key_pos, cmp;
     // uint32_t n_id;
-    // squeezed::node *n = sb.lookup(line, ret, key_pos, cmp, n_id);
+    // std::vector<uint32_t> node_path;
+    // squeezed::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
     if (ret != 0)
       std::cout << ret << ": " << line << std::endl;
     line_count++;

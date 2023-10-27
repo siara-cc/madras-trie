@@ -147,6 +147,12 @@ class fragment {
       cmn::read_uint64(t + 24, bm_ptr);
       t += 32;
       uint8_t *t_upto = t + (node_id % 64);
+      if (t - 32 == trie_loc) {
+        int diff = start_node_id % 64;
+        t += diff;
+        if (diff > 0)
+          bm_mask <<= diff;
+      }
       while (t < t_upto) {
         if (bm_ptr & bm_mask)
           ptr_bit_count += code_lookup_tbl[*t * 2 + 1];
@@ -156,7 +162,7 @@ class fragment {
     }
 
     void get_ptr_bit_count(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t block_count = node_id / 64;
+      uint32_t block_count = (node_id - block_start_node_id) / 64;
       ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_count * 4);
       uint8_t *t = trie_loc + block_count * 96;
       scan_nodes_ptr_bits(node_id, t, ptr_bit_count);
@@ -220,9 +226,11 @@ class fragment {
   public:
     uint8_t *trie_loc;
     uint32_t start_node_id;
+    uint32_t block_start_node_id;
     uint32_t end_node_id;
-    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _start_nid, uint32_t _end_nid)
-        : dict_buf (_dict_buf), fragment_loc (_fragment_loc), start_node_id (_start_nid), end_node_id (_end_nid) {
+    fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _start_nid, uint32_t _block_start_nid, uint32_t _end_nid)
+        : dict_buf (_dict_buf), fragment_loc (_fragment_loc), start_node_id (_start_nid),
+          block_start_node_id (_block_start_nid), end_node_id (_end_nid) {
       ptr_lookup_tbl_loc = dict_buf + cmn::read_uint32(fragment_loc);
       grp_tails_loc = dict_buf + cmn::read_uint32(fragment_loc + 4);
       two_byte_tail_count = cmn::read_uint32(fragment_loc + 8);
@@ -362,11 +370,12 @@ class static_dict {
 
       uint32_t start_node_id = 0;
       for (int i = 0; i < fragment_count; i++) {
-        uint32_t fragment_loc = cmn::read_uint32(fragment_tbl_loc + i * 8);
-        uint32_t end_node_id = cmn::read_uint32(fragment_tbl_loc + 4 + i * 8);
-        fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, start_node_id, end_node_id));
-        start_node_id = (end_node_id - 1) / 64; // how about edge cases?
-        start_node_id *= 64;
+        uint32_t fragment_loc = cmn::read_uint32(fragment_tbl_loc + i * 12);
+        std::cout << "Fragment loc: " << fragment_loc << std::endl;
+        uint32_t block_start_node_id = cmn::read_uint32(fragment_tbl_loc + 4 + i * 12);
+        uint32_t end_node_id = cmn::read_uint32(fragment_tbl_loc + 8 + i * 12);
+        fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, start_node_id, block_start_node_id, end_node_id));
+        start_node_id = end_node_id;
       }
     }
 
@@ -424,8 +433,11 @@ class static_dict {
 
     uint8_t *scan_block64(uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint32_t target_term_count) {
 
-      fragment *frag = &fragments[which_fragment(node_id)];
-      uint8_t *t = frag->trie_loc + (node_id - frag->start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
+      int frag_no = which_fragment(node_id);
+      // if (frag_no > 0)
+      //   std::cout << "~";
+      fragment *frag = &fragments[frag_no];
+      uint8_t *t = frag->trie_loc + (node_id - frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
       t = cmn::read_uint64(t, bm_leaf);
       t = cmn::read_uint64(t, bm_term);
       t = cmn::read_uint64(t, bm_child);
@@ -435,7 +447,16 @@ class static_dict {
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
       node_id += pos;
-      t += pos;
+      int frag_no2 = which_fragment(node_id);
+      if (frag_no != frag_no2) {
+        frag = &fragments[frag_no2];
+        t = frag->trie_loc + (node_id - frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
+        if (node_id % 64) {
+          t += 32;
+          t += pos;
+        }
+      } else
+        t += pos;
       term_count = target_term_count;
       child_count = child_count + __builtin_popcountll(bm_child & ((isolated_bit << 1) - 1));
       // size_t k = 0;
