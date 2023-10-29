@@ -447,8 +447,8 @@ class static_dict {
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
       node_id += pos;
-      int frag_no2 = which_fragment(node_id);
-      if (frag_no != frag_no2) {
+      if (node_id >= frag->end_node_id) {
+        int frag_no2 = which_fragment(node_id);
         frag = &fragments[frag_no2];
         t = frag->trie_loc + (node_id - frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
         if (node_id % 64) {
