@@ -421,6 +421,15 @@ class freq_grp_ptrs_data {
     int idx_limit;
     uint8_t idx_ptr_size;
     uint32_t next_idx;
+    uint32_t ptr_lookup_tbl;
+    uint32_t ptr_lookup_tbl_loc;
+    uint32_t grp_tails_loc;
+    uint32_t grp_tails_size;
+    uint32_t tail_ptrs_loc;
+    uint32_t two_byte_tails_loc;
+    uint32_t idx2_ptrs_map_loc;
+    uint32_t two_byte_count;
+    uint32_t idx2_ptr_count;
   public:
     freq_grp_ptrs_data() {
       next_idx = 0;
@@ -545,7 +554,18 @@ class freq_grp_ptrs_data {
       return ptrs.size();
     }
     uint32_t get_total_size() {
-      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size();
+      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 7 * 4;
+    }
+    void build(uint32_t start_loc, uint32_t fragment_node_count) {
+      ptr_lookup_tbl_loc = start_loc + 7 * 4;
+      ptr_lookup_tbl = (ceil((fragment_node_count - 1) / 64) + 1) * 4;
+      grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
+      grp_tails_size = get_hdr_size() + get_data_size();
+      tail_ptrs_loc = grp_tails_loc + grp_tails_size;
+      two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
+      two_byte_tails_loc = tail_ptrs_loc + get_ptrs_size();
+      idx2_ptr_count = get_idx2_ptrs_count();
+      idx2_ptrs_map_loc = two_byte_tails_loc + 0; // todo: fix two_byte_tails.size();
     }
     void write_code_lookup_tbl(FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -583,6 +603,56 @@ class freq_grp_ptrs_data {
     }
     void write_ptrs(FILE *fp) {
       fwrite(ptrs.data(), ptrs.size(), 1, fp);
+    }
+    typedef ptr_vals_info *(*get_info_fn) (node *cur_node, std::vector<ptr_vals_info *>& info_vec);
+    static ptr_vals_info *get_tails_info_fn(node *cur_node, std::vector<ptr_vals_info *>& info_vec) {
+      return (ptr_vals_info *) info_vec[cur_node->uniq_tail_pos];
+    }
+    #define nodes_per_ptr_block 64
+    void write_ptr_lookup_tbl(std::vector<node>& all_nodes, get_info_fn get_info_func, 
+          std::vector<ptr_vals_info *>& info_vec, uint32_t start_nid, uint32_t end_nid, FILE* fp) {
+      uint32_t node_id = 0;
+      uint32_t bit_count = 0;
+      gen::write_uint32(bit_count, fp);
+      for (int i = 1; i < all_nodes.size(); i++) {
+        node *cur_node = &all_nodes[i];
+        if (node_id >= start_nid && node_id < end_nid) {
+          if (node_id && (node_id % nodes_per_ptr_block) == 0)
+            gen::write_uint32(bit_count, fp);
+          if (cur_node->tail_len > 1) {
+            ptr_vals_info *vi = get_info_func(cur_node, info_vec);
+            freq_grp& fg = freq_grp_vec[vi->grp_no];
+            bit_count += fg.grp_log2;
+          }
+        }
+        node_id++;
+      }
+    }
+    void write_ptrs_data(std::vector<node>& all_nodes, get_info_fn get_info_func, 
+          std::vector<ptr_vals_info *>& info_vec, uint32_t start_nid, uint32_t end_nid, FILE *fp) {
+      gen::write_uint32(ptr_lookup_tbl_loc, fp);
+      gen::write_uint32(grp_tails_loc, fp);
+      gen::write_uint32(two_byte_count, fp);
+      gen::write_uint32(idx2_ptr_count, fp);
+      gen::write_uint32(tail_ptrs_loc, fp);
+      gen::write_uint32(two_byte_tails_loc, fp);
+      gen::write_uint32(idx2_ptrs_map_loc, fp);
+      uint32_t pts = ftell(fp);
+      write_ptr_lookup_tbl(all_nodes, get_info_func, info_vec, start_nid, end_nid, fp);
+      pts = ftell(fp) - pts;
+      std::cout << "Pts: " << pts << std::endl;
+      std::cout << "Plt: " << ptr_lookup_tbl << std::endl;
+      write_grp_data(grp_tails_loc + 513, fp); // group count, 512 lookup tbl, tail locs, tails
+      write_ptrs(fp);
+      fwrite(all_nodes.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
+      byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
+      fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
+      std::cout << std::endl;
+      std::cout << "Total data size: " << get_data_size() << std::endl;
+      std::cout << "Uniq count: " << info_vec.size() << std::endl;
+      std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
+      std::cout << "Tail ptr size: " << get_ptrs_size() << std::endl;
+      std::cout << "Idx2Ptrs map size: " << idx2_ptrs_map->size() << std::endl;
     }
     freq_grp *get_freq_grp(int grp_no) {
       return &freq_grp_vec[grp_no];
@@ -763,7 +833,7 @@ class tail_val_maps {
           prev_val_len = it->len;
         }
         freq_count++;
-        (*set_pos_func)(all_nodes, it->n, uniq_vec->size());
+        set_pos_func(all_nodes, it->n, uniq_vec->size());
         it++;
       }
       ptr_vals_info *ti_ptr = new_info_func(uniqs.size(), prev_val_len, uniq_vec->size(), 0);
@@ -1123,26 +1193,6 @@ class tail_val_maps {
       return (sz < 1024 ? 2 : (sz < 131072 ? 3 : (sz < 16777216 ? 4 : 5)));
     }
 
-    #define nodes_per_ptr_block 64
-    void write_ptr_lookup_tbl(std::vector<node>& all_nodes, uint32_t end_nid, FILE* fp) {
-      uint32_t node_id = 0;
-      uint32_t bit_count = 0;
-      gen::write_uint32(bit_count, fp);
-      for (int i = 1; i < all_nodes.size(); i++) {
-        node *cur_node = &all_nodes[i];
-        if (node_id >= start_nid && node_id < end_nid) {
-          if (node_id && (node_id % nodes_per_ptr_block) == 0)
-            gen::write_uint32(bit_count, fp);
-          if (cur_node->tail_len > 1) {
-            uniq_tails_info *ti = uniq_tails_rev[cur_node->uniq_tail_pos];
-            freq_grp *fg = tail_ptrs.get_freq_grp(ti->grp_no);
-            bit_count += fg->grp_log2;
-          }
-        }
-        node_id++;
-      }
-    }
-
     uint32_t find_prefix(byte_vec& uniq_tails, uniq_tails_info_vec& uniq_tails_fwd, uniq_tails_info *ti, uint32_t grp_no, uint32_t& savings_prefix, uint32_t& savings_count_prefix, int cmp_sfx) {
       uint32_t limit = ti->fwd_pos + 300;
       if (limit > uniq_tails_fwd.size())
@@ -1165,6 +1215,11 @@ class tail_val_maps {
         }
       }
       return 0;
+    }
+
+    void write_tail_ptrs_data(std::vector<node>& all_nodes, uint32_t start_nid, uint32_t end_nid, FILE *fp) {
+      tail_ptrs.write_ptrs_data(all_nodes, tail_ptrs.get_tails_info_fn,
+            (std::vector<ptr_vals_info *>&) uniq_tails_rev, start_nid, end_nid, fp);
     }
 
     uint32_t get_tail_ptr(uint32_t grp_no, uniq_tails_info *ti) {
@@ -1277,18 +1332,7 @@ class fragment_builder {
     uint32_t& max_tail_len;
     uint8_t fragment_count;
     int start_lvl, end_lvl;
-    uint32_t ptr_lookup_tbl;
-    uint32_t ptr_lookup_tbl_loc;
-    uint32_t grp_tails_loc;
-    uint32_t grp_tails_size;
-    uint32_t grp_vals_loc;
-    uint32_t grp_vals_size;
-    uint32_t tail_ptrs_loc;
-    uint32_t two_byte_tails_loc;
-    uint32_t idx2_ptrs_map_loc;
     uint32_t trie_loc;
-    uint32_t two_byte_count;
-    uint32_t idx2_ptr_count;
     uint32_t fragment_node_count;
     void append64_t(byte_vec& byv, uint64_t b64) {
       // byv.push_back(b64 >> 56);
@@ -1362,7 +1406,7 @@ class fragment_builder {
       return node_val;
     }
 
-    uint32_t build(uint32_t _start_node_id, uint32_t _block_start_node_id, uint32_t _loc_offset) {
+    uint32_t build(uint32_t _start_node_id, uint32_t _block_start_node_id, uint32_t _fragment_start_loc) {
       block_start_node_id = _block_start_node_id++;
       start_node_id = _start_node_id;
       tail_vals.build_tail_val_maps(all_nodes, all_tails, all_vals, start_node_id, end_lvl);
@@ -1444,56 +1488,19 @@ class fragment_builder {
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Full suffix count: " << sfx_full_count << std::endl;
       std::cout << "Partial suffix count: " << sfx_partial_count << std::endl;
-      ptr_lookup_tbl = (ceil((fragment_node_count - 1) / 64) + 1) * 4;
-      // if (start_node_id > 0)
-      //   ptr_lookup_tbl += 4;
-      ptr_lookup_tbl_loc = _loc_offset;
-      grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      grp_tails_size = tail_vals.get_tail_grp_ptrs()->get_hdr_size() + tail_vals.get_tail_grp_ptrs()->get_data_size();
-      grp_vals_loc = grp_tails_loc + grp_tails_size;
-      grp_vals_size = 0;
-      tail_ptrs_loc = grp_vals_loc + grp_vals_size;
-      two_byte_tails_loc = tail_ptrs_loc + tail_vals.get_tail_grp_ptrs()->get_ptrs_size();
-      idx2_ptrs_map_loc = two_byte_tails_loc + 0; // todo: fix two_byte_tails.size();
-      trie_loc = idx2_ptrs_map_loc + tail_vals.get_tail_grp_ptrs()->get_idx2_ptrs_map()->size();
-      two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
-      idx2_ptr_count = tail_vals.get_tail_grp_ptrs()->get_idx2_ptrs_count();
-      fragment_end_loc = trie_loc + trie.size();
+      trie_loc = _fragment_start_loc + 4;
+      tail_vals.get_tail_grp_ptrs()->build(trie_loc + trie.size(), fragment_node_count);
+      fragment_end_loc = trie_loc + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
       return prev_block_start_id;
     }
     void write_fragment(FILE *fp) {
-      gen::write_uint32(ptr_lookup_tbl_loc, fp);
-      gen::write_uint32(grp_tails_loc, fp);
-      gen::write_uint32(two_byte_count, fp);
-      gen::write_uint32(idx2_ptr_count, fp);
-      gen::write_uint32(all_vals.size() == 0 ? 0 : grp_vals_loc, fp);
-      gen::write_uint32(tail_ptrs_loc, fp);
-      gen::write_uint32(two_byte_tails_loc, fp);
-      gen::write_uint32(idx2_ptrs_map_loc, fp);
-      gen::write_uint32(trie_loc, fp);
-      uint32_t pts = ftell(fp);
-      tail_vals.write_ptr_lookup_tbl(all_nodes, end_node_id, fp);
-      pts = ftell(fp) - pts;
-      std::cout << "Pts: " << pts << std::endl;
-      std::cout << "Plt: " << ptr_lookup_tbl << std::endl;
-      tail_vals.get_tail_grp_ptrs()->write_grp_data(grp_tails_loc + 513, fp); // group count, 512 lookup tbl, tail locs, tails
-      //tail_vals.get_grp_ptrs()->write_grp_val_data(grp_vals_loc, fp);
-      tail_vals.get_tail_grp_ptrs()->write_ptrs(fp);
-      fwrite(trie.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
-      byte_vec *idx2_ptrs_map = tail_vals.get_tail_grp_ptrs()->get_idx2_ptrs_map();
-      fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
+      gen::write_uint32(trie.size(), fp);
       fwrite(trie.data(), trie.size(), 1, fp);
-      uint32_t total_tails = tail_vals.get_tail_grp_ptrs()->get_data_size();
-      std::cout << std::endl;
-      std::cout << "Total tail size: " << total_tails << std::endl;
-      std::cout << "Uniq tail count: " << tail_vals.get_uniq_tails_rev()->size() << std::endl;
-      std::cout << "Pointer lookup table: " << ptr_lookup_tbl << std::endl;
-      std::cout << "Tail ptr size: " << tail_vals.get_tail_grp_ptrs()->get_ptrs_size() << std::endl;
-      std::cout << "Idx2Ptrs map size: " << idx2_ptrs_map->size() << std::endl;
+      tail_vals.write_tail_ptrs_data(all_nodes, start_node_id, end_node_id, fp);
       std::cout << "Trie size: " << trie.size() << std::endl;
     }
     size_t size() {
-      return trie.size() + ptr_lookup_tbl + tail_vals.get_tail_grp_ptrs()->get_total_size() + 9 * 4 + 12;
+      return trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size() + 12;
     }
 };
 
@@ -1977,7 +1984,7 @@ class builder {
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t fragment_tbl_loc = leaf_bv_loc + leaf_bv;
 
-      fragment_count = 3;
+      fragment_count = 4;
       // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 0, 7));
       // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 8, 10));
       // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 11, 99999999));
@@ -2000,7 +2007,7 @@ class builder {
       uint32_t block_start_node_id = 0;
       uint32_t fragment_start = fragment_loc;
       for (int i = 0; i < fragment_count; i++) {
-        block_start_node_id = map_fragments[i].build(start_node_id, block_start_node_id, fragment_start + 9 * 4);
+        block_start_node_id = map_fragments[i].build(start_node_id, block_start_node_id, fragment_start);
         fragment_start = map_fragments[i].fragment_end_loc;
         start_node_id = map_fragments[i].end_node_id;
       }
