@@ -319,6 +319,7 @@ class fragment {
 
   public:
     grp_ptr_data_map tail_map;
+    grp_ptr_data_map val_map;
     uint8_t *trie_loc;
     uint32_t trie_size;
     uint32_t start_node_id;
@@ -327,8 +328,9 @@ class fragment {
     fragment(uint8_t *_dict_buf, uint8_t *_fragment_loc, uint32_t _start_nid, uint32_t _block_start_nid, uint32_t _end_nid)
         : dict_buf (_dict_buf), fragment_loc (_fragment_loc), start_node_id (_start_nid),
           block_start_node_id (_block_start_nid), end_node_id (_end_nid),
-          tail_map(_dict_buf, _fragment_loc + 4, _start_nid, _block_start_nid, _end_nid, _fragment_loc + 4 + cmn::read_uint32(fragment_loc)) {
-      trie_loc = fragment_loc + 4;
+          tail_map(_dict_buf, _fragment_loc + 8, _start_nid, _block_start_nid, _end_nid, _fragment_loc + 8 + cmn::read_uint32(fragment_loc)),
+          val_map(_dict_buf, _fragment_loc + 8, _start_nid, _block_start_nid, _end_nid, _fragment_loc + 8 + cmn::read_uint32(fragment_loc) + cmn::read_uint32(_fragment_loc + 4)) {
+      trie_loc = fragment_loc + 8;
       trie_size = cmn::read_uint32(fragment_loc);
       uint8_t *tails_loc = trie_loc + trie_size;
     }
@@ -619,6 +621,22 @@ class static_dict {
         return ~INSERT_BEFORE;
       } while (node_id < node_count);
       return ~INSERT_EMPTY;
+    }
+
+    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val) {
+      int result, key_pos, cmp;
+      int ret = lookup(key, key_len);
+      if (ret == 0) {
+        // find bit_count till node block and current node
+        // if (ptr is set) {
+        //   get grp no
+        //   lookup table to find bit len
+        //   read len
+        //   read value from grp_val
+        // }
+        return true;
+      }
+      return false;
     }
 
 };
