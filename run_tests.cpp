@@ -32,7 +32,8 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      sb.append((const uint8_t *) line.c_str(), line.length());
+      sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
+      //sb.append((const uint8_t *) line.c_str(), line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
       prev_line = line;
@@ -54,6 +55,11 @@ int main(int argc, char *argv[]) {
   squeezed::static_dict dict_reader(out_file); //, &sb);
   //dict_reader.dump_tail_ptrs();
 
+  int val_len;
+  uint8_t val_buf[100];
+
+  // dict_reader.dump_vals();
+
   line_count = 0;
   for (int i = 0; i < lines.size(); i++) {
     std::string& line = lines[i];
@@ -68,7 +74,8 @@ int main(int argc, char *argv[]) {
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
     int ret = 0;
-    if (line.compare("x multiple snap feature sent") == 0)
+    int frag_idx = 0;
+    if (line.compare("a 1tb") == 0)
       ret = 1;
     if (line.compare("x dell ultrasharp 49 curved") == 0)
       ret = 1;
@@ -81,12 +88,17 @@ int main(int argc, char *argv[]) {
     if (line.compare("State_Rd_66") == 0)
       ret = 1;
     // if (ret == 1)
-      ret = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
+      dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
+    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    // if (success) {
+    //   ret = 0;
+    //   printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    // }
     // int ret, key_pos, cmp;
     // uint32_t n_id;
     // std::vector<uint32_t> node_path;
     // squeezed::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
-    if (ret != 0)
+    if (ret < 0)
       std::cout << ret << ": " << line << std::endl;
     line_count++;
     if ((line_count % 100000) == 0) {
