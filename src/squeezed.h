@@ -174,10 +174,9 @@ class grp_ptr_data_map {
       while (t < t_upto) {
         if (is_val) {
           if (bm_leaf & bm_mask) {
-            if (bm_ptr & bm_mask)
-              ptr_bit_count += code_lookup_tbl[*t * 2 + 1];
-            else
-              ptr_bit_count += *(code_lookup_tbl - 1);
+            uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, 8);
+            ptr_bit_count -= 8;
+            ptr_bit_count += code_lookup_tbl[(ptr & 0xFF) * 2 + 1];
           }
         } else {
         if (bm_ptr & bm_mask)
@@ -289,22 +288,20 @@ class grp_ptr_data_map {
     }
 
     void get_val(uint32_t node_id, int result, int *in_size_out_value_len, uint8_t *ret_val) {
-      uint8_t node_byte = result >> 8;
-      uint8_t grp_no, bit_len;
-      if (result & 1) {
-        uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
-        grp_no = *lookup_tbl_ptr++ & 0x1F;
-        bit_len = *lookup_tbl_ptr;
-      } else {
-        grp_no = last_grp_no;
-        bit_len = *(code_lookup_tbl - 1);
-      }
       uint32_t ptr_bit_count;
       get_ptr_bit_count(node_id, ptr_bit_count, true);
-      uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len);
+      // std::cout << "NODID: " << node_id + 1 << ", block_bit_count: " << ptr_bit_count;
+      uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, 8);
+      uint8_t *lookup_tbl_ptr = code_lookup_tbl + (ptr & 0xFF) * 2;
+      uint8_t grp_no = *lookup_tbl_ptr & 0x1F;
+      uint8_t code_len = *lookup_tbl_ptr++ >> 5;
+      uint8_t bit_len = *lookup_tbl_ptr;
+      ptr_bit_count -= 8;
+      ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len);
+      ptr &= ((1 << (bit_len - code_len)) - 1);
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
-      std::cout << "GRP NO: " << (int) grp_no << ", bitlen: " << (int) bit_len << ", nodebyte: " << (int) node_byte << ", ptr: " << ptr << std::endl;
+      // std::cout << ", GRP NO: " << (int) grp_no << ", bitlen: " << (int) bit_len << ", ptr: " << ptr << std::endl;
       uint8_t *val_loc = grp_data[grp_no] + ptr;
       int8_t len_of_len;
       uint32_t val_len = cmn::read_vint32(val_loc, &len_of_len);
@@ -740,6 +737,10 @@ class static_dict {
         return true;
       }
       return false;
+    }
+
+    void dump_vals() {
+      fragments[0].dump_vals();
     }
 
 };

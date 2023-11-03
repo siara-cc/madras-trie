@@ -622,8 +622,11 @@ class freq_grp_ptrs_data {
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (node_id >= start_nid && node_id < end_nid) {
-          if (node_id && (node_id % nodes_per_ptr_block) == 0)
+          if (node_id && (node_id % nodes_per_ptr_block) == 0) {
             gen::write_uint32(bit_count, fp);
+            // if (node_id < 500)
+            //   std::cout << "NodeId: " << node_id << ", block_bit_count: " << bit_count << std::endl;
+          }
           if (is_tail) {
             if (cur_node->tail_len > 1) {
               ptr_vals_info *vi = get_info_func(cur_node, info_vec);
@@ -1430,7 +1433,6 @@ class fragment_builder {
       return node_val;
     }
 
-    uint32_t val_ptr_count = 0;
     void append_val_ptr(node *cur_node, bool to_exit = false) {
       if ((cur_node->flags & NFLAG_LEAF) == 0)
         return;
@@ -1441,8 +1443,11 @@ class fragment_builder {
       freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
       ptr_vals_info *vi = (*tail_vals.get_uniq_vals_fwd())[cur_node->uniq_val_pos];
       freq_grp *fg = val_ptrs->get_freq_grp(vi->grp_no);
-      val_ptrs->append_ptr_bits(vi->ptr, fg->grp_log2);
-      val_ptr_count += fg->grp_log2;
+      // if (cur_node->node_id < 500)
+      //   std::cout << "node_id: " << cur_node->node_id << "grp no: " << (int) vi->grp_no << ", bitlen: " << fg->grp_log2 << ", ptr: " << vi->ptr << std::endl;
+      uint32_t to_append = vi->ptr;
+      to_append |= (fg->code << (fg->grp_log2 - fg->code_len));
+      val_ptrs->append_ptr_bits(to_append, fg->grp_log2);
     }
 
     uint32_t build(uint32_t _start_node_id, uint32_t _block_start_node_id, uint32_t _fragment_start_loc) {
@@ -1529,7 +1534,6 @@ class fragment_builder {
       std::cout << "Total pointer count: " << ptr_count << std::endl;
       std::cout << "Full suffix count: " << sfx_full_count << std::endl;
       std::cout << "Partial suffix count: " << sfx_partial_count << std::endl;
-      std::cout << "Val ptr count: " << val_ptr_count << endl;
       trie_loc = _fragment_start_loc + 8;
       tail_vals.get_tail_grp_ptrs()->build(trie_loc + trie.size(), fragment_node_count);
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();

@@ -88,12 +88,14 @@ int main(int argc, char *argv[]) {
     if (line.compare("State_Rd_66") == 0)
       ret = 1;
     // if (ret == 1)
-      dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
-    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
-    // if (success) {
-    //   ret = 0;
-    //   printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
-    // }
+    //   dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
+    bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    if (success) {
+      ret = 0;
+      val_buf[val_len] = 0;
+      if (line.substr(0, 4).compare((const char *) val_buf) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    }
     // int ret, key_pos, cmp;
     // uint32_t n_id;
     // std::vector<uint32_t> node_path;
