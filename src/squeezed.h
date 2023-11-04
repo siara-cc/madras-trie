@@ -492,7 +492,7 @@ class static_dict {
       uint32_t start_node_id = 0;
       for (int i = 0; i < fragment_count; i++) {
         uint32_t fragment_loc = cmn::read_uint32(fragment_tbl_loc + i * 12);
-        std::cout << "Fragment loc: " << fragment_loc << std::endl;
+        //std::cout << "Fragment loc: " << fragment_loc << std::endl;
         uint32_t block_start_node_id = cmn::read_uint32(fragment_tbl_loc + 4 + i * 12);
         uint32_t end_node_id = cmn::read_uint32(fragment_tbl_loc + 8 + i * 12);
         fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, start_node_id, block_start_node_id, end_node_id));
