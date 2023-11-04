@@ -337,10 +337,10 @@ class grp_ptr_data_map {
       ptr = tail_ptr;
       do {
         byt = tail[ptr--];
-      } while (byt != 0);
+      } while (byt != 0 && ptr);
       do {
         byt = tail[ptr--];
-      } while (byt > 31);
+      } while (byt > 31 && ptr);
       ptr++;
       uint8_t prev_str_buf[max_tailset_len];
       byte_str prev_str(prev_str_buf, max_tailset_len);

@@ -42,17 +42,14 @@ struct node {
   };
   //node *parent;
   uint32_t tail_pos;
-  uint32_t uniq_tail_pos;
   uint32_t tail_len;
   uint8_t flags;
-  uint8_t level;
   union {
     uint32_t swap_pos;
     uint32_t v0;
   };
   uint32_t freq_count;
   uint32_t val_pos;
-  uint32_t uniq_val_pos;
   uint32_t val_len;
   node() {
     memset(this, '\0', sizeof(node));
@@ -608,10 +605,10 @@ class freq_grp_ptrs_data {
     }
     typedef ptr_vals_info *(*get_info_fn) (node *cur_node, std::vector<ptr_vals_info *>& info_vec);
     static ptr_vals_info *get_tails_info_fn(node *cur_node, std::vector<ptr_vals_info *>& info_vec) {
-      return (ptr_vals_info *) info_vec[cur_node->uniq_tail_pos];
+      return (ptr_vals_info *) info_vec[cur_node->tail_pos];
     }
     static ptr_vals_info *get_vals_info_fn(node *cur_node, std::vector<ptr_vals_info *>& info_vec) {
-      return (ptr_vals_info *) info_vec[cur_node->uniq_val_pos];
+      return (ptr_vals_info *) info_vec[cur_node->val_pos];
     }
     #define nodes_per_ptr_block 64
     void write_ptr_lookup_tbl(std::vector<node>& all_nodes, get_info_fn get_info_func, bool is_tail,
@@ -755,7 +752,7 @@ class tail_val_maps {
     byte_vec two_byte_tails;
     byte_vec uniq_vals;
     ptr_vals_info_vec uniq_vals_fwd;
-    int start_nid, end_level;
+    int start_nid, end_nid;
   public:
     tail_val_maps() {
     }
@@ -794,23 +791,23 @@ class tail_val_maps {
       uint8_t freq;
     };
 
-    uint32_t make_uniq_tails(std::vector<node>& all_nodes, byte_block& all_tails, int start_node_id, int end_lvl) {
+    uint32_t make_uniq_tails(std::vector<node>& all_nodes, byte_block& all_tails, int start_node_id, int end_node_id) {
       start_nid = start_node_id;
-      end_level = end_lvl;
+      end_nid = end_node_id;
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
       for (uint32_t i = 1; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
         uint8_t *v = all_tails[n->tail_pos];
         n->v0 = v[0];
-        if (n->tail_len > 1 && i > start_node_id && n->level <= end_lvl) {
+        if (n->tail_len > 1 && i > start_node_id && i <= end_node_id) {
           nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i, 1} );
         }
       }
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_tails,
           (ptr_vals_info_vec *) &uniq_tails_rev, gen::compare_rev, set_tail_pos_fn, new_tails_info_fn);
       t = gen::print_time_taken(t, "Time taken for make_uniq_tails: ");
-      all_tails.release_blocks();
+      //all_tails.release_blocks();
 
       return tot_freq;
 
@@ -818,10 +815,10 @@ class tail_val_maps {
 
     typedef void (*set_pos_fn) (std::vector<node>& all_nodes, uint32_t node_id, uint32_t pos);
     static void set_tail_pos_fn(std::vector<node>& all_nodes, uint32_t node_id, uint32_t pos) {
-      all_nodes[node_id].uniq_tail_pos = pos;
+      all_nodes[node_id].tail_pos = pos;
     }
     static void set_val_pos_fn(std::vector<node>& all_nodes, uint32_t node_id, uint32_t pos) {
-      all_nodes[node_id].uniq_val_pos = pos;
+      all_nodes[node_id].val_pos = pos;
     }
 
     typedef ptr_vals_info *(*new_info_fn) (uint32_t _tail_pos, uint32_t _tail_len, uint32_t _arr_pos, uint32_t _freq_count);
@@ -870,22 +867,22 @@ class tail_val_maps {
       return tot_freq;
     }
 
-    uint32_t make_uniq_vals(std::vector<node>& all_nodes, byte_block& all_vals, int start_node_id, int end_lvl) {
+    uint32_t make_uniq_vals(std::vector<node>& all_nodes, byte_block& all_vals, int start_node_id, int end_node_id) {
       start_nid = start_node_id;
-      end_level = end_lvl;
+      end_nid = end_node_id;
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
       for (uint32_t i = 1; i < all_nodes.size(); i++) {
         node *n = &all_nodes[i];
         uint8_t *v = all_vals[n->val_pos];
-        if ((n->flags & NFLAG_LEAF) && i > start_node_id && n->level <= end_lvl) {
+        if ((n->flags & NFLAG_LEAF) && i > start_node_id && i <= end_node_id) {
           nodes_for_sort.push_back((struct sort_data) { v, n->val_len, i, 1 } );
         }
       }
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_vals,
                   &uniq_vals_fwd, gen::compare, set_val_pos_fn, new_vals_info_fn);
       t = gen::print_time_taken(t, "Time taken for make_uniq_vals: ");
-      all_vals.release_blocks();
+      //all_vals.release_blocks();
 
       return tot_freq;
 
@@ -944,11 +941,11 @@ class tail_val_maps {
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
     #define sfx_set_max 64
-    void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint32_t start_node_id, uint32_t end_lvl) {
+    void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint32_t start_node_id, uint32_t end_node_id) {
 
       FILE *fp;
 
-      uint32_t tot_freq_count = make_uniq_tails(all_nodes, all_tails, start_node_id, end_lvl);
+      uint32_t tot_freq_count = make_uniq_tails(all_nodes, all_tails, start_node_id, end_node_id);
 
       clock_t t = clock();
       uniq_tails_fwd = uniq_tails_rev;
@@ -1183,7 +1180,7 @@ class tail_val_maps {
       tail_ptrs.show_freq_codes();
 
       if (all_vals.size() > 0) {
-        tot_freq_count = make_uniq_vals(all_nodes, all_vals, start_node_id, end_lvl);
+        tot_freq_count = make_uniq_vals(all_nodes, all_vals, start_node_id, end_node_id);
         if (uniq_vals_fwd.size() > 0) {
           ptr_vals_info_vec uniq_vals_freq;
           cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, tot_data_len, 7, grp_no);
@@ -1284,7 +1281,7 @@ class tail_val_maps {
         return *(all_tails[n->tail_pos]);
       if (n->tail_len == 1)
         return n->v0;
-      uniq_tails_info *ti = uniq_tails_rev[n->uniq_tail_pos];
+      uniq_tails_info *ti = uniq_tails_rev[n->tail_pos];
       uint32_t grp_no = ti->grp_no;
       uint32_t ptr = get_tail_ptr(grp_no, ti);
       byte_vec& tail = tail_ptrs.get_data(grp_no);
@@ -1294,7 +1291,7 @@ class tail_val_maps {
     std::string get_tail_str(byte_block& all_tails, node *n) {
       if (uniq_tails_rev.size() == 0)
         return std::string((const char *) all_tails[n->tail_pos], n->tail_len);
-      uniq_tails_info *ti = uniq_tails_rev[n->uniq_tail_pos];
+      uniq_tails_info *ti = uniq_tails_rev[n->tail_pos];
       uint32_t grp_no = ti->grp_no;
       uint32_t tail_ptr = get_tail_ptr(grp_no, ti);
       uint32_t ptr = tail_ptr;
@@ -1365,7 +1362,6 @@ class fragment_builder {
     uint32_t& total_node_count;
     uint32_t& max_tail_len;
     uint8_t fragment_count;
-    int start_lvl, end_lvl;
     uint32_t trie_loc;
     uint32_t fragment_node_count;
     void append64_t(byte_vec& byv, uint64_t b64) {
@@ -1405,13 +1401,10 @@ class fragment_builder {
     uint32_t end_node_id;
     tail_val_maps tail_vals;
     fragment_builder(std::vector<node>& _all_nodes, byte_block& _all_tails, byte_block& _all_vals,
-        uint32_t& _node_count, uint32_t& _max_tail_len, uint8_t _frag_count, int _start_lvl, int _end_lvl)
-            : all_tails (_all_tails), all_vals (_all_vals), all_nodes (_all_nodes),
-              max_tail_len (_max_tail_len), total_node_count (_node_count) {
-      start_lvl = _start_lvl;
-      end_lvl = _end_lvl;
+        uint32_t& _node_count, uint32_t& _max_tail_len, uint8_t _frag_count, uint32_t _start_nid, uint32_t _end_nid)
+            : all_tails (_all_tails), all_vals (_all_vals), all_nodes (_all_nodes), max_tail_len (_max_tail_len),
+              total_node_count (_node_count), start_node_id (_start_nid), end_node_id (_end_nid) {
       fragment_count = _frag_count;
-      printf("Start lvl: %d, End lvl: %d\n", start_lvl, end_lvl);
     }
     uint8_t append_tail_ptr(node *cur_node, bool to_exit = false) {
       if (cur_node->tail_len == 1)
@@ -1424,7 +1417,7 @@ class fragment_builder {
       uint32_t ptr = 0;
       freq_grp_ptrs_data *tail_ptrs = tail_vals.get_tail_grp_ptrs();
       if (cur_node->tail_len > 1) {
-        uniq_tails_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->uniq_tail_pos];
+        uniq_tails_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->tail_pos];
         uint8_t grp_no = ti->grp_no;
         // if (grp_no == 0 || ti->tail_ptr == 0)
         //   printf("ERROR: not marked: [%.*s]\n", ti->tail_len, uniq_tails.data() + ti->tail_pos);
@@ -1446,7 +1439,7 @@ class fragment_builder {
       if (cur_node->node_id < start_node_id + 1)
         return;
       freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
-      ptr_vals_info *vi = (*tail_vals.get_uniq_vals_fwd())[cur_node->uniq_val_pos];
+      ptr_vals_info *vi = (*tail_vals.get_uniq_vals_fwd())[cur_node->val_pos];
       freq_grp *fg = val_ptrs->get_freq_grp(vi->grp_no);
       // if (cur_node->node_id < 500)
       //   std::cout << "node_id: " << cur_node->node_id << "grp no: " << (int) vi->grp_no << ", bitlen: " << fg->grp_log2 << ", ptr: " << vi->ptr << std::endl;
@@ -1455,10 +1448,9 @@ class fragment_builder {
       val_ptrs->append_ptr_bits(to_append, fg->grp_log2);
     }
 
-    uint32_t build(uint32_t _start_node_id, uint32_t _block_start_node_id, uint32_t _fragment_start_loc) {
+    uint32_t build(uint32_t _block_start_node_id, uint32_t _fragment_start_loc) {
       block_start_node_id = _block_start_node_id++;
-      start_node_id = _start_node_id;
-      tail_vals.build_tail_val_maps(all_nodes, all_tails, all_vals, start_node_id, end_lvl);
+      tail_vals.build_tail_val_maps(all_nodes, all_tails, all_vals, start_node_id, end_node_id);
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
@@ -1477,20 +1469,17 @@ class fragment_builder {
       uint32_t cur_node_idx = _block_start_node_id;
       uint32_t prev_block_start_id = block_start_node_id;
       bool to_exit = false;
-      end_node_id = total_node_count;
       for (; cur_node_idx < all_nodes.size(); cur_node_idx++) {
         node *cur_node = &all_nodes[cur_node_idx];
-        if (!to_exit && cur_node->level > end_lvl) {
-          end_node_id = cur_node_idx - 1;
+        if (!to_exit && cur_node_idx > end_node_id)
           to_exit = true;
-        }
         uint8_t flags = (cur_node->flags & NFLAG_LEAF ? 1 : 0) +
           (cur_node->first_child != 0 ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
           (cur_node->flags & NFLAG_TERM ? 8 : 0);
         if (!to_exit && cur_node->node_id > start_node_id) {
           if (cur_node->tail_len > 1) {
             uniq_tails_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
-            uniq_tails_info *ti = (*uniq_tails_rev)[cur_node->uniq_tail_pos];
+            uniq_tails_info *ti = (*uniq_tails_rev)[cur_node->tail_pos];
             if (ti->flags & UTI_FLAG_SUFFIX_FULL)
               sfx_full_count++;
             if (ti->flags & UTI_FLAG_SUFFIX_PARTIAL)
@@ -1659,13 +1648,6 @@ class builder {
     }
 
     ~builder() {
-      // for (int i = 0; i < all_nodes.size(); i++) {
-      //   delete all_nodes[i];
-      // }
-      // for (int i = 0; i < uniq_tails_fwd.size(); i++) {
-      //   delete uniq_tails_fwd[i];
-      // }
-      //delete root; // now part of all_nodes
     }
 
     void set_out_file(const char *out_file) {
@@ -1678,7 +1660,7 @@ class builder {
     }
 
     void sort_nodes(bool mark_sorted = true) {
-    const bool to_sort_nodes_on_freq = true;
+      const bool to_sort_nodes_on_freq = true;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
@@ -1718,17 +1700,6 @@ class builder {
       }
       nodes_sorted = mark_sorted;
       gen::print_time_taken(t, "Time taken for sort_nodes(): ");
-    }
-
-    void set_level(uint32_t node_id, int level) {
-      if (node_id == 0)
-        return;
-      do {
-        node& n = all_nodes[node_id];
-        n.level = level;
-        set_level(n.first_child, level + 1);
-        node_id = n.next_sibling;
-      } while (node_id != 0);
     }
 
     void set_first_node(const uint8_t *key, int key_len, const uint8_t *val, int val_len) {
@@ -2030,17 +2001,14 @@ class builder {
       } while (last_child != 0);
     }
 
+    const static uint32_t frag0_child_pct = 90; //40;
     std::string build() {
 
       clock_t t = clock();
       std::cout << "Key count: " << key_count << std::endl;
 
-      set_level(1, 0);
+      //set_level(1, 0);
       sort_nodes();
-      for (int i = 2; i < all_nodes.size(); i++) {
-        if (all_nodes[i].level < all_nodes[i-1].level)
-          std::cout << "WARNING: UNEXPECTED: " << all_nodes[i].node_id << ", " << (int) all_nodes[i].level << ": " << (int) all_nodes[i-1].level << std::endl;
-      }
 
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
       uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
@@ -2054,32 +2022,47 @@ class builder {
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t fragment_tbl_loc = leaf_bv_loc + leaf_bv;
 
-      fragment_count = 1;
-      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 0, 7));
-      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 8, 10));
-      // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 11, 99999999));
-      // // map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, 0, 99999999));
+      fragment_count = 32;
+      if (fragment_count == 1) {
+        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, 1, 0, node_count));
+      } else {
+        uint32_t start_node_id = 0;
+        uint32_t frag_idx = 0;
+        uint32_t child_count = 0;
+        uint32_t node_seg_sz = 1; // node_count / fragment_count;
+        for (int i = node_seg_sz; i < all_nodes.size(); i++) {
+          node *n = &all_nodes[i];
+          if (n->first_child != 0)
+            child_count++;
+          if (frag_idx == 0 && (n->flags & NFLAG_TERM)) {
+            uint32_t child_pct = child_count * 100;
+            child_pct /= term_count;
+            if (child_pct > frag0_child_pct) {
+              map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, start_node_id, i));
+              start_node_id = i;
+              frag_idx++;
+              node_seg_sz = (node_count - i) / (fragment_count - 1);
+              i += node_seg_sz;
+              continue;
+            }
+          }
+          if (frag_idx > 0 && (n->flags & NFLAG_TERM)) {
+            map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, start_node_id, i));
+            start_node_id = i;
+            frag_idx++;
+            i += node_seg_sz;
+          }
+        }
+        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, start_node_id, node_count - 1));
+      }
       uint32_t fragment_tbl_size = fragment_count * 12;
       uint32_t fragment_loc = fragment_tbl_loc + fragment_tbl_size;
 
-      int nxt_start_lvl = 0;
-      int lvl_delta = all_nodes[node_count - 1].level / fragment_count - 1;
-      printf("Lvl delta: %d, last level: %d\n", lvl_delta, (int) all_nodes[node_count - 1].level);
-      for (int i = 0; i < fragment_count; i++) {
-        if (i == fragment_count - 1)
-          lvl_delta = all_nodes[node_count - 1].level - nxt_start_lvl;
-        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, nxt_start_lvl, nxt_start_lvl + lvl_delta));
-        nxt_start_lvl += lvl_delta;
-        nxt_start_lvl++;
-      }
-
-      uint32_t start_node_id = 0;
       uint32_t block_start_node_id = 0;
       uint32_t fragment_start = fragment_loc;
       for (int i = 0; i < fragment_count; i++) {
-        block_start_node_id = map_fragments[i].build(start_node_id, block_start_node_id, fragment_start);
+        block_start_node_id = map_fragments[i].build(block_start_node_id, fragment_start);
         fragment_start = map_fragments[i].fragment_end_loc;
-        start_node_id = map_fragments[i].end_node_id;
       }
 
       FILE *fp = fopen(out_filename.c_str(), "wb+");
@@ -2112,10 +2095,8 @@ class builder {
 
       uint32_t total_size = 3 + 8 * 4 + cache_size + select_lookup + trie_bv + leaf_bv;
       for (int i = 0; i < fragment_count; i++) {
-        std::cout << "Fragment " << i << " loc: " << ftell(fp) << std::endl;
         map_fragments[i].write_fragment(fp);
         total_size += map_fragments[i].size();
-        printf("Size of fragment %d: %lu\n", i, map_fragments[i].size());
       }
 
       fclose(fp);
@@ -2135,6 +2116,8 @@ class builder {
       // find_rpt_nodes(fp);
       // fclose(fp);
 
+      for (int i = 0; i < fragment_count; i++)
+        std::cout << "Fragment " << i << " size: " << map_fragments[i].size() << std::endl;
       gen::print_time_taken(t, "Time taken for build(): ");
 
       return out_filename;
@@ -2264,7 +2247,7 @@ class builder {
     uniq_tails_info *get_ti(node *n) {
       tail_val_maps *tm = get_tail_maps(n);
       uniq_tails_info_vec *uniq_tails_rev = tm->get_uniq_tails_rev();
-      return (*uniq_tails_rev)[n->uniq_tail_pos];
+      return (*uniq_tails_rev)[n->tail_pos];
     }
 
     uint32_t get_tail_ptr(node *cur_node) {
@@ -2275,7 +2258,7 @@ class builder {
     ptr_vals_info *get_vi(node *n) {
       tail_val_maps *tm = get_tail_maps(n);
       ptr_vals_info_vec *uniq_vals_fwd = tm->get_uniq_vals_fwd();
-      return (*uniq_vals_fwd)[n->uniq_val_pos];
+      return (*uniq_vals_fwd)[n->val_pos];
     }
 
     int compare_nodes_rev(uint32_t nid_1, int len1, uint32_t nid_2, int len2) {
