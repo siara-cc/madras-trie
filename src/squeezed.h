@@ -455,9 +455,17 @@ class static_dict {
     static_dict& operator=(static_dict const&);
 
   public:
-    static_dict(std::string filename, builder *_sb = NULL) {
-
+    static_dict(builder *_sb = NULL) {
       sb = _sb;
+      dict_buf = NULL;
+    }
+
+    ~static_dict() {
+      if (dict_buf != NULL)
+        free(dict_buf);
+    }
+
+    void load(std::string filename) {
 
       struct stat file_stat;
       memset(&file_stat, '\0', sizeof(file_stat));
@@ -490,9 +498,6 @@ class static_dict {
         fragments.push_back(fragment(dict_buf, dict_buf + fragment_loc, start_node_id, block_start_node_id, end_node_id));
         start_node_id = end_node_id;
       }
-    }
-
-    ~static_dict() {
     }
 
     template <typename T>

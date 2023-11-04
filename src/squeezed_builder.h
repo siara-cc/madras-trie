@@ -759,6 +759,12 @@ class tail_val_maps {
   public:
     tail_val_maps() {
     }
+    ~tail_val_maps() {
+      for (int i = 0; i < uniq_tails_rev.size(); i++)
+        delete uniq_tails_rev[i];
+      for (int i = 0; i < uniq_vals_fwd.size(); i++)
+        delete uniq_vals_fwd[i];
+    }
     uint32_t get_var_len(uint32_t len, byte_vec *vec = NULL) {
       uint32_t var_len = (len < 16 ? 2 : (len < 2048 ? 3 : (len < 262144 ? 4 : 5)));
       if (vec != NULL) {
@@ -804,7 +810,7 @@ class tail_val_maps {
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_tails,
           (ptr_vals_info_vec *) &uniq_tails_rev, gen::compare_rev, set_tail_pos_fn, new_tails_info_fn);
       t = gen::print_time_taken(t, "Time taken for make_uniq_tails: ");
-      //all_tails.release_blocks();
+      all_tails.release_blocks();
 
       return tot_freq;
 
@@ -879,13 +885,13 @@ class tail_val_maps {
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_vals,
                   &uniq_vals_fwd, gen::compare, set_val_pos_fn, new_vals_info_fn);
       t = gen::print_time_taken(t, "Time taken for make_uniq_vals: ");
-      //sort_vals.release_blocks();
+      all_vals.release_blocks();
 
       return tot_freq;
 
     }
 
-    uint32_t make_uniq_freq(ptr_vals_info_vec& uniq_arr_vec, ptr_vals_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& tot_data_len, uint8_t& grp_no) {
+    uint32_t make_uniq_freq(ptr_vals_info_vec& uniq_arr_vec, ptr_vals_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& tot_data_len, uint32_t start_bits, uint8_t& grp_no) {
       clock_t t = clock();
       uniq_freq_vec = uniq_arr_vec;
       std::sort(uniq_freq_vec.begin(), uniq_freq_vec.end(), [this](const struct ptr_vals_info *lhs, const struct ptr_vals_info *rhs) -> bool {
@@ -893,7 +899,6 @@ class tail_val_maps {
       });
       uint32_t ftot = 0;
       tot_data_len = 0;
-      uint32_t start_bits = 7;
       grp_no = 1;
       uint32_t nxt_idx_limit = pow(2, start_bits);
       uint32_t remain_freq = tot_freq_count;
@@ -957,7 +962,7 @@ class tail_val_maps {
       uniq_tails_info_vec uniq_tails_freq;
       uint8_t grp_no;
       uint32_t tot_data_len;
-      uint32_t cumu_freq_idx = make_uniq_freq((ptr_vals_info_vec&) uniq_tails_rev, (ptr_vals_info_vec&) uniq_tails_freq, tot_freq_count, tot_data_len, grp_no);
+      uint32_t cumu_freq_idx = make_uniq_freq((ptr_vals_info_vec&) uniq_tails_rev, (ptr_vals_info_vec&) uniq_tails_freq, tot_freq_count, tot_data_len, 7, grp_no);
       tail_ptrs.set_idx_limit(grp_no);
       tail_ptrs.set_idx_ptr_size(tot_data_len > 65535 ? 3 : 2);
 
@@ -1181,7 +1186,7 @@ class tail_val_maps {
         tot_freq_count = make_uniq_vals(all_nodes, all_vals, start_node_id, end_lvl);
         if (uniq_vals_fwd.size() > 0) {
           ptr_vals_info_vec uniq_vals_freq;
-          cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, tot_data_len, grp_no);
+          cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, tot_data_len, 7, grp_no);
           val_ptrs.set_idx_limit(grp_no);
           val_ptrs.set_idx_ptr_size(tot_data_len > 65535 ? 3 : 2);
           freq_pos = 0;
@@ -2107,7 +2112,7 @@ class builder {
 
       uint32_t total_size = 3 + 8 * 4 + cache_size + select_lookup + trie_bv + leaf_bv;
       for (int i = 0; i < fragment_count; i++) {
-        std::cout << "Framgnet " << i << " loc: " << ftell(fp) << std::endl;
+        std::cout << "Fragment " << i << " loc: " << ftell(fp) << std::endl;
         map_fragments[i].write_fragment(fp);
         total_size += map_fragments[i].size();
         printf("Size of fragment %d: %lu\n", i, map_fragments[i].size());

@@ -52,7 +52,8 @@ int main(int argc, char *argv[]) {
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
 
-  squeezed::static_dict dict_reader(out_file); //, &sb);
+  squeezed::static_dict dict_reader; //, &sb);
+  dict_reader.load(out_file);
   //dict_reader.dump_tail_ptrs();
 
   int val_len;
