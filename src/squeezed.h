@@ -8,7 +8,6 @@
 #include <sys/types.h>
 #include <immintrin.h>
 
-#include "bit_vector.h"
 #include "var_array.h"
 #include "squeezed_builder.h"
 
