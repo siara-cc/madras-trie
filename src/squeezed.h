@@ -527,7 +527,7 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
       while (first < last) {
         uint32_t middle = (first + last) >> 1;
-        uint32_t term_at = cmn::read_uint32(trie_bv_loc + middle * 8);
+        uint32_t term_at = cmn::read_uint32(trie_bv_loc + middle * 22);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
@@ -619,16 +619,16 @@ class static_dict {
     uint8_t *find_child(uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
-      uint8_t *select_loc = select_lkup_loc + target_term_count / 64 * 3;
-      if ((target_term_count % 64) == 0) {
+      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 3;
+      if ((target_term_count % term_divisor) == 0) {
         child_block = cmn::read_uint24(select_loc);
       } else {
         uint32_t start_block = cmn::read_uint24(select_loc);
         uint32_t end_block = cmn::read_uint24(select_loc + 3);
-        if (start_block + 16 >= end_block) {
+        if (start_block + 8 >= end_block) {
           do {
             start_block++;
-          } while (cmn::read_uint32(trie_bv_loc + start_block * 8) < target_term_count && start_block <= end_block);
+          } while (cmn::read_uint32(trie_bv_loc + start_block * 22) < target_term_count && start_block <= end_block);
           child_block = start_block - 1;
         } else {
           child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
@@ -640,21 +640,21 @@ class static_dict {
       child_block++;
       do {
         child_block--;
-        term_count = cmn::read_uint32(trie_bv_loc + child_block * 8);
-        child_count = cmn::read_uint32(trie_bv_loc + child_block * 8 + 4);
-        node_id = child_block * nodes_per_bv_block7;
+        term_count = cmn::read_uint32(trie_bv_loc + child_block * 22);
+        child_count = cmn::read_uint32(trie_bv_loc + child_block * 22 + 4);
+        node_id = child_block * nodes_per_bv_block;
       } while (term_count >= target_term_count);
-      // uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
-      // uint8_t *bv7_child = bv7_term + 7;
-      // for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
-      //   uint8_t term7 = bv7_term[pos7];
-      //   if (term_count + term7 < target_term_count) {
-      //     term_count += term7;
-      //     child_count += bv7_child[pos7];
-      //     node_id += nodes_per_bv_block7;
-      //   } else
-      //     break;
-      // }
+      uint8_t *bv7_term = trie_bv_loc + child_block * 22 + 8;
+      uint8_t *bv7_child = bv7_term + 7;
+      for (int pos7 = 0; pos7 < 7 && node_id + nodes_per_bv_block7 < node_count; pos7++) {
+        uint8_t term7 = bv7_term[pos7];
+        if (term_count + term7 < target_term_count) {
+          term_count += term7;
+          child_count += bv7_child[pos7];
+          node_id += nodes_per_bv_block7;
+        } else
+          break;
+      }
       return scan_block64(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr, target_term_count);
     }
 

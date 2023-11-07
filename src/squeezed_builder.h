@@ -1073,7 +1073,7 @@ class tail_val_maps {
             tail_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
             link_ti->ptr = tail_ptrs.append_text_to_grp_data(grp_no, uniq_tails.data() + link_ti->pos, link_ti->len, true);
           }
-          cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, 0);
+          //cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, 0);
           tail_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
           ti->ptr = link_ti->ptr + link_ti->len - ti->len;
           ti->grp_no = link_ti->grp_no;
@@ -2023,10 +2023,10 @@ class builder {
       sort_nodes();
 
       uint32_t cache_size = key_count / 512 * sizeof(node_cache);
-      //uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
-      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block7) + 1) * 4 * 2;
+      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
+      // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block7) + 1) * 4 * 2;
       uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11;
-      uint32_t select_lookup = (ceil((term_count - 1)/64) + 2) * 3; // 2 bytes sufficient?
+      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 3;
 
       uint32_t common_node_loc = 3 + 8 * 4; // 71
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
@@ -2035,7 +2035,7 @@ class builder {
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t fragment_tbl_loc = leaf_bv_loc + leaf_bv;
 
-      fragment_count = 1;
+      fragment_count = 32;
       if (fragment_count == 1) {
         map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, 1, 0, node_count));
       } else {
@@ -2066,7 +2066,7 @@ class builder {
             i += node_seg_sz;
           }
         }
-        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, start_node_id, node_count - 1));
+        map_fragments.push_back(fragment_builder(all_nodes, all_tails, all_vals, node_count, max_tail_len, fragment_count, start_node_id, node_count));
       }
       uint32_t fragment_tbl_size = fragment_count * 12;
       uint32_t fragment_loc = fragment_tbl_loc + fragment_tbl_size;
@@ -2161,30 +2161,30 @@ class builder {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
       uint32_t child_count = 0;
-      // uint32_t term1_count7 = 0;
-      // uint32_t child_count7 = 0;
-      // uint8_t term1_buf7[7];
-      // uint8_t child_buf7[7];
-      // uint8_t pos7 = 0;
-      // memset(term1_buf7, 0, 7);
-      // memset(child_buf7, 0, 7);
+      uint32_t term1_count7 = 0;
+      uint32_t child_count7 = 0;
+      uint8_t term1_buf7[7];
+      uint8_t child_buf7[7];
+      uint8_t pos7 = 0;
+      memset(term1_buf7, 0, 7);
+      memset(child_buf7, 0, 7);
       gen::write_uint32(0, fp);
       gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
-        //write_bv7(node_id, term1_count, child_count, term1_count7, child_count7, term1_buf7, child_buf7, pos7, fp);
-        if (node_id && (node_id % nodes_per_bv_block7) == 0) {
-          gen::write_uint32(term1_count, fp);
-          gen::write_uint32(child_count, fp);
-        }
+        write_bv7(node_id, term1_count, child_count, term1_count7, child_count7, term1_buf7, child_buf7, pos7, fp);
+        // if (node_id && (node_id % nodes_per_bv_block7) == 0) {
+        //   gen::write_uint32(term1_count, fp);
+        //   gen::write_uint32(child_count, fp);
+        // }
         term1_count += (cur_node->flags & NFLAG_TERM ? 1 : 0);
         child_count += (cur_node->first_child == 0 ? 0 : 1);
-        // term1_count7 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
-        // child_count7 += (cur_node->first_child == 0 ? 0 : 1);
+        term1_count7 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
+        child_count7 += (cur_node->first_child == 0 ? 0 : 1);
         node_id++;
       }
-      // fwrite(term1_buf7, 7, 1, fp);
-      // fwrite(child_buf7, 7, 1, fp);
+      fwrite(term1_buf7, 7, 1, fp);
+      fwrite(child_buf7, 7, 1, fp);
       bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
     }
 
@@ -2237,16 +2237,16 @@ class builder {
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (cur_node->flags & NFLAG_TERM) {
-          if (term_count && (term_count % 64) == 0) {
-            gen::write_uint24(node_id / nodes_per_bv_block7, fp);
-            if (node_id / nodes_per_bv_block7 > (1 << 24))
-              bldr_printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block7);
+          if (term_count && (term_count % term_divisor) == 0) {
+            gen::write_uint24(node_id / nodes_per_bv_block, fp);
+            if (node_id / nodes_per_bv_block > (1 << 24))
+              bldr_printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block);
           }
           term_count++;
         }
         node_id++;
       }
-      gen::write_uint24(node_count/nodes_per_bv_block7, fp);
+      gen::write_uint24(node_count/nodes_per_bv_block, fp);
     }
 
     tail_val_maps *get_tail_maps(node *n) {
