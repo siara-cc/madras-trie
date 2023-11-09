@@ -19,7 +19,11 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  squeezed::builder sb(argv[1]);
+  int fragment_count = 1;
+  if (argc > 2)
+    fragment_count = atoi(argv[2]);
+
+  squeezed::builder sb(fragment_count, argv[1]);
   sb.set_print_enabled(true);
   vector<string> lines;
 
@@ -80,7 +84,7 @@ int main(int argc, char *argv[]) {
     int frag_idx = 0;
     if (line.compare("a 1tb") == 0)
       ret = 1;
-    if (line.compare("x dell ultrasharp 49 curved") == 0)
+    if (line.compare("a7iv") == 0)
       ret = 1;
     if (line.compare("they arrest") == 0)
       ret = 1;
@@ -91,8 +95,7 @@ int main(int argc, char *argv[]) {
     if (line.compare("understand that there is a") == 0)
       ret = 1;
 
-    // if (ret == 1)
-    //   dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
+    // dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
     // if (ret < 0)
     //   std::cout << ret << ": " << line << std::endl;
 
