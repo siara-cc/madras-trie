@@ -77,10 +77,11 @@ struct bldr_child2_cache {
   uint8_t node_id2;
   uint8_t child_count1;
   uint8_t child_count2;
-  uint8_t term_count1;
-  uint8_t term_count2;
-  uint8_t ptr_count1;
-  uint8_t ptr_count2;
+  // uint8_t ptr_count1;
+  // uint8_t ptr_count2;
+  bldr_child2_cache() {
+    memset(this, '\0', sizeof(*this));
+  }
 };
 
 struct bldr_child3_cache {
@@ -90,12 +91,12 @@ struct bldr_child3_cache {
   uint8_t child_count1;
   uint8_t child_count2;
   uint8_t child_count3;
-  uint8_t term_count1;
-  uint8_t term_count2;
-  uint8_t term_count3;
-  uint8_t ptr_count1;
-  uint8_t ptr_count2;
-  uint8_t ptr_count3;
+  // uint8_t ptr_count1;
+  // uint8_t ptr_count2;
+  // uint8_t ptr_count3;
+  bldr_child3_cache() {
+    memset(this, '\0', sizeof(*this));
+  }
 };
 
 struct bldr_tail_cache {
@@ -228,6 +229,10 @@ class gen {
             return 0;
         return (len1 < len2 ? -k : k);
     }
+    static void copy_uint16(uint16_t input, uint8_t *out) {
+      *out++ = (input >> 8);
+      *out = input & 0xFF;
+    }
     static void copy_uint24(uint32_t input, uint8_t *out) {
       *out++ = (input >> 16);
       *out++ = (input >> 8) & 0xFF;
@@ -272,12 +277,26 @@ class gen {
       ret |= v[pos];
       return ret;
     }
+    static uint32_t read_uint16(uint8_t *ptr) {
+      uint32_t ret = *ptr++;
+      ret <<= 8;
+      ret |= *ptr;
+      return ret;
+    }
     static uint32_t read_uint24(byte_vec& v, int pos) {
       uint32_t ret = v[pos++];
       ret <<= 8;
       ret |= v[pos++];
       ret <<= 8;
       ret |= v[pos];
+      return ret;
+    }
+    static uint32_t read_uint24(uint8_t *ptr) {
+      uint32_t ret = *ptr++;
+      ret <<= 8;
+      ret |= *ptr++;
+      ret <<= 8;
+      ret |= *ptr;
       return ret;
     }
 };
@@ -2067,7 +2086,7 @@ class builder {
       } while (last_child != 0);
     }
 
-    const static uint32_t frag0_child_pct = 40;
+    const static uint32_t frag0_child_pct = 30;
     std::string build() {
 
       clock_t t = clock();
@@ -2076,9 +2095,9 @@ class builder {
       //set_level(1, 0);
       sort_nodes();
 
-      uint32_t pri_cache_count = key_count / 512;
+      uint32_t pri_cache_count = key_count / 32;
       uint32_t sec_cache_count = key_count / 32;
-      uint32_t pri_cache_size = pri_cache_count * sizeof(bldr_node_cache);
+      uint32_t pri_cache_size = pri_cache_count * sizeof(bldr_child3_cache);
       uint32_t sec_cache_size = sec_cache_count;
       uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
       // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block7) + 1) * 4 * 2;
@@ -2093,7 +2112,7 @@ class builder {
       uint32_t leaf_bv_loc = trie_bv_loc + trie_bv;
       uint32_t fragment_tbl_loc = leaf_bv_loc + leaf_bv;
 
-      fragment_count = 1;
+      fragment_count = 32;
       if (fragment_count == 1) {
         map_fragments.push_back(fragment_builder(0, all_nodes, all_tails, all_vals, node_count, max_tail_len, 1, 0, node_count));
       } else {
@@ -2287,28 +2306,40 @@ class builder {
     }
 
     void write_pri_cache(FILE *fp, uint32_t cache_size) {
-      uint32_t cache_count = cache_size / sizeof(bldr_node_cache);
+      uint32_t cache_count = cache_size / sizeof(bldr_child3_cache);
       uint32_t node_id = 1;
+      uint32_t child_count = 0;
+      int last_cache_idx = 0;
+      int last_cache_node_id = -1;
       fragment_builder *cur_frag = &map_fragments[0];
+      uint8_t *pri_cache = new uint8_t[cache_size];
       do {
         node *cur_node = &all_nodes[node_id];
-        if (node_id > cur_frag->end_node_id)
-          cur_frag = &map_fragments[cur_frag->frag_idx + 1];
-        uniq_tails_info_vec *uniq_tails_rev = cur_frag->tail_vals.get_uniq_tails_rev();
-        uniq_tails_info *ti = (*uniq_tails_rev)[cur_node->tail_len > 1 ? cur_node->tail_pos : 0];
-        bldr_node_cache nc;
-        nc.node_byte = cur_node->v0;
-        uint8_t flags = (cur_node->flags & NFLAG_LEAF ? 1 : 0) +
-          (cur_node->first_child != 0 ? 2 : 0) + (cur_node->tail_len > 1 ? 4 : 0) +
-          (cur_node->flags & NFLAG_TERM ? 8 : 0);
-        nc.flags_grp_no = (flags << 4) + (ti->grp_no & 0x0F);
-        uint32_t child_ptr = cur_node->first_child - 1;
-        gen::copy_uint24(child_ptr, &nc.child_ptr1);
-        gen::copy_uint24(ti->ptr, &nc.tail_ptr1);
-        fwrite(&nc, sizeof(bldr_node_cache), 1, fp);
+        if (cur_node->first_child != 0 && child_count < cache_count) {
+          bldr_child3_cache cc3;
+          uint32_t child_node_id = cur_node->first_child - 1;
+          gen::copy_uint24(child_node_id, &cc3.node_id1);
+          memcpy(pri_cache + child_count * sizeof(bldr_child3_cache), &cc3, sizeof(bldr_child3_cache));
+          if (last_cache_node_id == -1)
+            last_cache_node_id = cur_node->first_child;
+        }
+        if (last_cache_node_id == node_id) {
+          uint8_t *last_cache_ptr = pri_cache + last_cache_idx * sizeof(bldr_child3_cache);
+          bldr_child3_cache *cc3 = (bldr_child3_cache *) last_cache_ptr;
+          gen::copy_uint24(child_count, &cc3->child_count1);
+          last_cache_idx++;
+          if (last_cache_idx == cache_count)
+            break;
+          last_cache_ptr = pri_cache + last_cache_idx * sizeof(bldr_child3_cache);
+          cc3 = (bldr_child3_cache *) last_cache_ptr;
+          last_cache_node_id = gen::read_uint24(&cc3->node_id1) + 1;
+        }
+        if (cur_node->first_child != 0)
+          child_count++;
         node_id++;
-        cache_count--;
-      } while (cache_count > 0);
+      } while (node_id < node_count);
+      fwrite(pri_cache, cache_size, 1, fp);
+      delete [] pri_cache;
     }
 
     void write_sec_cache(FILE *fp, uint32_t cache_count) {
