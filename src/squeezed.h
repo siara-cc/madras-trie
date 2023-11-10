@@ -192,15 +192,14 @@ class grp_ptr_data_map {
     }
 
     uint32_t scan_ptr_bits_tail(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
-      uint64_t bm_ptr;
       uint64_t bm_mask = bm_init_mask;
+      uint64_t bm_ptr;
       t = cmn::read_uint64(t + 24, bm_ptr);
       uint8_t *t_upto = t + (node_id % 64);
       if (t - 32 == trie_loc) {
         int diff = start_node_id % 64;
         t += diff;
-        if (diff > 0)
-          bm_mask <<= diff;
+        bm_mask <<= diff; // if (diff > 0)
       }
       while (t < t_upto) {
         if (bm_ptr & bm_mask)
@@ -212,22 +211,20 @@ class grp_ptr_data_map {
     }
 
     uint32_t scan_ptr_bits_val(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
-      uint64_t bm_ptr, bm_leaf;
       uint64_t bm_mask = bm_init_mask;
+      uint64_t bm_ptr, bm_leaf;
       cmn::read_uint64(t, bm_leaf);
-      cmn::read_uint64(t + 24, bm_ptr);
-      t += 32;
+      t = cmn::read_uint64(t + 24, bm_ptr);
       uint8_t *t_upto = t + (node_id % 64);
       if (t - 32 == trie_loc) {
         int diff = start_node_id % 64;
         t += diff;
-        if (diff > 0)
-          bm_mask <<= diff;
+        bm_mask <<= diff; // if (diff > 0)
       }
       while (t < t_upto) {
         if (bm_leaf & bm_mask) {
-          uint32_t ptr = read_next_8(node_id, ptr_bit_count);
-          ptr_bit_count += code_lookup_tbl[(ptr & 0xFF) * 2];
+          uint8_t ptr = read_next_8(node_id, ptr_bit_count);
+          ptr_bit_count += code_lookup_tbl[ptr * 2];
         }
         bm_mask <<= 1;
         t++;
@@ -249,7 +246,7 @@ class grp_ptr_data_map {
       return scan_ptr_bits_val(node_id, t, ptr_bit_count);
     }
 
-    uint32_t read_next_8(uint32_t node_id, uint32_t& ptr_bit_count) {
+    uint8_t read_next_8(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_filled = (ptr_bit_count % 8);
       uint8_t ret = (*ptr_loc++ << bits_filled);
