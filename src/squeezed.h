@@ -35,30 +35,6 @@ class dict_iter_ctx {
     std::vector<uint8_t> node_frag;
 };
 
-struct node_cache {
-  uint8_t node_byte;
-  uint8_t child_ptr1;
-  uint8_t child_ptr2;
-  uint8_t child_ptr3;
-  uint8_t ptr_bit_count1;
-  uint8_t ptr_bit_count2;
-  uint8_t ptr_bit_count3;
-  uint8_t ptr_bit_count4;
-  uint8_t flags_grp_no;
-  uint8_t tail_ptr1;
-  uint8_t tail_ptr2;
-  uint8_t tail_ptr3;
-};
-
-struct child2_cache {
-  uint8_t node_id1;
-  uint8_t node_id2;
-  uint8_t child_count1;
-  uint8_t child_count2;
-  // uint8_t ptr_count1;
-  // uint8_t ptr_count2;
-};
-
 struct child_cache {
   uint8_t node_id1;
   uint8_t node_id2;
@@ -215,7 +191,27 @@ class grp_ptr_data_map {
       return ptr;
     }
 
-    void scan_nodes_ptr_bits(uint32_t node_id, uint8_t *t, uint32_t& ptr_bit_count, bool is_val) {
+    uint32_t scan_ptr_bits_tail(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
+      uint64_t bm_ptr;
+      uint64_t bm_mask = bm_init_mask;
+      t = cmn::read_uint64(t + 24, bm_ptr);
+      uint8_t *t_upto = t + (node_id % 64);
+      if (t - 32 == trie_loc) {
+        int diff = start_node_id % 64;
+        t += diff;
+        if (diff > 0)
+          bm_mask <<= diff;
+      }
+      while (t < t_upto) {
+        if (bm_ptr & bm_mask)
+          ptr_bit_count += code_lookup_tbl[*t * 2];
+        bm_mask <<= 1;
+        t++;
+      }
+      return ptr_bit_count;
+    }
+
+    uint32_t scan_ptr_bits_val(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
       uint64_t bm_ptr, bm_leaf;
       uint64_t bm_mask = bm_init_mask;
       cmn::read_uint64(t, bm_leaf);
@@ -229,39 +225,44 @@ class grp_ptr_data_map {
           bm_mask <<= diff;
       }
       while (t < t_upto) {
-        if (is_val) {
-          if (bm_leaf & bm_mask) {
-            uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, 8);
-            ptr_bit_count -= 8;
-            ptr_bit_count += code_lookup_tbl[(ptr & 0xFF) * 2 + 1];
-          }
-        } else {
-        if (bm_ptr & bm_mask)
-          ptr_bit_count += code_lookup_tbl[*t * 2 + 1];
+        if (bm_leaf & bm_mask) {
+          uint32_t ptr = read_next_8(node_id, ptr_bit_count);
+          ptr_bit_count += code_lookup_tbl[(ptr & 0xFF) * 2];
         }
         bm_mask <<= 1;
         t++;
       }
+      return ptr_bit_count;
     }
 
-    void get_ptr_bit_count(uint32_t node_id, uint32_t& ptr_bit_count, bool is_val = false) {
+    uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
       uint32_t block_count = (node_id - block_start_node_id) / 64;
-      ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_count * 4);
-      uint8_t *t = trie_loc + block_count * 96;
-      scan_nodes_ptr_bits(node_id, t, ptr_bit_count, is_val);
+      uint32_t ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_count * 4);
+      uint8_t *t = trie_loc + block_count * 4 * 24;
+      return scan_ptr_bits_tail(node_id, t, ptr_bit_count);
     }
 
-    // flag pos: 1 1 4 4 7 7 10 10 13 13
-    // trie pos: 0 2 3 5 6 8  9 11 12 14
-    // i:        0 1 2 3 4 5  6  7  8  9
-    uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, int8_t bit_len) {
-      if (ptr_bit_count == 0xFFFFFFFF)
-        get_ptr_bit_count(node_id, ptr_bit_count);
+    uint32_t get_ptr_bit_count_val(uint32_t node_id) {
+      uint32_t block_count = (node_id - block_start_node_id) / 64;
+      uint32_t ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_count * 4);
+      uint8_t *t = trie_loc + block_count * 4 * 24;
+      return scan_ptr_bits_val(node_id, t, ptr_bit_count);
+    }
+
+    uint32_t read_next_8(uint32_t node_id, uint32_t& ptr_bit_count) {
+      uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
+      uint8_t bits_filled = (ptr_bit_count % 8);
+      uint8_t ret = (*ptr_loc++ << bits_filled);
+      ret |= (*ptr_loc >> (8 - bits_filled));
+      return ret;
+    }
+
+    uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, uint8_t bit_len) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_left = 8 - (ptr_bit_count % 8);
       ptr_bit_count += bit_len;
       uint32_t ret = 0;
-      while (bit_len > 0) {
+      do {
         if (bit_len < bits_left) {
           bits_left -= bit_len;
           ret |= ((*ptr_loc >> bits_left) & ((1 << bit_len) - 1));
@@ -272,23 +273,24 @@ class grp_ptr_data_map {
           bits_left = 8;
           ret <<= (bit_len > 8 ? 8 : bit_len);
         }
-      }
+      } while (bit_len > 0);
       return ret;
     }
 
-    uint32_t read_len(uint8_t *tail, uint32_t ptr, uint8_t& len_len) {
+    uint32_t read_len(uint8_t *t, uint8_t& len_len) {
       len_len = 1;
-      if (tail[ptr] < 15)
-        return tail[ptr];
+      if (*t < 15)
+        return *t;
+      t++;
       uint32_t ret = 0;
-      while (tail[++ptr] & 0x80) {
+      while (*t & 0x80) {
         ret <<= 7;
-        ret |= (tail[ptr] & 0x7F);
+        ret |= (*t++ & 0x7F);
         len_len++;
       }
       len_len++;
       ret <<= 4;
-      ret |= (tail[ptr] & 0x0F);
+      ret |= (*t & 0x0F);
       return ret + 15;
     }
 
@@ -331,15 +333,13 @@ class grp_ptr_data_map {
     }
 
     void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
-      uint32_t ptr_bit_count;
-      get_ptr_bit_count(node_id, ptr_bit_count, true);
+      uint32_t ptr_bit_count = get_ptr_bit_count_val(node_id);
       // std::cout << "NODID: " << node_id + 1 << ", block_bit_count: " << ptr_bit_count;
-      uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, 8);
+      uint32_t ptr = read_next_8(node_id, ptr_bit_count);
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + (ptr & 0xFF) * 2;
+      uint8_t bit_len = *lookup_tbl_ptr++;
       uint8_t grp_no = *lookup_tbl_ptr & 0x1F;
-      uint8_t code_len = *lookup_tbl_ptr++ >> 5;
-      uint8_t bit_len = *lookup_tbl_ptr;
-      ptr_bit_count -= 8;
+      uint8_t code_len = *lookup_tbl_ptr >> 5;
       ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len);
       ptr &= ((1 << (bit_len - code_len)) - 1);
       if (grp_no < grp_idx_limit)
@@ -356,13 +356,16 @@ class grp_ptr_data_map {
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
+      uint8_t bit_len = *lookup_tbl_ptr++;
       grp_no = *lookup_tbl_ptr & 0x1F;
-      uint8_t code_len = *lookup_tbl_ptr++ >> 5;
-      uint8_t bit_len = *lookup_tbl_ptr;
+      uint8_t code_len = *lookup_tbl_ptr >> 5;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
-      if (bit_len > 0)
+      if (bit_len > 0) {
+        if (ptr_bit_count == 0xFFFFFFFF)
+          ptr_bit_count = get_ptr_bit_count_tail(node_id);
         ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits);
+      }
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
       return ptr;
@@ -376,20 +379,20 @@ class grp_ptr_data_map {
 
     //const int max_tailset_len = 129;
     void get_tail_str(byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
-      uint32_t ptr = tail_ptr;
       uint8_t *tail = grp_data[grp_no];
       ret.clear();
-      int byt = tail[ptr++];
+      uint8_t *t = tail + tail_ptr;
+      uint8_t byt = *t++;
       while (byt > 31) {
         ret.append(byt);
-        byt = tail[ptr++];
+        byt = *t++;
       }
-      if (tail[--ptr] == 0)
+      if (byt == 0)
         return;
       uint8_t len_len = 0;
-      uint32_t sfx_len = read_len(tail, ptr, len_len);
+      uint32_t sfx_len = read_len(t - 1, len_len);
       uint32_t ptr_end = tail_ptr;
-      ptr = tail_ptr;
+      uint32_t ptr = tail_ptr;
       do {
         byt = tail[ptr--];
       } while (byt != 0 && ptr);
@@ -412,7 +415,7 @@ class grp_ptr_data_map {
           last_str.append(byt);
           byt = tail[++ptr];
         }
-        uint32_t prev_sfx_len = read_len(tail, ptr, len_len);
+        uint32_t prev_sfx_len = read_len(tail + ptr, len_len);
         last_str.append(prev_str.data() + prev_str.length()-prev_sfx_len, prev_sfx_len);
         ptr += len_len;
         ptr--;

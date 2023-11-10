@@ -635,8 +635,8 @@ class freq_grp_ptrs_data {
           uint8_t code_len = freq_grp_vec[j].code_len;
           uint8_t code = freq_grp_vec[j].code;
           if ((code_i >> (8 - code_len)) == code) {
-            fputc((j - 1) | (code_len << 5), fp);
             fputc(freq_grp_vec[j].grp_log2, fp);
+            fputc((j - 1) | (code_len << 5), fp);
             code_found = true;
             break;
           }
@@ -1573,6 +1573,8 @@ class fragment_builder {
         byte_vec64.push_back(node_val);
         fragment_node_count++;
       }
+      if (get_uniq_val_count() > 0) // read beyond protection
+        tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8);
       if (fragment_node_count % 64) {
         append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
         append_byte_vec(trie, byte_vec64);
