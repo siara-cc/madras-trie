@@ -2,6 +2,7 @@
 #define STATIC_DICT_H
 
 #include <stdlib.h>
+#include <math.h>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
@@ -165,6 +166,7 @@ class grp_ptr_data_map {
   private:
     uint8_t *ptr_lookup_tbl_loc;
     uint8_t *grp_data_loc;
+    uint8_t start_bits;
     uint32_t two_byte_tail_count;
     uint32_t idx2_ptr_count;
     uint8_t idx2_ptr_size;
@@ -186,7 +188,6 @@ class grp_ptr_data_map {
     uint32_t (*read_idx_ptr)(uint8_t *) = &cmn::read_uint24;
     uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
       int idx_map_start = idx_map_arr[grp_no];
-      // std::cout << (int) grp_no << ", " << (int) grp_idx_limit << ", " << idx_map_start << ", " << ptr << std::endl;
       ptr = read_idx_ptr(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size);
       return ptr;
     }
@@ -223,7 +224,7 @@ class grp_ptr_data_map {
       }
       while (t < t_upto) {
         if (bm_leaf & bm_mask) {
-          uint8_t ptr = read_next_8(node_id, ptr_bit_count);
+          uint8_t ptr = read_ptr_bits8(node_id, ptr_bit_count);
           ptr_bit_count += code_lookup_tbl[ptr * 2];
         }
         bm_mask <<= 1;
@@ -235,7 +236,7 @@ class grp_ptr_data_map {
     uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
       uint32_t block_count = (node_id - block_start_node_id) / 64;
       uint32_t ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_count * 4);
-      uint8_t *t = trie_loc + block_count * 4 * 24;
+      uint8_t *t = trie_loc + block_count * 96;
       return scan_ptr_bits_tail(node_id, t, ptr_bit_count);
     }
 
@@ -246,7 +247,7 @@ class grp_ptr_data_map {
       return scan_ptr_bits_val(node_id, t, ptr_bit_count);
     }
 
-    uint8_t read_next_8(uint32_t node_id, uint32_t& ptr_bit_count) {
+    uint8_t read_ptr_bits8(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_filled = (ptr_bit_count % 8);
       uint8_t ret = (*ptr_loc++ << bits_filled);
@@ -254,23 +255,17 @@ class grp_ptr_data_map {
       return ret;
     }
 
-    uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, uint8_t bit_len) {
+    uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, int bits_left) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
-      uint8_t bits_left = 8 - (ptr_bit_count % 8);
-      ptr_bit_count += bit_len;
-      uint32_t ret = 0;
-      do {
-        if (bit_len < bits_left) {
-          bits_left -= bit_len;
-          ret |= ((*ptr_loc >> bits_left) & ((1 << bit_len) - 1));
-          bit_len = 0;
-        } else {
-          ret |= (*ptr_loc++ & ((1 << bits_left) - 1));
-          bit_len -= bits_left;
-          bits_left = 8;
-          ret <<= (bit_len > 8 ? 8 : bit_len);
-        }
-      } while (bit_len > 0);
+      uint8_t bits_occu = (ptr_bit_count % 8);
+      ptr_bit_count += bits_left;
+      bits_left += (bits_occu - 8);
+      uint32_t ret = *ptr_loc++ & (0xFF >> bits_occu);
+      while (bits_left > 0) {
+        ret = (ret << 8) | *ptr_loc++;
+        bits_left -= 8;
+      }
+      ret >>= (bits_left * -1);
       return ret;
     }
 
@@ -310,8 +305,10 @@ class grp_ptr_data_map {
       two_byte_tail_count = cmn::read_uint32(tails_loc + 8);
       idx2_ptr_count = cmn::read_uint32(tails_loc + 12);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
-      grp_idx_limit = (idx2_ptr_count >> 23) & 0x7F;
-      idx2_ptr_count &= 0x00FFFFFF;
+      start_bits = (idx2_ptr_count >> 20) & 0x0F;
+      grp_idx_limit = (idx2_ptr_count >> 24) & 0x7F;
+      idx2_ptr_count &= 0x000FFFFF;
+      //dict_printf("Start_bits: %d, idx2_ptr_size: %d, idx2_ptr_count, %d, grp_idx_limit: %d\n", (int) start_bits, (int) idx2_ptr_size, idx2_ptr_count, grp_idx_limit);
       ptrs_loc = dict_buf + cmn::read_uint32(tails_loc + 16);
       two_byte_tails_loc = dict_buf + cmn::read_uint32(tails_loc + 20);
       idx2_ptrs_map_loc = dict_buf + cmn::read_uint32(tails_loc + 24);
@@ -321,18 +318,20 @@ class grp_ptr_data_map {
       uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
       for (int i = 0; i <= last_grp_no; i++)
         grp_data.push_back(dict_buf + cmn::read_uint32(grp_data_idx_start + i * 4));
-      if (idx2_ptr_size == 2) {
-        idx_map_arr[1] = 256;
-        idx_map_arr[2] = 256 + 2048;
-        idx_map_arr[3] = 256 + 2048 + 16384;
-        read_idx_ptr = &cmn::cmn::read_uint16;
+      int _start_bits = start_bits;
+      for (int i = 1; i <= grp_idx_limit; i++) {
+        idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
+        _start_bits += 3;
+        //dict_printf("idx_map_arr[%d] = %d\n", i, idx_map_arr[i]);
       }
+      if (idx2_ptr_size == 2)
+        read_idx_ptr = &cmn::cmn::read_uint16;
     }
 
     void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
       uint32_t ptr_bit_count = get_ptr_bit_count_val(node_id);
       // std::cout << "NODID: " << node_id + 1 << ", block_bit_count: " << ptr_bit_count;
-      uint32_t ptr = read_next_8(node_id, ptr_bit_count);
+      uint32_t ptr = read_ptr_bits8(node_id, ptr_bit_count);
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + (ptr & 0xFF) * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       uint8_t grp_no = *lookup_tbl_ptr & 0x1F;

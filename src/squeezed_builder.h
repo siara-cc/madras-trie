@@ -479,6 +479,7 @@ class freq_grp_ptrs_data {
     byte_vec idx2_ptrs_map;
     int last_byte_bits;
     int idx_limit;
+    int start_bits;
     uint8_t idx_ptr_size;
     uint32_t next_idx;
     uint32_t ptr_lookup_tbl;
@@ -501,26 +502,25 @@ class freq_grp_ptrs_data {
     int get_idx_limit() {
       return idx_limit;
     }
-    void set_idx_limit(int new_idx_limit) {
+    int idx_map_arr[6] = {0, 384, 3456, 28032, 224640, 1797504};
+    void set_idx_info(int _start_bits, int new_idx_limit, uint8_t _idx_ptr_size) {
+      start_bits = _start_bits;
       idx_limit = new_idx_limit;
+      idx_ptr_size = _idx_ptr_size;
+      for (int i = 1; i <= idx_limit; i++) {
+        idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx_ptr_size;
+        _start_bits += 3;
+        //bldr_printf("idx_map_arr[%d] = %d\n", i, idx_map_arr[i]);
+      }
     }
     int get_idx_ptr_size() {
       return idx_ptr_size;
     }
     uint32_t get_idx2_ptrs_count() {
-      uint32_t idx2_ptr_count = idx2_ptrs_map.size() / get_idx_ptr_size() + (get_idx_limit() << 23);
+      uint32_t idx2_ptr_count = idx2_ptrs_map.size() / get_idx_ptr_size() + (start_bits << 20) + (get_idx_limit() << 24);
       if (get_idx_ptr_size() == 3)
         idx2_ptr_count |= 0x80000000;
       return idx2_ptr_count;
-    }
-    int idx_map_arr[6] = {0, 384, 3456, 28032, 224640, 1797504};
-    void set_idx_ptr_size(uint8_t _idx_ptr_size) {
-      idx_ptr_size = _idx_ptr_size;
-      if (idx_ptr_size == 2) {
-        idx_map_arr[1] = 256;
-        idx_map_arr[2] = 256 + 2048;
-        idx_map_arr[3] = 256 + 2048 + 16384;
-      }
     }
     void add_freq_grp(freq_grp freq_grp) {
       freq_grp_vec.push_back(freq_grp);
@@ -627,7 +627,7 @@ class freq_grp_ptrs_data {
       idx2_ptr_count = get_idx2_ptrs_count();
       idx2_ptrs_map_loc = two_byte_tails_loc + 0; // todo: fix two_byte_tails.size();
     }
-    void write_code_lookup_tbl(FILE* fp) {
+    void write_code_lookup_tbl(bool is_tail, FILE* fp) {
       for (int i = 0; i < 256; i++) {
         uint8_t code_i = i;
         bool code_found = false;
@@ -635,7 +635,10 @@ class freq_grp_ptrs_data {
           uint8_t code_len = freq_grp_vec[j].code_len;
           uint8_t code = freq_grp_vec[j].code;
           if ((code_i >> (8 - code_len)) == code) {
-            fputc(freq_grp_vec[j].grp_log2, fp);
+            int bit_len = freq_grp_vec[j].grp_log2;
+            // if (!is_tail && bit_len > code_len)
+            //   bit_len -= code_len;
+            fputc(bit_len, fp);
             fputc((j - 1) | (code_len << 5), fp);
             code_found = true;
             break;
@@ -648,11 +651,11 @@ class freq_grp_ptrs_data {
         }
       }
     }
-    void write_grp_data(uint32_t offset, FILE* fp) {
+    void write_grp_data(uint32_t offset, bool is_tail, FILE* fp) {
       int grp_count = grp_data.size();
       fputc(grp_count - 1, fp);
       fputc(freq_grp_vec[grp_count].grp_log2, fp);
-      write_code_lookup_tbl(fp);
+      write_code_lookup_tbl(is_tail, fp);
       uint32_t total_data_size = 0;
       for (int i = 0; i < grp_count; i++) {
         gen::write_uint32(offset + grp_count * 4 + total_data_size, fp);
@@ -717,7 +720,7 @@ class freq_grp_ptrs_data {
       pts = ftell(fp) - pts;
       // std::cout << "Pts: " << pts << std::endl;
       // std::cout << "Plt: " << ptr_lookup_tbl << std::endl;
-      write_grp_data(grp_tails_loc + 514, fp); // group count, 512 lookup tbl, tail locs, tails
+      write_grp_data(grp_tails_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
       write_ptrs(fp);
       fwrite(all_nodes.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
       byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
@@ -945,39 +948,77 @@ class tail_val_maps {
 
     }
 
-    uint32_t make_uniq_freq(ptr_vals_info_vec& uniq_arr_vec, ptr_vals_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& tot_data_len, uint32_t start_bits, uint8_t& grp_no) {
+    const double idx_cost_frac_cutoff = 0.2;
+    uint32_t make_uniq_freq(ptr_vals_info_vec& uniq_arr_vec, ptr_vals_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& last_data_len, uint8_t& start_bits, uint8_t& grp_no) {
       clock_t t = clock();
       uniq_freq_vec = uniq_arr_vec;
       std::sort(uniq_freq_vec.begin(), uniq_freq_vec.end(), [this](const struct ptr_vals_info *lhs, const struct ptr_vals_info *rhs) -> bool {
         return lhs->freq_count > rhs->freq_count;
       });
-      uint32_t ftot = 0;
-      tot_data_len = 0;
-      grp_no = 1;
-      uint32_t nxt_idx_limit = pow(2, start_bits);
-      uint32_t remain_freq = tot_freq_count;
+
+      uint32_t sum_freq = 0;
+      for (int i = 0; i < uniq_freq_vec.size(); i++) {
+        ptr_vals_info *vi = uniq_freq_vec[i];
+        sum_freq += vi->freq_count;
+        double bit_width = log2(tot_freq_count / sum_freq);
+        if (bit_width > 1.8 && bit_width < 2.1) {
+          bldr_printf("Bit width: %.2f, start_bits: %d\n", bit_width, (int) start_bits);
+          break;
+        }
+        if (i >= pow(2, start_bits))
+          start_bits++;
+        if (start_bits > 8) {
+          start_bits = 7;
+          break;
+        }
+      }
+
+      sum_freq = 0;
       int freq_idx = 0;
+      last_data_len = 0;
+      uint32_t cutoff_bits = start_bits;
+      uint32_t nxt_idx_limit = pow(2, cutoff_bits);
+      for (int i = 0; i < uniq_freq_vec.size(); i++) {
+        ptr_vals_info *vi = uniq_freq_vec[i];
+        if (last_data_len >= nxt_idx_limit) {
+          double cost_frac = nxt_idx_limit * 3;
+          cost_frac /= (sum_freq * cutoff_bits / 8);
+          if (cost_frac > idx_cost_frac_cutoff)
+            break;
+          sum_freq = 0;
+          freq_idx = 0;
+          last_data_len = 0;
+          cutoff_bits += 3;
+          nxt_idx_limit = pow(2, cutoff_bits);
+        }
+        last_data_len += vi->len;
+        last_data_len++;
+        sum_freq += vi->freq_count;
+        freq_idx++;
+      }
+
+      last_data_len = 0;
+      grp_no = 1;
+      freq_idx = 0;
       uint32_t cumu_freq_idx;
+      uint32_t next_bits = start_bits;
+      nxt_idx_limit = pow(2, next_bits);
       for (cumu_freq_idx = 0; cumu_freq_idx < uniq_freq_vec.size(); cumu_freq_idx++) {
         ptr_vals_info *vi = uniq_freq_vec[cumu_freq_idx];
-        if (cumu_freq_idx == nxt_idx_limit) {
-          start_bits += 3;
-          nxt_idx_limit += pow(2, start_bits);
-          if (remain_freq < pow(2, start_bits) * 3 || start_bits == 19)
+        if (freq_idx == nxt_idx_limit) {
+          next_bits += 3;
+          if (next_bits >= cutoff_bits)
             break;
-          // bldr_printf("%.1f\t%d\t%u\t%u\n", ceil(log2(freq_idx)), freq_idx, ftot, tail_len_tot);
+          nxt_idx_limit = pow(2, next_bits);
           grp_no++;
           freq_idx = 0;
-          ftot = 0;
-          tot_data_len = 0;
+          last_data_len = 0;
         }
         vi->grp_no = grp_no;
         vi->ptr = freq_idx;
-        ftot += vi->freq_count;
-        tot_data_len += vi->len;
-        tot_data_len++;
+        last_data_len += vi->len;
+        last_data_len++;
         freq_idx++;
-        remain_freq -= vi->freq_count;
       }
       // cumu_freq_idx = 0;
       //printf("%.1f\t%d\t%u\t%u\n", ceil(log2(freq_idx)), freq_idx, ftot, tail_len_tot);
@@ -1015,12 +1056,12 @@ class tail_val_maps {
 
       uniq_tails_info_vec uniq_tails_freq;
       uint8_t grp_no;
-      uint32_t tot_data_len;
-      uint32_t cumu_freq_idx = make_uniq_freq((ptr_vals_info_vec&) uniq_tails_rev, (ptr_vals_info_vec&) uniq_tails_freq, tot_freq_count, tot_data_len, 7, grp_no);
-      tail_ptrs.set_idx_limit(grp_no);
-      tail_ptrs.set_idx_ptr_size(tot_data_len > 65535 ? 3 : 2);
+      uint32_t last_data_len;
+      uint8_t start_bits = 7;
+      uint32_t cumu_freq_idx = make_uniq_freq((ptr_vals_info_vec&) uniq_tails_rev, (ptr_vals_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
+      tail_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
 
-      uint32_t freq_pos = 1;
+      uint32_t freq_pos = cumu_freq_idx;
       uniq_tails_info *prev_ti = uniq_tails_freq[0];
       while (freq_pos < uniq_tails_freq.size()) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
@@ -1094,9 +1135,9 @@ class tail_val_maps {
 
       freq_pos = 0;
       grp_no = 1;
-      uint32_t cur_limit = 128;
+      uint32_t cur_limit = pow(2, start_bits);
       tail_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      tail_ptrs.add_freq_grp((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0, 0, 0});
+      tail_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
       uint32_t savings_partial = 0;
@@ -1184,7 +1225,7 @@ class tail_val_maps {
           ti->grp_no = grp_no;
         }
       }
-      bldr_printf("Savings full: %u, %u\tPartial: %u, %u\tSfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
+      bldr_printf("Savings full: %u, %u / Partial: %u, %u / Sfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
 
       for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
@@ -1238,14 +1279,14 @@ class tail_val_maps {
         tot_freq_count = make_uniq_vals(all_nodes, all_vals, start_node_id, end_node_id);
         if (uniq_vals_fwd.size() > 0) {
           ptr_vals_info_vec uniq_vals_freq;
-          cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, tot_data_len, 7, grp_no);
-          val_ptrs.set_idx_limit(grp_no);
-          val_ptrs.set_idx_ptr_size(tot_data_len > 65535 ? 3 : 2);
+          start_bits = 7;
+          cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
+          val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
           freq_pos = 0;
           grp_no = 1;
-          uint32_t cur_limit = 128;
+          cur_limit = pow(2, start_bits);
           val_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-          val_ptrs.add_freq_grp((freq_grp) {grp_no, (uint8_t) log2(cur_limit), cur_limit, 0, 0, 0, 0, 0});
+          val_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
           while (freq_pos < uniq_vals_freq.size()) {
             ptr_vals_info *vi = uniq_vals_freq[freq_pos];
             freq_pos++;
