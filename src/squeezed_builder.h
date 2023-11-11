@@ -957,19 +957,22 @@ class tail_val_maps {
       });
 
       uint32_t sum_freq = 0;
-      for (int i = 0; i < uniq_freq_vec.size(); i++) {
-        ptr_vals_info *vi = uniq_freq_vec[i];
-        sum_freq += vi->freq_count;
-        double bit_width = log2(tot_freq_count / sum_freq);
-        if (bit_width > 1.8 && bit_width < 2.1) {
-          bldr_printf("Bit width: %.2f, start_bits: %d\n", bit_width, (int) start_bits);
-          break;
-        }
-        if (i >= pow(2, start_bits))
-          start_bits++;
-        if (start_bits > 8) {
-          start_bits = 7;
-          break;
+      if (start_bits < 7) {
+        for (int i = 0; i < uniq_freq_vec.size(); i++) {
+          ptr_vals_info *vi = uniq_freq_vec[i];
+          if (i >= pow(2, start_bits)) {
+            double bit_width = log2(tot_freq_count / sum_freq);
+            if (bit_width < 1.1) {
+              bldr_printf("i: %d, freq: %u, Bit width: %.9f, start_bits: %d\n", i, sum_freq, bit_width, (int) start_bits);
+              break;
+            }
+            start_bits++;
+          }
+          if (start_bits > 7) {
+            start_bits = 7;
+            break;
+          }
+          sum_freq += vi->freq_count;
         }
       }
 
@@ -2115,7 +2118,7 @@ class builder {
     std::string build() {
 
       clock_t t = clock();
-      bldr_printf("Key count: %u\n", key_count);
+      printf("Key count: %u\n", key_count);
 
       //set_level(1, 0);
       sort_nodes();
