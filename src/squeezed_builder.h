@@ -948,7 +948,7 @@ class tail_val_maps {
 
     }
 
-    const double idx_cost_frac_cutoff = 0.2;
+    const double idx_cost_frac_cutoff = 0.1;
     uint32_t make_uniq_freq(ptr_vals_info_vec& uniq_arr_vec, ptr_vals_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& last_data_len, uint8_t& start_bits, uint8_t& grp_no) {
       clock_t t = clock();
       uniq_freq_vec = uniq_arr_vec;
@@ -981,7 +981,7 @@ class tail_val_maps {
       for (int i = 0; i < uniq_freq_vec.size(); i++) {
         ptr_vals_info *vi = uniq_freq_vec[i];
         if (last_data_len >= nxt_idx_limit) {
-          double cost_frac = nxt_idx_limit * 3;
+          double cost_frac = last_data_len + nxt_idx_limit * 3;
           cost_frac /= (sum_freq * cutoff_bits / 8);
           if (cost_frac > idx_cost_frac_cutoff)
             break;
@@ -997,9 +997,9 @@ class tail_val_maps {
         freq_idx++;
       }
 
-      last_data_len = 0;
       grp_no = 1;
       freq_idx = 0;
+      last_data_len = 0;
       uint32_t cumu_freq_idx;
       uint32_t next_bits = start_bits;
       nxt_idx_limit = pow(2, next_bits);
@@ -1007,8 +1007,9 @@ class tail_val_maps {
         ptr_vals_info *vi = uniq_freq_vec[cumu_freq_idx];
         if (freq_idx == nxt_idx_limit) {
           next_bits += 3;
-          if (next_bits >= cutoff_bits)
+          if (next_bits >= cutoff_bits) {
             break;
+          }
           nxt_idx_limit = pow(2, next_bits);
           grp_no++;
           freq_idx = 0;
@@ -1061,14 +1062,14 @@ class tail_val_maps {
       uint32_t cumu_freq_idx = make_uniq_freq((ptr_vals_info_vec&) uniq_tails_rev, (ptr_vals_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
       tail_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
 
-      uint32_t freq_pos = cumu_freq_idx;
-      uniq_tails_info *prev_ti = uniq_tails_freq[0];
+      uint32_t freq_pos = 0;
+      uniq_tails_info *prev_ti = uniq_tails_freq[freq_pos];
       while (freq_pos < uniq_tails_freq.size()) {
         uniq_tails_info *ti = uniq_tails_freq[freq_pos];
         freq_pos++;
         int cmp = gen::compare_rev(uniq_tails.data() + prev_ti->pos, prev_ti->len, uniq_tails.data() + ti->pos, ti->len);
         cmp--;
-        if (cmp == ti->len || cmp > 1) {
+        if (cmp == ti->len || (freq_pos >= cumu_freq_idx && cmp > 1)) {
           ti->flags |= (cmp == ti->len ? UTI_FLAG_SUFFIX_FULL : UTI_FLAG_SUFFIX_PARTIAL);
           ti->cmp_rev = cmp;
           if (ti->cmp_rev_max < cmp)
@@ -1279,7 +1280,7 @@ class tail_val_maps {
         tot_freq_count = make_uniq_vals(all_nodes, all_vals, start_node_id, end_node_id);
         if (uniq_vals_fwd.size() > 0) {
           ptr_vals_info_vec uniq_vals_freq;
-          start_bits = 7;
+          start_bits = 1;
           cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
           val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
           freq_pos = 0;
