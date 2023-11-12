@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <string>
 
 #include "squeezed.h"
 #include "squeezed_builder.h"
@@ -59,11 +60,14 @@ int main(int argc, char *argv[]) {
   t = print_time_taken(t, "Time taken for build: ");
 
   squeezed::static_dict dict_reader; //, &sb);
+  dict_reader.set_print_enabled(true);
   dict_reader.load(out_file);
   //dict_reader.dump_tail_ptrs();
 
   int val_len;
+  uint8_t key_buf[100];
   uint8_t val_buf[100];
+  squeezed::dict_iter_ctx dict_ctx;
 
   // dict_reader.dump_vals();
 
@@ -95,18 +99,28 @@ int main(int argc, char *argv[]) {
     if (line.compare("understand that there is a") == 0)
       ret = 1;
 
+    int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    if (key_len != line.length())
+      printf("Len mismatch: [%.*s], %u, %u\n", (int) line.length(), line.c_str(), key_len, val_len);
+    else {
+      if (memcmp(line.c_str(), key_buf, key_len) != 0)
+        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
+      if (memcmp(line.substr(0, line.length() > 3 ? 4 : line.length()).c_str(), val_buf, val_len) != 0)
+        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 3 ? 4 : line.length()), line.c_str(), val_len, val_buf);
+    }
+
     // dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
     // if (ret < 0)
     //   std::cout << ret << ": " << line << std::endl;
 
-    bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
-    if (success) {
-      ret = 0;
-      val_buf[val_len] = 0;
-      if (line.substr(0, 4).compare((const char *) val_buf) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
-    } else
-      std::cout << ret << ": " << line << std::endl;
+    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    // if (success) {
+    //   ret = 0;
+    //   val_buf[val_len] = 0;
+    //   if (line.substr(0, 4).compare((const char *) val_buf) != 0)
+    //     printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    // } else
+    //   std::cout << ret << ": " << line << std::endl;
 
     // int ret, key_pos, cmp;
     // uint32_t n_id;

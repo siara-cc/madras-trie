@@ -387,7 +387,13 @@ class grp_ptr_data_map {
       return ptr;
     }
 
-    void get_tail_str(byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t max_tail_len, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no) {
+    void get_tail_str(byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t max_tail_len, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no, bool is_ptr) {
+      ret.clear();
+      if (!is_ptr) {
+        ret.append(node_byte);
+        return;
+      }
+      ptr_bit_count = 0xFFFFFFFF;
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       get_tail_str(ret, tail_ptr, grp_no, max_tail_len);
     }
@@ -864,10 +870,10 @@ class static_dict {
         ctx.child_count.push_back(cv.child_count);
         ctx.node_path.push_back(cv.node_id);
         ctx.node_frag.push_back(cv.cur_frag_idx);
-        ctx.ptr_bit_count.push_back(cv.ptr_bit_count);
-        ctx.last_tail_len.push_back(cv.tail.length());
-        for (int i = 0; i < cv.tail.length(); i++)
-          ctx.key.push_back(cv.tail[i]);
+        //ctx.ptr_bit_count.push_back(cv.ptr_bit_count);
+        ctx.last_tail_len.push_back(0); //cv.tail.length());
+        // for (int i = 0; i < cv.tail.length(); i++)
+        //   ctx.key.push_back(cv.tail[i]);
       }
     }
 
@@ -875,11 +881,16 @@ class static_dict {
       ctx.child_count[ctx.cur_idx] = cv.child_count;
       ctx.node_path[ctx.cur_idx] = cv.node_id;
       ctx.node_frag[ctx.cur_idx] = cv.cur_frag_idx;
-      ctx.ptr_bit_count[ctx.cur_idx] = cv.ptr_bit_count;
+      //ctx.ptr_bit_count[ctx.cur_idx] = cv.ptr_bit_count;
       ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
       ctx.last_tail_len[ctx.cur_idx] = cv.tail.length();
       for (int i = 0; i < cv.tail.length(); i++)
         ctx.key.push_back(cv.tail[i]);
+    }
+
+    void clear_last_tail(dict_iter_ctx& ctx) {
+      ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
+      ctx.last_tail_len[ctx.cur_idx] = 0;
     }
 
     void pop_from_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
@@ -893,11 +904,12 @@ class static_dict {
       cv.node_id = ctx.node_path[ctx.cur_idx];
       cv.cur_frag_idx = ctx.node_frag[ctx.cur_idx];
       cv.cur_frag = &fragments[cv.cur_frag_idx];
+      //cv.ptr_bit_count = ctx.ptr_bit_count[ctx.cur_idx];
       cv.t = cv.cur_frag->trie_loc + (cv.node_id - cv.cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
       if (cv.node_id % 64) {
         cv.t = read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
         cv.t += cv.node_id % 64;
-        cv.bm_mask <<= (cv.node_id % 64);
+        cv.bm_mask = bm_init_mask << (cv.node_id % 64);
       }
     }
 
@@ -912,8 +924,6 @@ class static_dict {
           cv.bm_mask = bm_init_mask;
           cv.t = read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
         }
-        if (cv.bm_mask & cv.bm_child) // ????
-          cv.child_count++;
         if (cv.bm_mask & cv.bm_leaf) {
           if (to_skip_first_leaf) {
             if ((cv.bm_mask & cv.bm_child) == 0) {
@@ -924,21 +934,25 @@ class static_dict {
               }
               cv.bm_mask <<= 1;
               cv.node_id++;
-              cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.tail_ptr, cv.grp_no, max_tail_len);
+              cv.t++;
               update_ctx(ctx, cv);
               to_skip_first_leaf = false;
               continue;
             }
           } else {
-            cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.tail_ptr, cv.grp_no, max_tail_len);
+            cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
-            cv.cur_frag->tail_map.get_val(cv.node_id, val_buf_len, val_buf);
-            return ctx.key.size();
+            int key_len = ctx.key.size();
+            memcpy(key_buf, ctx.key.data(), key_len);
+            clear_last_tail(ctx);
+            cv.cur_frag->val_map.get_val(cv.node_id, val_buf_len, val_buf);
+            return key_len;
           }
         }
         to_skip_first_leaf = false;
         if (cv.bm_mask & cv.bm_child) {
-          cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.tail_ptr, cv.grp_no, max_tail_len);
+          cv.child_count++;
+          cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
           update_ctx(ctx, cv);
           cv.t = find_child(cv.node_id, cv.child_count, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
           cv.cur_frag_idx = which_fragment(cv.node_id, cv.cur_frag_idx);
