@@ -50,8 +50,8 @@ int main(int argc, char *argv[]) {
         cout.flush();
       }
     }
+    infile.close();
   }
-  infile.close();
   std::cout << std::endl;
   t = print_time_taken(t, "Time taken for insert/append: ");
 
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
   //dict_reader.dump_tail_ptrs();
 
   int val_len;
-  uint8_t key_buf[100];
+  uint8_t key_buf[1000];
   uint8_t val_buf[100];
   squeezed::dict_iter_ctx dict_ctx;
 
@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
       ret = 1;
     if (line.compare("a7iv") == 0)
       ret = 1;
-    if (line.compare("they arrest") == 0)
+    if (line.compare("a 110") == 0)
       ret = 1;
     if (line.compare("they argued") == 0)
       ret = 1;
@@ -113,14 +113,14 @@ int main(int argc, char *argv[]) {
     // if (ret < 0)
     //   std::cout << ret << ": " << line << std::endl;
 
-    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
-    // if (success) {
-    //   ret = 0;
-    //   val_buf[val_len] = 0;
-    //   if (line.substr(0, 4).compare((const char *) val_buf) != 0)
-    //     printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
-    // } else
-    //   std::cout << ret << ": " << line << std::endl;
+    bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    if (success) {
+      ret = 0;
+      val_buf[val_len] = 0;
+      if (line.substr(0, 4).compare((const char *) val_buf) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    } else
+      std::cout << ret << ": " << line << std::endl;
 
     // int ret, key_pos, cmp;
     // uint32_t n_id;
