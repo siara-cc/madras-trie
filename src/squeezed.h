@@ -520,8 +520,13 @@ class static_dict {
     uint8_t *dict_buf;
     size_t dict_size;
 
+    uint8_t lvl1_node_count;
+    uint8_t *lvl1_sorted_nids;
     uint32_t node_count;
     uint32_t common_node_count;
+    uint32_t key_count;
+    uint32_t max_key_len;
+    uint32_t max_val_len;
     uint32_t child_cache_count;
     uint32_t bv_block_count;
     uint32_t max_tail_len;
@@ -539,6 +544,7 @@ class static_dict {
     static_dict& operator=(static_dict const&);
 
   public:
+    uint32_t last_exit_loc;
     uint32_t sec_cache_count;
     uint8_t *sec_cache_loc;
     static_dict() {
@@ -567,19 +573,24 @@ class static_dict {
       fclose(fp);
 
       fragment_count = dict_buf[2];
-      node_count = cmn::read_uint32(dict_buf + 3);
+      lvl1_node_count = dict_buf[3];
+      node_count = cmn::read_uint32(dict_buf + 4);
       bv_block_count = node_count / nodes_per_bv_block;
-      common_node_count = cmn::read_uint32(dict_buf + 7);
-      max_tail_len = cmn::read_uint32(dict_buf + 11) + 1;
-      child_cache_count = cmn::read_uint32(dict_buf + 15);
-      sec_cache_count = cmn::read_uint32(dict_buf + 19);
-      child_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 23);
-      sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 27);
+      lvl1_sorted_nids = dict_buf + cmn::read_uint32(dict_buf + 8);
+      common_node_count = cmn::read_uint32(dict_buf + 12);
+      key_count = cmn::read_uint32(dict_buf + 16);
+      max_key_len = cmn::read_uint32(dict_buf + 20);
+      max_val_len = cmn::read_uint32(dict_buf + 24);
+      max_tail_len = cmn::read_uint32(dict_buf + 28) + 1;
+      child_cache_count = cmn::read_uint32(dict_buf + 32);
+      sec_cache_count = cmn::read_uint32(dict_buf + 36);
+      child_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 40);
+      sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 44);
 
-      select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 31);
-      trie_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 35);
-      leaf_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 39);
-      fragment_tbl_loc = dict_buf + cmn::read_uint32(dict_buf + 43);
+      select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 48);
+      trie_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 52);
+      leaf_bv_loc = dict_buf + cmn::read_uint32(dict_buf + 56);
+      fragment_tbl_loc = dict_buf + cmn::read_uint32(dict_buf + 60);
 
       uint32_t start_node_id = 0;
       for (int i = 0; i < fragment_count; i++) {
@@ -793,6 +804,7 @@ class static_dict {
           child_count++;
         if (key_byte != trie_byte) {
           if (bm_mask & bm_term) {
+            last_exit_loc = t - dict_buf;
             result = ~INSERT_AFTER;
             return node_id;
           }
@@ -813,6 +825,7 @@ class static_dict {
           key_pos += tail_len;
           if (key_pos < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0) {
+              last_exit_loc = t - dict_buf;
               result = ~INSERT_LEAF;
               return node_id;
             }
@@ -828,16 +841,17 @@ class static_dict {
             continue;
           }
           if (cmp == 0 && key_pos == key_len && (bm_leaf & bm_mask)) {
-            result = node_byte;
-            result <<= 8;
-            result += (bm_ptr & bm_mask ? 1 : 0);
+            result = 0;
+            last_exit_loc = 0;
             return node_id;
           }
           result = ~INSERT_THREAD;
         }
+        last_exit_loc = t - dict_buf;
         result = ~INSERT_BEFORE;
         return node_id;
       } while (node_id < node_count);
+      last_exit_loc = t - dict_buf;
       result = ~INSERT_EMPTY;
       return node_id;
     }
@@ -978,6 +992,10 @@ class static_dict {
         }
       } while (cv.node_id < node_count);
       return 0;
+    }
+
+    uint32_t get_max_key_len() {
+      return max_tail_len;
     }
 
     void dump_vals() {

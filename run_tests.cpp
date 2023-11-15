@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
   std::cout << std::endl;
   t = print_time_taken(t, "Time taken for insert/append: ");
 
-  std::string out_file = sb.build();
+  std::string out_file = sb.build(std::string(argv[1]) + ".rst");
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
 
@@ -86,28 +86,28 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     int ret = 0;
     int frag_idx = 0;
-    if (line.compare("a 1tb") == 0)
-      ret = 1;
-    if (line.compare("a7iv") == 0)
-      ret = 1;
-    if (line.compare("a 110") == 0)
-      ret = 1;
-    if (line.compare("they argued") == 0)
-      ret = 1;
-    if (line.compare("they achieve") == 0)
-      ret = 1;
-    if (line.compare("understand that there is a") == 0)
-      ret = 1;
+    // if (line.compare("a 1tb") == 0)
+    //   ret = 1;
+    // if (line.compare("a7iv") == 0)
+    //   ret = 1;
+    // if (line.compare("a 110") == 0)
+    //   ret = 1;
+    // if (line.compare("they argued") == 0)
+    //   ret = 1;
+    // if (line.compare("they achieve") == 0)
+    //   ret = 1;
+    // if (line.compare("understand that there is a") == 0)
+    //   ret = 1;
 
-    int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
-    if (key_len != line.length())
-      printf("Len mismatch: [%.*s], %u, %u\n", (int) line.length(), line.c_str(), key_len, val_len);
-    else {
-      if (memcmp(line.c_str(), key_buf, key_len) != 0)
-        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
-      if (memcmp(line.substr(0, line.length() > 3 ? 4 : line.length()).c_str(), val_buf, val_len) != 0)
-        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 3 ? 4 : line.length()), line.c_str(), val_len, val_buf);
-    }
+    // int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    // if (key_len != line.length())
+    //   printf("Len mismatch: [%.*s], %u, %u\n", (int) line.length(), line.c_str(), key_len, val_len);
+    // else {
+    //   if (memcmp(line.c_str(), key_buf, key_len) != 0)
+    //     printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
+    //   if (memcmp(line.substr(0, line.length() > 3 ? 4 : line.length()).c_str(), val_buf, val_len) != 0)
+    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 3 ? 4 : line.length()), line.c_str(), val_len, val_buf);
+    // }
 
     // dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
     // if (ret < 0)
