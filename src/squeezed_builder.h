@@ -711,9 +711,9 @@ class freq_grp_ptrs_data {
       gen::write_uint32(tail_ptrs_loc, fp);
       gen::write_uint32(two_byte_tails_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
-      uint32_t pts = ftell(fp);
+      //uint32_t pts = ftell(fp);
       write_ptr_lookup_tbl(all_nodes, get_info_func, is_tail, info_vec, start_nid, end_nid, fp);
-      pts = ftell(fp) - pts;
+      //pts = ftell(fp) - pts;
       // std::cout << "Pts: " << pts << std::endl;
       // std::cout << "Plt: " << ptr_lookup_tbl << std::endl;
       write_grp_data(grp_tails_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
@@ -844,7 +844,7 @@ class tail_val_maps {
       uint8_t *data;
       uint32_t len;
       uint32_t n;
-      uint8_t freq;
+      uint32_t freq;
     };
 
     uint32_t make_uniq_tails(std::vector<node>& all_nodes, byte_block& all_tails, int start_node_id, int end_node_id) {
@@ -857,7 +857,7 @@ class tail_val_maps {
         uint8_t *v = all_tails[n->tail_pos];
         n->v0 = v[0];
         if (n->tail_len > 1 && i > start_node_id && i <= end_node_id) {
-          nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i, 1} );
+          nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i, n->freq_count} );
         }
       }
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_tails,
@@ -1639,20 +1639,20 @@ class fragment_builder {
       fragment_end_loc += (trie_loc + trie.size() + tail_size);
       return prev_block_start_id;
     }
-    void write_fragment(FILE *fp, FILE *fp_val) {
+    uint32_t write_fragment(FILE *fp, FILE *fp_val, uint32_t val_fp_offset) {
       bldr_printf("\nTrie size: %u\n", trie.size());
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
-      if (get_uniq_val_count() == 0)
-        tail_size = 0; // todo: fix
       gen::write_uint32(trie.size(), fp);
-      gen::write_uint32(ftell(fp_val), fp);
+      gen::write_uint32(get_uniq_val_count() > 0 ? val_fp_offset + 1 : 0, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
       bldr_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(all_nodes, start_node_id, end_node_id, fp);
       if (get_uniq_val_count() > 0) {
         bldr_printf("Val stats - ");
         tail_vals.write_val_ptrs_data(all_nodes, start_node_id, end_node_id, fp_val);
+        val_fp_offset += tail_vals.get_val_grp_ptrs()->get_total_size();
       }
+      return val_fp_offset;
     }
     size_t size() {
       size_t ret = 8 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size() + 12;
@@ -2235,8 +2235,9 @@ class builder {
 
       uint32_t total_size = 4 + 15 * 4 + cache_size +
                 select_lookup + trie_bv + leaf_bv;
+      uint32_t val_fp_offset = 0;
       for (int i = 0; i < fragment_count; i++) {
-        map_fragments[i].write_fragment(fp, fp_val);
+        val_fp_offset = map_fragments[i].write_fragment(fp, fp_val, val_fp_offset);
         total_size += map_fragments[i].size();
       }
       write_leaf_bv(fp);
