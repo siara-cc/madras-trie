@@ -13,13 +13,13 @@ using namespace std;
 
 namespace squeezed {
 
-#define INSERT_AFTER 1
-#define INSERT_BEFORE 2
-#define INSERT_LEAF 3
-#define INSERT_EMPTY 4
-#define INSERT_THREAD 5
-#define INSERT_CONVERT 6
-#define INSERT_CHILD_LEAF 7
+#define DCT_INSERT_AFTER -2
+#define DCT_INSERT_BEFORE -3
+#define DCT_INSERT_LEAF -4
+#define DCT_INSERT_EMPTY -5
+#define DCT_INSERT_THREAD -6
+#define DCT_INSERT_CONVERT -7
+#define DCT_INSERT_CHILD_LEAF -8
 
 #define bm_init_mask 0x0000000000000001UL
 #define term_divisor 512
@@ -62,13 +62,13 @@ struct child_cache {
 
 struct cache {
   uint8_t flags;
-  uint8_t child_node_id1;
-  uint8_t child_node_id2;
-  uint8_t child_node_id3;
   uint8_t tail_ptr1;
   uint8_t tail_ptr2;
   uint8_t tail_ptr3;
   uint8_t tail_ptr4;
+  uint8_t child_node_id1;
+  uint8_t child_node_id2;
+  uint8_t child_node_id3;
 };
 
 class byte_str {
@@ -169,17 +169,16 @@ class cmn {
       // }
       // return t;
     }
-    static uint32_t read_vint32(const uint8_t *ptr, int8_t *vlen = 0) {
-        uint32_t ret = 0;
-        int8_t len = 5; // read max 5 bytes
-        do {
-            ret <<= 7;
-            ret += *ptr & 0x7F;
-            len--;
-        } while ((*ptr++ & 0x80) == 0x80 && len);
-        if (vlen)
-            *vlen = 5 - len;
-        return ret;
+    static uint32_t read_vint32(const uint8_t *ptr, int8_t *vlen) {
+      uint32_t ret = 0;
+      int8_t len = 5; // read max 5 bytes
+      do {
+        ret <<= 7;
+        ret += *ptr & 0x7F;
+        len--;
+      } while ((*ptr++ >> 7) && len);
+      *vlen = 5 - len;
+      return ret;
     }
     static uint32_t min(uint32_t v1, uint32_t v2) {
       return v1 < v2 ? v1 : v2;
@@ -485,7 +484,6 @@ class fragment {
       uint8_t *tails_loc = trie_loc + trie_size;
       uint32_t tail_map_size = cmn::read_uint32(_fragment_loc + 4);
       tail_map.init(_dict_buf, trie_loc, _start_nid, _block_start_nid, _end_nid, tails_loc);
-      std::cout << "Val loc; " << tail_map_size << std::endl;
       //if (tail_map_size > 0) // todo: fix
         val_map.init(_val_buf, trie_loc, _start_nid, _block_start_nid, _end_nid, _val_buf + tail_map_size);
     }
@@ -588,8 +586,6 @@ class static_dict {
       stat((filename + ".val").c_str(), &file_stat);
       uint32_t val_size = file_stat.st_size;
       val_buf = (uint8_t *) malloc(val_size);
-
-      std::cout << "Val size: " << val_size << std::endl;
 
       fp = fopen((filename + ".val").c_str(), "rb+");
       fread(val_buf, val_size, 1, fp);
@@ -793,45 +789,113 @@ class static_dict {
       return t;
     }
 
-    #define CACHE_FLAG_PTR 0x04
-    uint8_t get_cache_byte(uint32_t node_id, fragment *cur_frag, uint8_t& grp_no, uint32_t& tail_ptr) {
-      cache *cc = (cache *) (cache_loc + node_id * sizeof(cache));
-      if (cc->flags & CACHE_FLAG_PTR) {
-        grp_no = cc->flags >> 4;
-        tail_ptr = cmn::read_uint32(&cc->tail_ptr1);
-        return cur_frag->tail_map.get_first_byte(tail_ptr, grp_no);
-      } else
-        return cc->tail_ptr1;
+    uint32_t find_child_rank(fragment *cur_frag, uint32_t node_id) {
+      uint8_t *child_rank_ptr = trie_bv_loc + node_id / nodes_per_bv_block * 22 + 4;
+      uint32_t child_rank = cmn::read_uint32(child_rank_ptr);
+      int pos = (node_id / nodes_per_bv_block7) % 8;
+      if (pos > 0) {
+        uint8_t *bv_child7 = child_rank_ptr + 4 + 7;
+        while (pos--)
+          child_rank += bv_child7[pos];
+      }
+      uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
+      uint64_t bm_child;
+      cmn::read_uint64(t + 16, bm_child);
+      uint64_t mask = bm_init_mask << (node_id % 64);
+      return child_rank + __builtin_popcountll(bm_child & (mask - 1));
     }
 
-    int find_in_cache(const uint8_t *key, int key_len, uint32_t& node_id, uint32_t& child_count) {
-      int key_pos = 0;
+    #define CACHE_FLAG_TAIL 0x08
+    #define CACHE_FLAG_TERM 0x04
+    #define CACHE_FLAG_CHILD 0x02
+    #define CACHE_FLAG_LEAF 0x01
+    int find_in_cache(const uint8_t *key, int key_len, int& key_pos, fragment *cur_frag, uint32_t& node_id, uint32_t& child_count, byte_str& tail_str) {
       uint8_t key_byte = key[key_pos];
-      do {
-        cache *cc = (cache *) (cache_loc + node_id * sizeof(cache));
-        uint8_t node_byte;
-      } while (node_id < cache_count);
-      return 0;
+      uint8_t *t = cache_loc;
+      uint32_t tail_len;
+      uint32_t child_node_loc;
+      int8_t vlen;
+      node_id = cmn::read_vint32(t, &vlen);
+      t += vlen;
+      while (node_id < cache_count) {
+        uint8_t flags = *t++;
+        if (flags & CACHE_FLAG_CHILD) {
+          child_node_loc = cmn::read_uint24(t);
+          t += 3;
+        }
+        tail_len = flags >> 4;
+        if (flags & CACHE_FLAG_TAIL) {
+          tail_len += (cmn::read_vint32(t, &vlen) << 4);
+          t += vlen;
+        }
+        uint8_t trie_byte = *t;
+        if (key_byte != trie_byte) {
+          if (flags & CACHE_FLAG_TERM) {
+            last_exit_loc = t - dict_buf;
+            return DCT_INSERT_AFTER;
+          }
+          t += tail_len;
+          node_id++;
+          continue;
+        }
+        if (key_byte == trie_byte) {
+          int cmp = 0;
+          if (tail_len > 1)
+            cmp = cmn::compare(t, tail_len, key + key_pos, key_len - key_pos);
+          key_pos += tail_len;
+          if (key_pos < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
+            if ((flags & CACHE_FLAG_CHILD) == 0) {
+              last_exit_loc = t - dict_buf;
+              return DCT_INSERT_LEAF;
+            }
+            if (child_node_loc & 0x800000) {
+              node_id = child_node_loc & 0x7FFFFF;
+              break;
+            }
+            t = cache_loc + child_node_loc;
+            node_id = cmn::read_vint32(t, &vlen);
+            t += vlen;
+            key_byte = key[key_pos];
+            continue;
+          }
+          if (cmp == 0 && key_pos == key_len && (flags & CACHE_FLAG_LEAF)) {
+            last_exit_loc = 0;
+            return 0;
+          }
+          last_exit_loc = t - dict_buf;
+          return DCT_INSERT_THREAD;
+        }
+        last_exit_loc = t - dict_buf;
+        return DCT_INSERT_BEFORE;
+      }
+      child_count = find_child_rank(cur_frag, node_id);
+      return 1;
     }
 
     uint32_t lookup(const uint8_t *key, int key_len, int& result, int& cur_frag_idx) {
       int key_pos = 0;
       uint32_t node_id = 0;
-      uint8_t key_byte = key[key_pos];
       cur_frag_idx = 0;
       fragment *cur_frag = &fragments[cur_frag_idx];
-      uint8_t *t = cur_frag->trie_loc;
+      uint32_t child_count = 0;
+      uint8_t tail_str_buf[max_tail_len];
+      byte_str tail_str(tail_str_buf, max_tail_len);
+      result = find_in_cache(key, key_len, key_pos, cur_frag, node_id, child_count, tail_str);
+      if (result <= 0)
+        return node_id;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       uint8_t trie_byte;
       uint8_t grp_no;
       uint32_t tail_ptr = 0;
-      uint32_t child_count = 0;
       uint32_t ptr_bit_count = 0xFFFFFFFF;
-      uint8_t tail_str_buf[max_tail_len];
-      byte_str tail_str(tail_str_buf, max_tail_len);
-      // result = find_in_cache(key, key_len, node_id, child_count);
-      // if (result >= 0)
-      //   return node_id;
+      // uint8_t *t = cur_frag->trie_loc;
+      uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
+      if (node_id % 64) {
+        t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+        t += (node_id % 64);
+        bm_mask = (bm_init_mask << (node_id % 64));
+      }
+      uint8_t key_byte = key[key_pos];
       do {
         if ((node_id % 64) == 0) {
           bm_mask = bm_init_mask;
@@ -839,11 +903,6 @@ class static_dict {
         }
         uint8_t node_byte = trie_byte = *t++;
         if (bm_mask & bm_ptr) {
-          // if (node_id < sec_cache_count) {
-          //   ptr_bit_count = 0xFFFFFFFF;
-          //   tail_ptr = 0;
-          //   trie_byte = sec_cache_loc[node_id];
-          // } else
           trie_byte = cur_frag->tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
         }
         if (bm_mask & bm_child)
@@ -851,7 +910,7 @@ class static_dict {
         if (key_byte != trie_byte) {
           if (bm_mask & bm_term) {
             last_exit_loc = t - dict_buf;
-            result = ~INSERT_AFTER;
+            result = DCT_INSERT_AFTER;
             return node_id;
           }
           bm_mask <<= 1;
@@ -870,7 +929,7 @@ class static_dict {
           if (key_pos < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0) {
               last_exit_loc = t - dict_buf;
-              result = ~INSERT_LEAF;
+              result = DCT_INSERT_LEAF;
               return node_id;
             }
             t = find_child(node_id, child_count, bm_leaf, bm_term, bm_child, bm_ptr);
@@ -885,14 +944,14 @@ class static_dict {
             last_exit_loc = 0;
             return node_id;
           }
-          result = ~INSERT_THREAD;
+          result = DCT_INSERT_THREAD;
         }
         last_exit_loc = t - dict_buf;
-        result = ~INSERT_BEFORE;
+        result = DCT_INSERT_BEFORE;
         return node_id;
       } while (node_id < node_count);
       last_exit_loc = t - dict_buf;
-      result = ~INSERT_EMPTY;
+      result = DCT_INSERT_EMPTY;
       return node_id;
     }
 
@@ -901,7 +960,7 @@ class static_dict {
       std::vector<uint8_t> val_str;
       uint32_t node_id = lookup(key, key_len, result, frag_idx);
       fragment *cur_frag = &fragments[frag_idx];
-      if (result >= 0) {
+      if (result >= 0 && val != NULL) {
         cur_frag->val_map.get_val(node_id, in_size_out_value_len, val);
         return true;
       }
