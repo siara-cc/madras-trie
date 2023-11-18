@@ -48,27 +48,20 @@ class dict_iter_ctx {
     }
 };
 
-struct child_cache {
-  uint8_t node_id1;
-  uint8_t node_id2;
-  uint8_t node_id3;
-  uint8_t child_count1;
-  uint8_t child_count2;
-  uint8_t child_count3;
-  uint8_t ptr_bit_count1;
-  uint8_t ptr_bit_count2;
-  uint8_t ptr_bit_count3;
-};
-
 struct cache {
-  uint8_t flags;
-  uint8_t tail_ptr1;
-  uint8_t tail_ptr2;
-  uint8_t tail_ptr3;
-  uint8_t tail_ptr4;
+  uint8_t parent_node_id1;
+  uint8_t parent_node_id2;
+  uint8_t parent_node_id3;
+  uint8_t parent_node_id4;
+  uint8_t node_offset;
   uint8_t child_node_id1;
   uint8_t child_node_id2;
   uint8_t child_node_id3;
+  uint8_t child_node_id4;
+  uint8_t grp_no;
+  uint8_t tail_ptr1;
+  uint8_t tail_ptr2;
+  uint8_t tail_ptr3;
 };
 
 class byte_str {
@@ -135,8 +128,8 @@ class cmn {
           return 0;
         return ++k;
     }
-    static uint32_t read_uint32(uint8_t *pos) {
-      return *((uint32_t *) pos);
+    static uint32_t read_uint32(uint8_t *ptr) {
+      return *((uint32_t *) ptr);
       // uint32_t ret = 0;
       // int i = 4;
       // while (i--) {
@@ -769,21 +762,6 @@ class static_dict {
       return cmn::read_uint64(t, bm_ptr);
     }
 
-    uint8_t *restore_from_child_cache(fragment **cur_frag, uint32_t &child_count, uint32_t &node_id, int &cur_frag_idx, 
-                  uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint32_t& ptr_bit_count) {
-      child_cache *cc3 = (child_cache *) (cache_loc + (child_count - 1) * sizeof(cache));
-      node_id = cmn::read_uint24(&cc3->node_id1);
-      child_count = cmn::read_uint24(&cc3->child_count1);
-      (*cur_frag) = which_fragment(node_id, *cur_frag);
-      uint8_t *t = (*cur_frag)->trie_loc + (node_id - (*cur_frag)->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
-      if (node_id % 64) {
-        t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        t += node_id % 64;
-      }
-      ptr_bit_count = cmn::read_uint24(&cc3->ptr_bit_count1);
-      return t;
-    }
-
     uint32_t find_child_rank(fragment *cur_frag, uint32_t node_id) {
       uint8_t *child_rank_ptr = trie_bv_loc + node_id / nodes_per_bv_block * 22 + 4;
       uint32_t child_rank = cmn::read_uint32(child_rank_ptr);
@@ -875,43 +853,98 @@ class static_dict {
       uint32_t child_count = 0;
       uint8_t tail_str_buf[max_tail_len];
       byte_str tail_str(tail_str_buf, max_tail_len);
-      result = find_in_cache(key, key_len, key_pos, cur_frag, node_id, child_count, tail_str);
-      if (result <= 0)
-        return node_id;
+      // result = find_in_cache(key, key_len, key_pos, cur_frag, node_id, child_count, tail_str);
+      // if (result <= 0)
+      //   return node_id;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       uint8_t trie_byte;
       uint8_t grp_no;
       uint32_t tail_ptr = 0;
       uint32_t ptr_bit_count = 0xFFFFFFFF;
-      // uint8_t *t = cur_frag->trie_loc;
-      uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
-      if (node_id % 64) {
-        t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        t += (node_id % 64);
-        bm_mask = (bm_init_mask << (node_id % 64));
-      }
+      uint8_t *t = cur_frag->trie_loc;
+      uint32_t cache_mask = cache_count - 1;
+      cache *cche0 = (cache *) cache_loc;
+      // uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
+      // if (node_id % 64) {
+      //   t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+      //   t += (node_id % 64);
+      //   bm_mask = (bm_init_mask << (node_id % 64));
+      // }
       uint8_t key_byte = key[key_pos];
       do {
-        if ((node_id % 64) == 0) {
-          bm_mask = bm_init_mask;
-          t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        }
-        uint8_t node_byte = trie_byte = *t++;
-        if (bm_mask & bm_ptr) {
-          trie_byte = cur_frag->tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
-        }
-        if (bm_mask & bm_child)
-          child_count++;
-        if (key_byte != trie_byte) {
-          if (bm_mask & bm_term) {
-            last_exit_loc = t - dict_buf;
-            result = DCT_INSERT_AFTER;
-            return node_id;
+        uint32_t cache_loc = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
+        cache *cche = cche0 + cache_loc;
+        uint32_t cache_node_id = cmn::read_uint32(&cche->parent_node_id1);
+        if (node_id == cache_node_id) {
+          child_count = 0xFFFFFFFF;
+          int cmp;
+          uint32_t tail_len;
+          if (cche->grp_no & 0x80) {
+            tail_len = cche->grp_no & 0x7F;
+            cmp = cmn::compare(&cche->tail_ptr1, tail_len, key + key_pos, key_len - key_pos);
+          } else {
+            tail_ptr = cmn::read_uint24(&cche->tail_ptr1);
+            cur_frag->tail_map.get_tail_str(tail_str, tail_ptr, cche->grp_no, max_tail_len);
+            tail_len = tail_str.length();
+            cmp = cmn::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
           }
-          bm_mask <<= 1;
-          node_id++;
-          continue;
+          if (key_pos + tail_len < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
+            key_pos += tail_len;
+            node_id = cmn::read_uint32(&cche->child_node_id1);
+            key_byte = key[key_pos];
+            continue;
+          }
+          if (cmp == 0 && key_pos + tail_len == key_len) {
+            node_id += cche->node_offset;
+            cur_frag = which_fragment(node_id, cur_frag);
+            t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
+            cmn::read_uint64(t, bm_leaf);
+            bm_mask = (bm_init_mask << (node_id % 64));
+            if (bm_leaf & bm_mask) {
+              result = 0;
+              last_exit_loc = 0;
+              ret_frag_idx = cur_frag->frag_id;
+              return node_id;
+            } else {
+              last_exit_loc = t - dict_buf;
+              result = DCT_INSERT_LEAF;
+              return node_id;
+            }
+          }
         }
+        if (child_count == 0xFFFFFFFF) {
+            cur_frag = which_fragment(node_id, cur_frag);
+            child_count = find_child_rank(cur_frag, node_id);
+            t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
+            if (node_id % 64) {
+              t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+              t += node_id % 64;
+            }
+            bm_mask = (bm_init_mask << (node_id % 64));
+            ptr_bit_count = 0xFFFFFFFF;
+        }
+        do {
+          if ((node_id % 64) == 0) {
+            bm_mask = bm_init_mask;
+            t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+          }
+          uint8_t node_byte = trie_byte = *t++;
+          if (bm_mask & bm_ptr) {
+            trie_byte = cur_frag->tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
+          }
+          if (bm_mask & bm_child)
+            child_count++;
+          if (key_byte != trie_byte) {
+            if (bm_mask & bm_term) {
+              last_exit_loc = t - dict_buf;
+              result = DCT_INSERT_AFTER;
+              return node_id;
+            }
+            bm_mask <<= 1;
+            node_id++;
+          } else
+            break;
+        } while (1);
         if (key_byte == trie_byte) {
           int cmp = 0;
           uint32_t tail_len = 1;
@@ -924,7 +957,7 @@ class static_dict {
           if (key_pos < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0) {
               last_exit_loc = t - dict_buf;
-              result = DCT_INSERT_LEAF;
+              result = DCT_INSERT_CHILD_LEAF;
               return node_id;
             }
             t = find_child(node_id, child_count, bm_leaf, bm_term, bm_child, bm_ptr);
