@@ -771,7 +771,7 @@ class static_dict {
         while (pos--)
           child_rank += bv_child7[pos];
       }
-      uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
+      uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
       uint64_t bm_child;
       cmn::read_uint64(t + 16, bm_child);
       uint64_t mask = bm_init_mask << (node_id % 64);
@@ -808,6 +808,7 @@ class static_dict {
             cmp = cmn::compare(&cche->tail_ptr1, tail_len, key + key_pos, key_len - key_pos);
           } else {
             tail_ptr = cmn::read_uint24(&cche->tail_ptr1);
+            cur_frag = which_fragment(node_id, cur_frag);
             cur_frag->tail_map.get_tail_str(tail_str, tail_ptr, cche->grp_no, max_tail_len);
             tail_len = tail_str.length();
             cmp = cmn::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
