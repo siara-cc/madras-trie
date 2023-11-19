@@ -507,6 +507,9 @@ class freq_grp_ptrs_data {
     int get_idx_ptr_size() {
       return idx_ptr_size;
     }
+    int *get_idx_map_arr() {
+      return idx_map_arr;
+    }
     uint32_t get_idx2_ptrs_count() {
       uint32_t idx2_ptr_count = idx2_ptrs_map.size() / get_idx_ptr_size() + (start_bits << 20) + (get_idx_limit() << 24);
       if (get_idx_ptr_size() == 3)
@@ -1434,6 +1437,9 @@ class tail_val_maps {
 
     uniq_tails_info_vec *get_uniq_tails_rev() {
       return &uniq_tails_rev;
+    }
+    byte_vec *get_uniq_tails() {
+      return &uniq_tails;
     }
     ptr_vals_info_vec *get_uniq_vals_fwd() {
       return &uniq_vals_fwd;
@@ -2373,29 +2379,49 @@ class builder {
       do {
         node *cur_node = &all_nodes[node_id + 1];
         cur_frag = which_fragment(node_id, cur_frag);
-        uint8_t node_byte = *(all_tails[cur_node->tail_pos]);
+        uniq_tails_info_vec *ti_rev = cur_frag->tail_vals.get_uniq_tails_rev();
+        uniq_tails_info *ti = (*ti_rev)[cur_node->tail_len > 1 ? cur_node->tail_pos : 0];
+        byte_vec *uniq_tails = cur_frag->tail_vals.get_uniq_tails();
+        uint8_t node_byte = cur_node->v0;
         uint32_t cache_loc = (node_set_id ^ (node_set_id << 5) ^ node_byte) & cache_mask;
         bldr_cache *cche = cche0 + cache_loc;
         uint32_t cche_node_id = gen::read_uint32(&cche->parent_node_id1);
         uint32_t cche_freq = 0;
         if (cche_node_id != 0xFFFFFFFF)
           cche_freq = all_nodes[cche_node_id + cche->node_offset + 1].freq_count;
-        if (cche_freq < cur_node->freq_count && cur_node->first_child > 0) {
+        if (cche_freq < cur_node->freq_count) { //} && cur_node->first_child > 0) {
           cche->node_offset = node_id - node_set_id;
           gen::copy_uint32(node_set_id, &cche->parent_node_id1);
           gen::copy_uint32(cur_node->first_child - 1, &cche->child_node_id1);
-          if (cur_node->tail_len < 4) {
-            cche->grp_no = 0x80;
-            cche->grp_no |= cur_node->tail_len;
-            memcpy(&cche->tail_ptr1, all_tails[cur_node->tail_pos], cur_node->tail_len);
+          if (cur_node->tail_len == 1) {
+            cche->grp_no = 0x81;
+            cche->tail_ptr1 = cur_node->v0;
           } else {
-            uniq_tails_info_vec *ti_rev = cur_frag->tail_vals.get_uniq_tails_rev();
-            uniq_tails_info *ti = (*ti_rev)[cur_node->tail_pos];
-            cche->grp_no = ti->grp_no;
-            gen::copy_uint24(ti->ptr, &cche->tail_ptr1);
+            if (cur_node->tail_len < 4) {
+              cche->grp_no = 0x80;
+              cche->grp_no |= ti->len;
+              memcpy(&cche->tail_ptr1, uniq_tails->data() + ti->pos, ti->len);
+            } else {
+              cche->grp_no = ti->grp_no - 1;
+              uint32_t ptr = ti->ptr;
+              freq_grp_ptrs_data *ptrs = cur_frag->tail_vals.get_tail_grp_ptrs();
+              if (cche->grp_no < ptrs->get_idx_limit()) {
+                byte_vec *idx2_ptrs_map = ptrs->get_idx2_ptrs_map();
+                int idx_ptr_size = ptrs->get_idx_ptr_size();
+                int *idx_map_arr = ptrs->get_idx_map_arr();
+                int idx_map_start = idx_map_arr[cche->grp_no];
+                if (idx_ptr_size == 2)
+                  ptr = gen::read_uint16(idx2_ptrs_map->data() + idx_map_start + ti->ptr * idx_ptr_size);
+                else
+                  ptr = gen::read_uint24(idx2_ptrs_map->data() + idx_map_start + ti->ptr * idx_ptr_size);
+              }
+              gen::copy_uint24(ptr, &cche->tail_ptr1);
+            }
           }
         }
         node_id++;
+        if (node_id == 11386)
+          std::cout << "here" << std::endl;
         if (cur_node->flags & NFLAG_TERM)
           node_set_id = node_id;
       } while (node_id < node_count);

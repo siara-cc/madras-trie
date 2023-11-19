@@ -778,73 +778,6 @@ class static_dict {
       return child_rank + __builtin_popcountll(bm_child & (mask - 1));
     }
 
-    #define CACHE_FLAG_TAIL 0x08
-    #define CACHE_FLAG_TERM 0x04
-    #define CACHE_FLAG_CHILD 0x02
-    #define CACHE_FLAG_LEAF 0x01
-    int find_in_cache(const uint8_t *key, int key_len, int& key_pos, fragment *cur_frag, uint32_t& node_id, uint32_t& child_count, byte_str& tail_str) {
-      uint8_t key_byte = key[key_pos];
-      uint8_t *t = cache_loc;
-      uint32_t tail_len;
-      uint32_t child_node_loc;
-      int8_t vlen;
-      node_id = cmn::read_vint32(t, &vlen);
-      t += vlen;
-      while (node_id < cache_count) {
-        uint8_t flags = *t++;
-        if (flags & CACHE_FLAG_CHILD) {
-          child_node_loc = cmn::read_uint24(t);
-          t += 3;
-        }
-        tail_len = flags >> 4;
-        if (flags & CACHE_FLAG_TAIL) {
-          tail_len += (cmn::read_vint32(t, &vlen) << 4);
-          t += vlen;
-        }
-        uint8_t trie_byte = *t;
-        if (key_byte != trie_byte) {
-          if (flags & CACHE_FLAG_TERM) {
-            last_exit_loc = t - dict_buf;
-            return DCT_INSERT_AFTER;
-          }
-          t += tail_len;
-          node_id++;
-          continue;
-        }
-        if (key_byte == trie_byte) {
-          int cmp = 0;
-          if (tail_len > 1)
-            cmp = cmn::compare(t, tail_len, key + key_pos, key_len - key_pos);
-          key_pos += tail_len;
-          if (key_pos < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
-            if ((flags & CACHE_FLAG_CHILD) == 0) {
-              last_exit_loc = t - dict_buf;
-              return DCT_INSERT_LEAF;
-            }
-            if (child_node_loc & 0x800000) {
-              node_id = child_node_loc & 0x7FFFFF;
-              break;
-            }
-            t = cache_loc + child_node_loc;
-            node_id = cmn::read_vint32(t, &vlen);
-            t += vlen;
-            key_byte = key[key_pos];
-            continue;
-          }
-          if (cmp == 0 && key_pos == key_len && (flags & CACHE_FLAG_LEAF)) {
-            last_exit_loc = 0;
-            return 0;
-          }
-          last_exit_loc = t - dict_buf;
-          return DCT_INSERT_THREAD;
-        }
-        last_exit_loc = t - dict_buf;
-        return DCT_INSERT_BEFORE;
-      }
-      child_count = find_child_rank(cur_frag, node_id);
-      return 1;
-    }
-
     uint32_t lookup(const uint8_t *key, int key_len, int& result, int& ret_frag_idx) {
       int key_pos = 0;
       uint32_t node_id = 0;
@@ -853,9 +786,6 @@ class static_dict {
       uint32_t child_count = 0;
       uint8_t tail_str_buf[max_tail_len];
       byte_str tail_str(tail_str_buf, max_tail_len);
-      // result = find_in_cache(key, key_len, key_pos, cur_frag, node_id, child_count, tail_str);
-      // if (result <= 0)
-      //   return node_id;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       uint8_t trie_byte;
       uint8_t grp_no;
@@ -864,12 +794,6 @@ class static_dict {
       uint8_t *t = cur_frag->trie_loc;
       uint32_t cache_mask = cache_count - 1;
       cache *cche0 = (cache *) cache_loc;
-      // uint8_t *t = cur_frag->trie_loc + node_id / nodes_per_bv_block7 * bytes_per_bv_block7;
-      // if (node_id % 64) {
-      //   t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-      //   t += (node_id % 64);
-      //   bm_mask = (bm_init_mask << (node_id % 64));
-      // }
       uint8_t key_byte = key[key_pos];
       do {
         uint32_t cache_loc = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
