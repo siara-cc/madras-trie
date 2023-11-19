@@ -28,26 +28,6 @@ namespace squeezed {
 #define nodes_per_bv_block7 64
 #define bytes_per_bv_block7 96
 
-class dict_iter_ctx {
-  public:
-    int32_t cur_idx;
-    int32_t key_pos;
-    std::vector<uint8_t> key;
-    std::vector<uint8_t> node_frag;
-    std::vector<uint32_t> node_path;
-    std::vector<uint32_t> child_count;
-    //std::vector<uint32_t> ptr_bit_count;
-    std::vector<uint32_t> last_tail_len;
-    dict_iter_ctx() {
-      cur_idx = key_pos = 0;
-      node_frag.push_back(0);
-      node_path.push_back(0);
-      child_count.push_back(0);
-      //ptr_bit_count.push_back(0);
-      last_tail_len.push_back(0);
-    }
-};
-
 struct cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
@@ -514,6 +494,26 @@ class fragment {
 
 };
 
+class dict_iter_ctx {
+  public:
+    int32_t cur_idx;
+    int32_t key_pos;
+    std::vector<uint8_t> key;
+    std::vector<fragment *> node_frag;
+    std::vector<uint32_t> node_path;
+    std::vector<uint32_t> child_count;
+    //std::vector<uint32_t> ptr_bit_count;
+    std::vector<uint32_t> last_tail_len;
+    dict_iter_ctx() {
+      cur_idx = key_pos = 0;
+      node_frag.push_back(0);
+      node_path.push_back(0);
+      child_count.push_back(0);
+      //ptr_bit_count.push_back(0);
+      last_tail_len.push_back(0);
+    }
+};
+
 class static_dict {
 
   private:
@@ -923,7 +923,6 @@ class static_dict {
 
     struct ctx_vars {
       uint8_t *t;
-      int cur_frag_idx;
       fragment *cur_frag;
       uint32_t node_id, child_count;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
@@ -946,7 +945,7 @@ class static_dict {
       } else {
         ctx.child_count.push_back(cv.child_count);
         ctx.node_path.push_back(cv.node_id);
-        ctx.node_frag.push_back(cv.cur_frag_idx);
+        ctx.node_frag.push_back(cv.cur_frag);
         //ctx.ptr_bit_count.push_back(cv.ptr_bit_count);
         ctx.last_tail_len.push_back(0); //cv.tail.length());
       }
@@ -955,7 +954,7 @@ class static_dict {
     void update_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
       ctx.child_count[ctx.cur_idx] = cv.child_count;
       ctx.node_path[ctx.cur_idx] = cv.node_id;
-      ctx.node_frag[ctx.cur_idx] = cv.cur_frag_idx;
+      ctx.node_frag[ctx.cur_idx] = cv.cur_frag;
       //ctx.ptr_bit_count[ctx.cur_idx] = cv.ptr_bit_count;
       ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
       ctx.last_tail_len[ctx.cur_idx] = cv.tail.length();
@@ -977,8 +976,7 @@ class static_dict {
     void read_from_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
       cv.child_count = ctx.child_count[ctx.cur_idx];
       cv.node_id = ctx.node_path[ctx.cur_idx];
-      cv.cur_frag_idx = ctx.node_frag[ctx.cur_idx];
-      cv.cur_frag = &fragments[cv.cur_frag_idx];
+      cv.cur_frag = ctx.node_frag[ctx.cur_idx];
       //cv.ptr_bit_count = ctx.ptr_bit_count[ctx.cur_idx];
       cv.t = cv.cur_frag->trie_loc + (cv.node_id - cv.cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
       if (cv.node_id % 64) {
@@ -999,8 +997,10 @@ class static_dict {
       ctx_vars cv;
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
-      read_from_ctx(ctx, cv);
       bool to_skip_first_leaf = (ctx.key.size() > 0);
+      if (!to_skip_first_leaf)
+        ctx.node_frag[0] = &fragments[0];
+      read_from_ctx(ctx, cv);
       do {
         read_flags_block_begin(cv);
         if (cv.bm_mask & cv.bm_leaf) {
