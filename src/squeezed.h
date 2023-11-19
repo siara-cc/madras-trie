@@ -249,17 +249,21 @@ class grp_ptr_data_map {
       return ptr_bit_count;
     }
 
-    uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
+    uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint32_t block_loc = (node_id - block_start_node_id) / 64 * 4;
-      uint32_t ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_loc);
-      uint8_t *t = trie_loc + block_loc * 24; // block_loc / 4 * 96
+      ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_loc);
+      return trie_loc + block_loc * 24; // block_loc / 4 * 96
+    }
+
+    uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
+      uint32_t ptr_bit_count;
+      uint8_t *t = get_ptr_block_t(node_id, ptr_bit_count);
       return scan_ptr_bits_tail(node_id, t, ptr_bit_count);
     }
 
     uint32_t get_ptr_bit_count_val(uint32_t node_id) {
-      uint32_t block_loc = (node_id - block_start_node_id) / 64 * 4;
-      uint32_t ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_loc);
-      uint8_t *t = trie_loc + block_loc * 24; // block_loc / 4 * 96
+      uint32_t ptr_bit_count;
+      uint8_t *t = get_ptr_block_t(node_id, ptr_bit_count);
       return scan_ptr_bits_val(node_id, t, ptr_bit_count);
     }
 
@@ -324,7 +328,6 @@ class grp_ptr_data_map {
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x7F;
       idx2_ptr_count &= 0x000FFFFF;
-      //dict_printf("Start_bits: %d, idx2_ptr_size: %d, idx2_ptr_count, %d, grp_idx_limit: %d\n", (int) start_bits, (int) idx2_ptr_size, idx2_ptr_count, grp_idx_limit);
       ptrs_loc = tails_loc + cmn::read_uint32(tails_loc + 16);
       two_byte_tails_loc = tails_loc + cmn::read_uint32(tails_loc + 20);
       idx2_ptrs_map_loc = tails_loc + cmn::read_uint32(tails_loc + 24);
@@ -338,7 +341,6 @@ class grp_ptr_data_map {
       for (int i = 1; i <= grp_idx_limit; i++) {
         idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
         _start_bits += 3;
-        //dict_printf("idx_map_arr[%d] = %d\n", i, idx_map_arr[i]);
       }
       if (idx2_ptr_size == 2)
         read_idx_ptr = &cmn::cmn::read_uint16;
@@ -346,17 +348,15 @@ class grp_ptr_data_map {
 
     void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
       uint32_t ptr_bit_count = get_ptr_bit_count_val(node_id);
-      // std::cout << "NODID: " << node_id + 1 << ", block_bit_count: " << ptr_bit_count;
       uint8_t code = read_ptr_bits8(node_id, ptr_bit_count);
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       uint8_t grp_no = *lookup_tbl_ptr & 0x1F;
       uint8_t code_len = *lookup_tbl_ptr >> 5;
-      uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len);
-      ptr &= ((1 << (bit_len - code_len)) - 1);
+      ptr_bit_count += code_len;
+      uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
-      // std::cout << ", GRP NO: " << (int) grp_no << ", bitlen: " << (int) bit_len << ", ptr: " << ptr << std::endl;
       uint8_t *val_loc = grp_data[grp_no] + ptr;
       int8_t len_of_len;
       uint32_t val_len = cmn::read_vint32(val_loc, &len_of_len);
@@ -1033,13 +1033,9 @@ class static_dict {
           cv.child_count++;
           cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
           update_ctx(ctx, cv);
-          // if (cv.child_count <= child_cache_count) {
-          //   cv.t = restore_from_child_cache(&cv.cur_frag, cv.child_count, cv.node_id, cv.cur_frag_idx, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr, cv.ptr_bit_count);
-          // } else {
-            cv.t = find_child(cv.node_id, cv.child_count, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
-            cv.cur_frag = which_fragment(cv.node_id, cv.cur_frag);
-            cv.ptr_bit_count = 0xFFFFFFFF;
-          // }
+          cv.t = find_child(cv.node_id, cv.child_count, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
+          cv.cur_frag = which_fragment(cv.node_id, cv.cur_frag);
+          cv.ptr_bit_count = 0xFFFFFFFF;
           cv.bm_mask = (bm_init_mask << (cv.node_id % nodes_per_bv_block7));
           push_to_ctx(ctx, cv);
         }

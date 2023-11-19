@@ -630,8 +630,6 @@ class freq_grp_ptrs_data {
           uint8_t code = freq_grp_vec[j].code;
           if ((code_i >> (8 - code_len)) == code) {
             int bit_len = freq_grp_vec[j].grp_log2;
-            // if (!is_tail && bit_len > code_len)
-            //   bit_len -= code_len;
             fputc(bit_len, fp);
             fputc((j - 1) | (code_len << 5), fp);
             code_found = true;
@@ -2420,8 +2418,6 @@ class builder {
           }
         }
         node_id++;
-        if (node_id == 11386)
-          std::cout << "here" << std::endl;
         if (cur_node->flags & NFLAG_TERM)
           node_set_id = node_id;
       } while (node_id < node_count);
