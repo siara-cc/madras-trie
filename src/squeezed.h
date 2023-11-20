@@ -787,56 +787,6 @@ class static_dict {
       return child_rank + __builtin_popcountll(bm_child & (mask - 1));
     }
 
-    int find_in_cache2(fragment *cur_frag, const uint8_t *key, int key_len, byte_str& tail_str, int& key_pos, uint32_t& node_id, uint32_t& child_count) {
-      uint8_t key_byte = key[key_pos];
-      uint32_t cache_mask = cache_count - 1;
-      sec_cache *cche0 = (sec_cache *) sec_cache_loc;
-      do {
-        uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
-        sec_cache *cche = cche0 + cache_idx;
-        uint32_t cache_node_id = cmn::read_uint24(&cche->parent_node_id1);
-        if (node_id == cache_node_id) {
-          child_count = 0xFFFFFFFF;
-          int cmp;
-          uint32_t tail_len;
-          if (cche->grp_no & 0x80) {
-            tail_len = cche->grp_no & 0x7F;
-            cmp = cmn::compare(&cche->tail_ptr1, tail_len, key + key_pos, key_len - key_pos);
-          } else {
-            uint32_t tail_ptr = cmn::read_uint24(&cche->tail_ptr1);
-            cur_frag = which_fragment(node_id, cur_frag);
-            cur_frag->tail_map.get_tail_str(tail_str, tail_ptr, cche->grp_no, max_tail_len);
-            tail_len = tail_str.length();
-            cmp = cmn::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
-          }
-          if (key_pos + tail_len < key_len && (cmp == 0 || cmp - 1 == tail_len)) {
-            key_pos += tail_len;
-            node_id = cmn::read_uint24(&cche->child_node_id1);
-            key_byte = key[key_pos];
-            continue;
-          }
-          if (cmp == 0 && key_pos + tail_len == key_len) {
-            node_id += cche->node_offset;
-            cur_frag = which_fragment(node_id, cur_frag);
-            uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block7 * bytes_per_bv_block7;
-            uint64_t bm_leaf;
-            cmn::read_uint64(t, bm_leaf);
-            uint64_t bm_mask = (bm_init_mask << (node_id % 64));
-            if (bm_leaf & bm_mask) {
-              last_exit_loc = 0;
-              return 0;
-            } else {
-              last_exit_loc = t - dict_buf;
-              // result = DCT_INSERT_LEAF;
-              return -1;
-            }
-          }
-        }
-        break;
-      } while (1);
-      return -1;
-    }
-
     int find_in_cache(fragment *cur_frag, const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id, uint32_t& child_count) {
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = cache_count - 1;
@@ -891,9 +841,6 @@ class static_dict {
       uint8_t key_byte = key[key_pos];
       do {
         int ret = find_in_cache(cur_frag, key, key_len, key_pos, node_id, child_count);
-        if (ret == 0)
-          return node_id;
-        ret = find_in_cache2(cur_frag, key, key_len, tail_str, key_pos, node_id, child_count);
         if (ret == 0)
           return node_id;
         if (child_count == UINT32_MAX) {
