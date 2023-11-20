@@ -2140,6 +2140,11 @@ class builder {
       while (cache_count < key_count / 512) {
         cache_count *= 2;
       }
+      cache_count /= 2;
+      byte_vec sec_cache_bytes;
+      uint32_t sec_cache_size;
+      uint32_t sec_cache_count = all_nodes[all_nodes[all_nodes[1].first_child].first_child].first_child - 1;
+      make_sec_cache(sec_cache_count, sec_cache_bytes, sec_cache_size);
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
       uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
       // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block7) + 1) * 4 * 2;
@@ -2149,7 +2154,8 @@ class builder {
       uint32_t dummy_loc = 4 + 15 * 4; // 64
       uint32_t common_node_loc = dummy_loc + 0;
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
-      uint32_t select_lkup_loc = cache_loc + cache_size;
+      uint32_t sec_cache_loc = cache_loc + cache_size;
+      uint32_t select_lkup_loc = sec_cache_loc + sec_cache_size;
       uint32_t trie_bv_loc = select_lkup_loc + select_lookup;
       uint32_t fragment_tbl_loc = trie_bv_loc + trie_bv;
 
@@ -2196,7 +2202,7 @@ class builder {
       }
       uint32_t leaf_bv_loc = fragment_start;
 
-      make_cache(cache_count, cache_bytes, cache_size);
+      make_cache(cache_count, cache_bytes, cache_size, sec_cache_count);
 
       FILE *fp = fopen(out_filename.c_str(), "wb+");
       fputc(0xA5, fp); // magic byte
@@ -2212,9 +2218,9 @@ class builder {
       gen::write_uint32(max_val_len, fp);
       gen::write_uint32(max_tail_len, fp);
       gen::write_uint32(cache_count, fp);
-      gen::write_uint32(0, fp);
+      gen::write_uint32(sec_cache_count, fp);
       gen::write_uint32(cache_loc, fp);
-      gen::write_uint32(0, fp);
+      gen::write_uint32(sec_cache_loc, fp);
 
       gen::write_uint32(select_lkup_loc, fp);
       gen::write_uint32(trie_bv_loc, fp);
@@ -2222,7 +2228,7 @@ class builder {
       gen::write_uint32(fragment_tbl_loc, fp);
 
       fwrite(cache_bytes.data(), cache_bytes.size(), 1, fp);
-      //fwrite(all_nodes.data(), cache_size, 1, fp);
+      fwrite(sec_cache_bytes.data(), sec_cache_bytes.size(), 1, fp);
       write_select_lkup(fp);
       write_trie_bv(fp);
 
@@ -2235,7 +2241,7 @@ class builder {
 
       FILE *fp_val = fopen((out_filename + ".val").c_str(), "wb+");
 
-      uint32_t total_size = 4 + 15 * 4 + cache_size +
+      uint32_t total_size = 4 + 15 * 4 + cache_size + sec_cache_size +
                 select_lookup + trie_bv + leaf_bv;
       uint32_t val_fp_offset = 0;
       for (int i = 0; i < fragment_count; i++) {
@@ -2248,9 +2254,9 @@ class builder {
       fclose(fp_val);
 
       bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lkup tbl: %u, "
-        "Pri cache: %u, Cache struct size: %u\nNode struct size: %u, Max tail len: %u\n",
-            node_count, trie_bv, leaf_bv, select_lookup, cache_size,
-            sizeof(bldr_cache), sizeof(node), max_tail_len);
+        "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
+            node_count, trie_bv, leaf_bv, select_lookup, cache_size, sizeof(bldr_cache), sec_cache_size,
+            sizeof(node), max_tail_len);
 
       // fp = fopen("nodes.txt", "wb+");
       // // dump_nodes(first_node, fp);
@@ -2365,8 +2371,49 @@ class builder {
       return cur_frag;
     }
 
-    void make_cache(uint32_t cache_count, byte_vec& cache_bytes, uint32_t& cache_size) {
-      uint32_t node_id = 0;
+    void make_sec_cache(uint32_t cache_count, byte_vec& cache_bytes, uint32_t& cache_size) {
+      uint32_t node_id = 1;
+      fragment_builder *cur_frag = &map_fragments[0];
+      std::vector<uint32_t> child_ptr_locs;
+      std::vector<uint32_t> child_node_ids;
+      int child_idx = 0;
+      bool is_first = true;
+      do {
+        node *cur_node = &all_nodes[node_id];
+        uint8_t flags = (cur_node->flags & NFLAG_LEAF ? 1 : 0) +
+          (cur_node->first_child != 0 ? 2 : 0) + (cur_node->flags & NFLAG_TERM ? 4 : 0);
+        int tail_len = cur_node->tail_len;
+        flags |= ((tail_len & 0x0F) << 4);
+        if (tail_len > 15)
+          flags |= 0x08;
+        if (child_node_ids.size() > 0 && node_id == child_node_ids[child_idx]) {
+          gen::copy_uint24(cache_bytes.size(), cache_bytes.data() + child_ptr_locs[child_idx]);
+          child_idx++;
+        }
+        if (is_first) {
+          gen::append_vint32(cache_bytes, node_id - 1);
+          is_first = false;
+        }
+        cache_bytes.push_back(flags);
+        if (cur_node->first_child > 0) {
+          child_ptr_locs.push_back(cache_bytes.size());
+          child_node_ids.push_back(cur_node->first_child);
+          gen::append_uint24(0x800000 | (cur_node->first_child - 1), cache_bytes);
+        }
+        if (tail_len > 15)
+          gen::append_vint32(cache_bytes, tail_len >> 4);
+        uint8_t *tail = all_tails[cur_node->tail_pos];
+        for (int i = 0; i < cur_node->tail_len; i++)
+          cache_bytes.push_back(tail[i]);
+        if (cur_node->flags & NFLAG_TERM)
+          is_first = true;
+        node_id++;
+      } while (node_id <= cache_count);
+      cache_size = cache_bytes.size();
+    }
+
+    void make_cache(uint32_t cache_count, byte_vec& cache_bytes, uint32_t& cache_size, uint32_t cache_start) {
+      uint32_t node_id = cache_start - 1;
       uint32_t node_set_id = 0;
       uint32_t cache_mask = cache_count - 1;
       fragment_builder *cur_frag = &map_fragments[0];
@@ -2387,7 +2434,7 @@ class builder {
         uint32_t cche_freq = 0;
         if (cche_node_id != 0xFFFFFFFF)
           cche_freq = all_nodes[cche_node_id + cche->node_offset + 1].freq_count;
-        if (cche_freq < cur_node->freq_count) { //} && cur_node->first_child > 0) {
+        if (cche_freq < cur_node->freq_count && cur_node->first_child > 0) { // && cur_node->tail_len == 1) {
           cche->node_offset = node_id - node_set_id;
           gen::copy_uint32(node_set_id, &cche->parent_node_id1);
           gen::copy_uint32(cur_node->first_child - 1, &cche->child_node_id1);
