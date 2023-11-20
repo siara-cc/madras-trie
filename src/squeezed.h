@@ -752,14 +752,18 @@ class static_dict {
       node_id = child_block * nodes_per_bv_block;
       uint8_t *bv3_term = trie_bv_loc + child_block * 14 + 8;
       uint8_t *bv3_child = bv3_term + 3;
-      for (int pos3 = 0; pos3 < 3 && node_id + nodes_per_bv_block3 < node_count; pos3++) {
+      int pos3;
+      for (pos3 = 0; pos3 < 3 && node_id + nodes_per_bv_block3 < node_count; pos3++) {
         uint8_t term3 = bv3_term[pos3];
         if (term_count + term3 < target_term_count) {
-          term_count += term3;
-          child_count += bv3_child[pos3];
           node_id += nodes_per_bv_block3;
         } else
           break;
+      }
+      if (pos3 > 0) {
+        pos3--;
+        term_count += bv3_term[pos3];
+        child_count += bv3_child[pos3];
       }
       return scan_block64(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr, target_term_count);
     }
@@ -777,8 +781,7 @@ class static_dict {
       int pos = (node_id / nodes_per_bv_block3) % 4;
       if (pos > 0) {
         uint8_t *bv_child3 = child_rank_ptr + 4 + 3;
-        while (pos--)
-          child_rank += bv_child3[pos];
+        child_rank += bv_child3[--pos];
       }
       uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm_child;

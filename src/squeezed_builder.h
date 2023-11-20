@@ -2289,8 +2289,8 @@ class builder {
       } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
         term1_buf3[pos3] = term1_count3;
         child_buf3[pos3] = child_count3;
-        term1_count3 = 0;
-        child_count3 = 0;
+        // term1_count3 = 0;
+        // child_count3 = 0;
         pos3++;
       }
     }
