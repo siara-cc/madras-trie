@@ -218,9 +218,8 @@ class grp_ptr_data_map {
 
     uint32_t scan_ptr_bits_val(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
       uint64_t bm_mask = bm_init_mask;
-      uint64_t bm_ptr, bm_leaf;
+      uint64_t bm_leaf;
       cmn::read_uint64(t, bm_leaf);
-      t = cmn::read_uint64(t + 24, bm_ptr);
       uint8_t *t_upto = t + (node_id % 64);
       if (t - 32 == trie_loc) {
         int diff = start_node_id % 64;
@@ -724,12 +723,12 @@ class static_dict {
     uint8_t *find_child(uint32_t& node_id, uint32_t& child_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
-      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 3;
+      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 4;
       if ((target_term_count % term_divisor) == 0) {
-        child_block = cmn::read_uint24(select_loc);
+        child_block = cmn::read_uint32(select_loc);
       } else {
-        uint32_t start_block = cmn::read_uint24(select_loc);
-        uint32_t end_block = cmn::read_uint24(select_loc + 3);
+        uint32_t start_block = cmn::read_uint32(select_loc);
+        uint32_t end_block = cmn::read_uint32(select_loc + 4);
         if (start_block + 8 >= end_block) {
           do {
             start_block++;

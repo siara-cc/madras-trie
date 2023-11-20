@@ -2144,7 +2144,7 @@ class builder {
       uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7 * 2;
       // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block3) + 1) * 4 * 2;
       uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7;
-      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 3;
+      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 4;
 
       uint32_t dummy_loc = 4 + 15 * 4; // 64
       uint32_t common_node_loc = dummy_loc + 0;
@@ -2404,12 +2404,12 @@ class builder {
     void write_select_lkup(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
-      gen::write_uint24(0, fp);
+      gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (cur_node->flags & NFLAG_TERM) {
           if (term_count && (term_count % term_divisor) == 0) {
-            gen::write_uint24(node_id / nodes_per_bv_block, fp);
+            gen::write_uint32(node_id / nodes_per_bv_block, fp);
             if (node_id / nodes_per_bv_block > (1 << 24))
               bldr_printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block);
           }
@@ -2417,7 +2417,7 @@ class builder {
         }
         node_id++;
       }
-      gen::write_uint24(node_count/nodes_per_bv_block, fp);
+      gen::write_uint32(node_count/nodes_per_bv_block, fp);
     }
 
     tail_val_maps *get_tail_maps(node *n) {
