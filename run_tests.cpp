@@ -38,8 +38,8 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
-      // sb.append((const uint8_t *) line.c_str(), line.length());
+      // sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
+      sb.append((const uint8_t *) line.c_str(), line.length());
       // sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
@@ -84,13 +84,9 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    int ret = 0;
-    int frag_idx = 0;
     // if (line.compare("a 1tb") == 0)
     //   ret = 1;
-    // if (line.compare("a7iv") == 0)
-    //   ret = 1;
-    // if (line.compare("a 110") == 0)
+    // if (line.compare("really act") == 0)
     //   ret = 1;
     // if (line.compare("they argued") == 0)
     //   ret = 1;
@@ -109,18 +105,17 @@ int main(int argc, char *argv[]) {
     //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 3 ? 4 : line.length()), line.c_str(), val_len, val_buf);
     // }
 
-    // dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), ret, frag_idx);
-    // if (ret < 0)
-    //   std::cout << ret << ": " << line << std::endl;
+    uint32_t node_id = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
+    if (node_id == UINT32_MAX)
+      std::cout << line << std::endl;
 
-    bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
-    if (success) {
-      ret = 0;
-      val_buf[val_len] = 0;
-      if (line.substr(0, 4).compare((const char *) val_buf) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
-    } else
-      std::cout << ret << ": " << line << std::endl;
+    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    // if (success) {
+    //   val_buf[val_len] = 0;
+    //   if (line.substr(0, 4).compare((const char *) val_buf) != 0)
+    //     printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    // } else
+    //   std::cout << line << std::endl;
 
     // int ret, key_pos, cmp;
     // uint32_t n_id;
