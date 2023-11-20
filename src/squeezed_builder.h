@@ -24,8 +24,8 @@ enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHA
 
 namespace squeezed {
 
-#define nodes_per_bv_block7 64
-#define nodes_per_bv_block 512
+#define nodes_per_bv_block3 64
+#define nodes_per_bv_block 256
 #define term_divisor 512
 
 typedef std::vector<uint8_t> byte_vec;
@@ -2141,9 +2141,9 @@ class builder {
       uint32_t sec_cache_size = 0;
       uint32_t sec_cache_count = 0;
 
-      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11 * 2;
-      // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block7) + 1) * 4 * 2;
-      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 11;
+      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7 * 2;
+      // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block3) + 1) * 4 * 2;
+      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7;
       uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 3;
 
       uint32_t dummy_loc = 4 + 15 * 4; // 64
@@ -2273,25 +2273,25 @@ class builder {
     //   uint32_t ptr;
     // };
 
-    void write_bv7(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
-                    uint32_t& term1_count7, uint32_t& child_count7,
-                    uint8_t *term1_buf7, uint8_t *child_buf7, uint8_t& pos7, FILE *fp) {
+    void write_bv3(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
+                    uint32_t& term1_count3, uint32_t& child_count3,
+                    uint8_t *term1_buf3, uint8_t *child_buf3, uint8_t& pos3, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(term1_buf7, 7, 1, fp);
-        fwrite(child_buf7, 7, 1, fp);
+        fwrite(term1_buf3, 3, 1, fp);
+        fwrite(child_buf3, 3, 1, fp);
         gen::write_uint32(term1_count, fp);
         gen::write_uint32(child_count, fp);
-        term1_count7 = 0;
-        child_count7 = 0;
-        memset(term1_buf7, 0, 7);
-        memset(child_buf7, 0, 7);
-        pos7 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
-        term1_buf7[pos7] = term1_count7;
-        child_buf7[pos7] = child_count7;
-        term1_count7 = 0;
-        child_count7 = 0;
-        pos7++;
+        term1_count3 = 0;
+        child_count3 = 0;
+        memset(term1_buf3, 0, 3);
+        memset(child_buf3, 0, 3);
+        pos3 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
+        term1_buf3[pos3] = term1_count3;
+        child_buf3[pos3] = child_count3;
+        term1_count3 = 0;
+        child_count3 = 0;
+        pos3++;
       }
     }
 
@@ -2299,63 +2299,63 @@ class builder {
       uint32_t node_id = 0;
       uint32_t term1_count = 0;
       uint32_t child_count = 0;
-      uint32_t term1_count7 = 0;
-      uint32_t child_count7 = 0;
-      uint8_t term1_buf7[7];
-      uint8_t child_buf7[7];
-      uint8_t pos7 = 0;
-      memset(term1_buf7, 0, 7);
-      memset(child_buf7, 0, 7);
+      uint32_t term1_count3 = 0;
+      uint32_t child_count3 = 0;
+      uint8_t term1_buf3[3];
+      uint8_t child_buf3[3];
+      uint8_t pos3 = 0;
+      memset(term1_buf3, 0, 3);
+      memset(child_buf3, 0, 3);
       gen::write_uint32(0, fp);
       gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
-        write_bv7(node_id, term1_count, child_count, term1_count7, child_count7, term1_buf7, child_buf7, pos7, fp);
-        // if (node_id && (node_id % nodes_per_bv_block7) == 0) {
+        write_bv3(node_id, term1_count, child_count, term1_count3, child_count3, term1_buf3, child_buf3, pos3, fp);
+        // if (node_id && (node_id % nodes_per_bv_block3) == 0) {
         //   gen::write_uint32(term1_count, fp);
         //   gen::write_uint32(child_count, fp);
         // }
         term1_count += (cur_node->flags & NFLAG_TERM ? 1 : 0);
         child_count += (cur_node->first_child == 0 ? 0 : 1);
-        term1_count7 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
-        child_count7 += (cur_node->first_child == 0 ? 0 : 1);
+        term1_count3 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
+        child_count3 += (cur_node->first_child == 0 ? 0 : 1);
         node_id++;
       }
-      fwrite(term1_buf7, 7, 1, fp);
-      fwrite(child_buf7, 7, 1, fp);
+      fwrite(term1_buf3, 3, 1, fp);
+      fwrite(child_buf3, 3, 1, fp);
       bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
     }
 
-    void write_leaf_bv7(uint32_t node_id, uint32_t& leaf_count, uint32_t& leaf_count7, uint8_t *leaf_buf7, uint8_t& pos7, FILE *fp) {
+    void write_leaf_bv3(uint32_t node_id, uint32_t& leaf_count, uint32_t& leaf_count3, uint8_t *leaf_buf3, uint8_t& pos3, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(leaf_buf7, 7, 1, fp);
+        fwrite(leaf_buf3, 3, 1, fp);
         gen::write_uint32(leaf_count, fp);
-        leaf_count7 = 0;
-        memset(leaf_buf7, 0, 7);
-        pos7 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block7) == 0) {
-        leaf_buf7[pos7] = leaf_count7;
-        leaf_count7 = 0;
-        pos7++;
+        leaf_count3 = 0;
+        memset(leaf_buf3, 0, 3);
+        pos3 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
+        leaf_buf3[pos3] = leaf_count3;
+        leaf_count3 = 0;
+        pos3++;
       }
     }
 
     void write_leaf_bv(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t leaf_count = 0;
-      uint32_t leaf_count7 = 0;
-      uint8_t leaf_buf7[7];
-      uint8_t pos7 = 0;
-      memset(leaf_buf7, 0, 7);
+      uint32_t leaf_count3 = 0;
+      uint8_t leaf_buf3[3];
+      uint8_t pos3 = 0;
+      memset(leaf_buf3, 0, 3);
       gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
-        write_leaf_bv7(node_id, leaf_count, leaf_count7, leaf_buf7, pos7, fp);
+        write_leaf_bv3(node_id, leaf_count, leaf_count3, leaf_buf3, pos3, fp);
         leaf_count += (cur_node->flags & NFLAG_TERM ? 1 : 0);
-        leaf_count7 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
+        leaf_count3 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
         node_id++;
       }
-      fwrite(leaf_buf7, 7, 1, fp);
+      fwrite(leaf_buf3, 3, 1, fp);
     }
 
     fragment_builder* which_fragment(uint32_t node_id, fragment_builder* cur_frag) {
