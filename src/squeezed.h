@@ -118,7 +118,7 @@ class cmn {
         return ++k;
     }
     static uint32_t read_uint32(uint8_t *ptr) {
-      return *((uint32_t *) ptr);
+      return *((uint32_t *) ptr); // faster endian dependent
       // uint32_t ret = 0;
       // int i = 4;
       // while (i--) {
@@ -127,22 +127,23 @@ class cmn {
       // }
       // return ret;
     }
-    static uint32_t read_uint24(uint8_t *pos) {
-      uint32_t ret = *pos++;
-      ret <<= 8;
-      ret |= *pos++;
-      ret <<= 8;
-      ret |= *pos;
-      return ret;
+    static uint32_t read_uint24(uint8_t *ptr) {
+      uint32_t ret = *((uint32_t *) ptr);
+      return ret & 0x00FFFFFF; // faster endian dependent
+      // uint32_t ret = *ptr++;
+      // ret |= (*ptr++ << 8);
+      // ret |= (*ptr << 16);
+      // return ret;
     }
-    static uint32_t read_uint16(uint8_t *pos) {
-      uint32_t ret = *pos++;
-      ret <<= 8;
-      ret |= *pos;
-      return ret;
+    static uint32_t read_uint16(uint8_t *ptr) {
+      uint16_t ret = *((uint16_t *) ptr);
+      return ret; // faster endian dependent
+      // uint32_t ret = *ptr++;
+      // ret |= (*ptr << 8);
+      // return ret;
     }
     static uint8_t *read_uint64(uint8_t *t, uint64_t& u64) {
-      u64 = *((uint64_t *) t);
+      u64 = *((uint64_t *) t); // faster endian dependent
       return t + 8;
       // u64 = 0;
       // for (int v = 0; v < 8; v++) {
@@ -220,6 +221,7 @@ class grp_ptr_data_map {
       uint64_t bm_mask = bm_init_mask;
       uint64_t bm_leaf;
       cmn::read_uint64(t, bm_leaf);
+      t += 32;
       uint8_t *t_upto = t + (node_id % 64);
       if (t - 32 == trie_loc) {
         int diff = start_node_id % 64;
@@ -595,7 +597,6 @@ class static_dict {
       fragment_count = dict_buf[2];
       node_count = cmn::read_uint32(dict_buf + 4);
       bv_block_count = node_count / nodes_per_bv_block;
-      //lvl1_sorted_nids = dict_buf + cmn::read_uint32(dict_buf + 8);
       common_node_count = cmn::read_uint32(dict_buf + 12);
       key_count = cmn::read_uint32(dict_buf + 16);
       max_key_len = cmn::read_uint32(dict_buf + 20);
@@ -634,7 +635,7 @@ class static_dict {
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
       while (first < last) {
         uint32_t middle = (first + last) >> 1;
-        uint32_t term_at = cmn::read_uint32(trie_bv_loc + middle * 14);
+        uint32_t term_at = cmn::read_uint24(trie_bv_loc + middle * 12);
         if (term_at < term_count)
           first = middle + 1;
         else if (term_at > term_count)
@@ -723,16 +724,16 @@ class static_dict {
     uint8_t *find_child(uint32_t& node_id, uint32_t& child_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
-      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 4;
+      uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 3;
       if ((target_term_count % term_divisor) == 0) {
-        child_block = cmn::read_uint32(select_loc);
+        child_block = cmn::read_uint24(select_loc);
       } else {
-        uint32_t start_block = cmn::read_uint32(select_loc);
-        uint32_t end_block = cmn::read_uint32(select_loc + 4);
+        uint32_t start_block = cmn::read_uint24(select_loc);
+        uint32_t end_block = cmn::read_uint24(select_loc + 3);
         if (start_block + 8 >= end_block) {
           do {
             start_block++;
-          } while (cmn::read_uint32(trie_bv_loc + start_block * 14) < target_term_count && start_block <= end_block);
+          } while (cmn::read_uint24(trie_bv_loc + start_block * 12) < target_term_count && start_block <= end_block);
           child_block = start_block - 1;
         } else {
           child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
@@ -745,11 +746,11 @@ class static_dict {
       uint32_t term_count;
       do {
         child_block--;
-        term_count = cmn::read_uint32(trie_bv_loc + child_block * 14);
+        term_count = cmn::read_uint24(trie_bv_loc + child_block * 12);
       } while (term_count >= target_term_count);
-      child_count = cmn::read_uint32(trie_bv_loc + child_block * 14 + 4);
+      child_count = cmn::read_uint24(trie_bv_loc + child_block * 12 + 3);
       node_id = child_block * nodes_per_bv_block;
-      uint8_t *bv3_term = trie_bv_loc + child_block * 14 + 8;
+      uint8_t *bv3_term = trie_bv_loc + child_block * 12 + 6;
       uint8_t *bv3_child = bv3_term + 3;
       int pos3;
       for (pos3 = 0; pos3 < 3 && node_id + nodes_per_bv_block3 < node_count; pos3++) {
@@ -775,11 +776,11 @@ class static_dict {
     }
 
     uint32_t find_child_rank(fragment *cur_frag, uint32_t node_id) {
-      uint8_t *child_rank_ptr = trie_bv_loc + node_id / nodes_per_bv_block * 14 + 4;
-      uint32_t child_rank = cmn::read_uint32(child_rank_ptr);
+      uint8_t *child_rank_ptr = trie_bv_loc + node_id / nodes_per_bv_block * 12 + 3;
+      uint32_t child_rank = cmn::read_uint24(child_rank_ptr);
       int pos = (node_id / nodes_per_bv_block3) % 4;
       if (pos > 0) {
-        uint8_t *bv_child3 = child_rank_ptr + 4 + 3;
+        uint8_t *bv_child3 = child_rank_ptr + 3 + 3;
         child_rank += bv_child3[--pos];
       }
       uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;

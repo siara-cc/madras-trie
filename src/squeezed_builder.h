@@ -192,13 +192,13 @@ class gen {
         return (len1 < len2 ? -k : k);
     }
     static void copy_uint16(uint16_t input, uint8_t *out) {
-      *out++ = (input >> 8);
-      *out = input & 0xFF;
+      *out++ = input & 0xFF;
+      *out = (input >> 8);
     }
     static void copy_uint24(uint32_t input, uint8_t *out) {
-      *out++ = (input >> 16);
+      *out++ = input & 0xFF;
       *out++ = (input >> 8) & 0xFF;
-      *out = input & 0xFF;
+      *out = (input >> 16);
     }
     static void copy_uint32(uint32_t input, uint8_t *out) {
       *out++ = input & 0xFF;
@@ -207,13 +207,13 @@ class gen {
       *out = (input >> 24);
     }
     static void write_uint16(uint32_t input, FILE *fp) {
-      fputc(input >> 8, fp);
       fputc(input & 0xFF, fp);
+      fputc(input >> 8, fp);
     }
     static void write_uint24(uint32_t input, FILE *fp) {
-      fputc(input >> 16, fp);
-      fputc((input >> 8) & 0xFF, fp);
       fputc(input & 0xFF, fp);
+      fputc((input >> 8) & 0xFF, fp);
+      fputc(input >> 16, fp);
     }
     static void write_uint32(uint32_t input, FILE *fp) {
       fputc(input & 0xFF, fp);
@@ -222,40 +222,34 @@ class gen {
       fputc(input >> 24, fp);
     }
     static void append_uint16(uint16_t u16, byte_vec& v) {
-      v.push_back(u16 >> 8);
       v.push_back(u16 & 0xFF);
+      v.push_back(u16 >> 8);
     }
     static void append_uint24(uint32_t u24, byte_vec& v) {
-      v.push_back(u24 >> 16);
-      v.push_back((u24 >> 8) & 0xFF);
       v.push_back(u24 & 0xFF);
+      v.push_back((u24 >> 8) & 0xFF);
+      v.push_back(u24 >> 16);
     }
     static uint32_t read_uint16(byte_vec& v, int pos) {
       uint32_t ret = v[pos++];
-      ret <<= 8;
-      ret |= v[pos];
+      ret |= (v[pos] << 8);
       return ret;
     }
     static uint32_t read_uint16(uint8_t *ptr) {
       uint32_t ret = *ptr++;
-      ret <<= 8;
-      ret |= *ptr;
+      ret |= (*ptr << 8);
       return ret;
     }
     static uint32_t read_uint24(byte_vec& v, int pos) {
       uint32_t ret = v[pos++];
-      ret <<= 8;
-      ret |= v[pos++];
-      ret <<= 8;
-      ret |= v[pos];
+      ret |= (v[pos++] << 8);
+      ret |= (v[pos] << 16);
       return ret;
     }
     static uint32_t read_uint24(uint8_t *ptr) {
       uint32_t ret = *ptr++;
-      ret <<= 8;
-      ret |= *ptr++;
-      ret <<= 8;
-      ret |= *ptr;
+      ret |= (*ptr++ << 8);
+      ret |= (*ptr << 16);
       return ret;
     }
     static uint32_t read_uint32(uint8_t *ptr) {
@@ -848,7 +842,7 @@ class tail_val_maps {
         uint8_t *v = all_tails[n->tail_pos];
         n->v0 = v[0];
         if (n->tail_len > 1 && i > start_node_id && i <= end_node_id) {
-          nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i, n->freq_count} );
+          nodes_for_sort.push_back((struct sort_data) { v, n->tail_len, i, 1}); // n->freq_count} );
         }
       }
       uint32_t tot_freq = make_uniq(all_nodes, nodes_for_sort, uniq_tails,
@@ -2141,10 +2135,10 @@ class builder {
       uint32_t sec_cache_size = 0;
       uint32_t sec_cache_count = 0;
 
-      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7 * 2;
+      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 2) * 6 * 2;
       // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block3) + 1) * 4 * 2;
-      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 1) * 7;
-      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 4;
+      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 2) * 6;
+      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 3;
 
       uint32_t dummy_loc = 4 + 15 * 4; // 64
       uint32_t common_node_loc = dummy_loc + 0;
@@ -2279,8 +2273,8 @@ class builder {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         fwrite(term1_buf3, 3, 1, fp);
         fwrite(child_buf3, 3, 1, fp);
-        gen::write_uint32(term1_count, fp);
-        gen::write_uint32(child_count, fp);
+        gen::write_uint24(term1_count, fp);
+        gen::write_uint24(child_count, fp);
         term1_count3 = 0;
         child_count3 = 0;
         memset(term1_buf3, 0, 3);
@@ -2306,8 +2300,8 @@ class builder {
       uint8_t pos3 = 0;
       memset(term1_buf3, 0, 3);
       memset(child_buf3, 0, 3);
-      gen::write_uint32(0, fp);
-      gen::write_uint32(0, fp);
+      gen::write_uint24(0, fp);
+      gen::write_uint24(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         write_bv3(node_id, term1_count, child_count, term1_count3, child_count3, term1_buf3, child_buf3, pos3, fp);
@@ -2323,13 +2317,18 @@ class builder {
       }
       fwrite(term1_buf3, 3, 1, fp);
       fwrite(child_buf3, 3, 1, fp);
+      // dummy
+      gen::write_uint24(0, fp);
+      gen::write_uint24(0, fp);
+      fwrite(term1_buf3, 3, 1, fp);
+      fwrite(child_buf3, 3, 1, fp);
       bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
     }
 
     void write_leaf_bv3(uint32_t node_id, uint32_t& leaf_count, uint32_t& leaf_count3, uint8_t *leaf_buf3, uint8_t& pos3, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         fwrite(leaf_buf3, 3, 1, fp);
-        gen::write_uint32(leaf_count, fp);
+        gen::write_uint24(leaf_count, fp);
         leaf_count3 = 0;
         memset(leaf_buf3, 0, 3);
         pos3 = 0;
@@ -2347,7 +2346,7 @@ class builder {
       uint8_t leaf_buf3[3];
       uint8_t pos3 = 0;
       memset(leaf_buf3, 0, 3);
-      gen::write_uint32(0, fp);
+      gen::write_uint24(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         write_leaf_bv3(node_id, leaf_count, leaf_count3, leaf_buf3, pos3, fp);
@@ -2355,6 +2354,9 @@ class builder {
         leaf_count3 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
         node_id++;
       }
+      fwrite(leaf_buf3, 3, 1, fp);
+      // dummy
+      gen::write_uint24(0, fp);
       fwrite(leaf_buf3, 3, 1, fp);
     }
 
@@ -2404,12 +2406,12 @@ class builder {
     void write_select_lkup(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
-      gen::write_uint32(0, fp);
+      gen::write_uint24(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (cur_node->flags & NFLAG_TERM) {
           if (term_count && (term_count % term_divisor) == 0) {
-            gen::write_uint32(node_id / nodes_per_bv_block, fp);
+            gen::write_uint24(node_id / nodes_per_bv_block, fp);
             if (node_id / nodes_per_bv_block > (1 << 24))
               bldr_printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block);
           }
@@ -2417,7 +2419,7 @@ class builder {
         }
         node_id++;
       }
-      gen::write_uint32(node_count/nodes_per_bv_block, fp);
+      gen::write_uint24(node_count/nodes_per_bv_block, fp);
     }
 
     tail_val_maps *get_tail_maps(node *n) {
