@@ -233,7 +233,7 @@ class grp_ptr_data_map {
       uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_ct / nodes_per_ptr_block) * 10;
       ptr_bit_count = cmn::read_uint32(block_ptr);
       int pos = (node_ct / nodes_per_ptr_block3) % 4;
-      if (pos > 0) {
+      if (pos) {
         pos--;
         uint8_t *ptr3 = block_ptr + 4 + pos * 2;
         ptr_bit_count += cmn::read_uint16(ptr3);
@@ -630,14 +630,11 @@ class static_dict {
 
     int bin_srch_bv_term(uint32_t first, uint32_t last, uint32_t term_count) {
       while (first < last) {
-        uint32_t middle = (first + last) >> 1;
-        uint32_t term_at = cmn::read_uint24(trie_bv_loc + middle * 12);
-        if (term_at < term_count)
+        const uint32_t middle = (first + last) >> 1;
+        if (cmn::read_uint24(trie_bv_loc + middle * 12) < term_count)
           first = middle + 1;
-        else if (term_at > term_count)
-          last = middle;
         else
-          return middle;
+          last = middle;
       }
       return last;
     }
@@ -753,7 +750,7 @@ class static_dict {
         } else
           break;
       }
-      if (pos3 > 0) {
+      if (pos3) {
         pos3--;
         term_count += bv3_term[pos3];
         child_count += bv3_child[pos3];
