@@ -26,7 +26,7 @@ namespace squeezed {
 
 #define nodes_per_bv_block3 64
 #define nodes_per_bv_block 256
-#define term_divisor 512
+#define term_divisor 256
 
 typedef std::vector<uint8_t> byte_vec;
 
@@ -254,6 +254,16 @@ class gen {
     }
     static uint32_t read_uint32(uint8_t *ptr) {
       return *((uint32_t *) ptr);
+    }
+    static uint32_t get_lkup_tbl_size(uint32_t count, int block_size, int entry_size) {
+      double d = count;
+      d /= block_size;
+      uint32_t ret = floor(d) + 1;
+      ret *= entry_size;
+      return ret;
+    }
+    static uint32_t get_lkup_tbl_size2(uint32_t count, int block_size, int entry_size) {
+      return get_lkup_tbl_size(count, block_size, entry_size) + entry_size;
     }
 };
 
@@ -599,9 +609,12 @@ class freq_grp_ptrs_data {
     uint32_t get_total_size() {
       return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 7 * 4;
     }
-    void build(uint32_t start_loc, uint32_t fragment_node_count) {
+    #define nodes_per_ptr_block 256
+    #define nodes_per_ptr_block3 64
+    void build(uint32_t start_loc, uint32_t fragment_node_count, uint32_t start_node_id, uint32_t end_node_id) {
       ptr_lookup_tbl_loc = 7 * 4;
-      ptr_lookup_tbl = (ceil((fragment_node_count - 1) / 64) + 1) * 4;
+      uint32_t ptr_block_start_node_id = (start_node_id - (start_node_id % nodes_per_ptr_block));
+      ptr_lookup_tbl = gen::get_lkup_tbl_size(end_node_id - ptr_block_start_node_id, nodes_per_ptr_block, 10);
       grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
       grp_tails_size = get_hdr_size() + get_data_size();
       tail_ptrs_loc = grp_tails_loc + grp_tails_size;
@@ -656,36 +669,58 @@ class freq_grp_ptrs_data {
     static ptr_vals_info *get_vals_info_fn(node *cur_node, std::vector<ptr_vals_info *>& info_vec) {
       return (ptr_vals_info *) info_vec[cur_node->val_pos];
     }
-    #define nodes_per_ptr_block 64
     void write_ptr_lookup_tbl(std::vector<node>& all_nodes, get_info_fn get_info_func, bool is_tail,
           std::vector<ptr_vals_info *>& info_vec, uint32_t start_nid, uint32_t end_nid, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
+      uint32_t bit_count3 = 0;
+      int pos3 = 0;
+      uint16_t bit_counts[3];
+      memset(bit_counts, '\0', 6);
+      uint32_t ftell1 = ftell(fp);
       gen::write_uint32(bit_count, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
-        node *cur_node = &all_nodes[i];
         if (node_id >= start_nid && node_id < end_nid) {
           if (node_id && (node_id % nodes_per_ptr_block) == 0) {
+            for (int j = 0; j < 3; j++)
+              gen::write_uint16(bit_counts[j], fp);
             gen::write_uint32(bit_count, fp);
-            // if (node_id < 500)
-            //   std::cout << "NodeId: " << node_id << ", block_bit_count: " << bit_count << std::endl;
+            bit_count3 = 0;
+            memset(bit_counts, '\0', 6);
+          } else {
+            if (node_id && (node_id % nodes_per_ptr_block3) == 0) {
+              if (bit_count3 > 65535)
+                std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count3 > 65k" << std::endl;
+              bit_counts[pos3] = bit_count3;
+            }
           }
+          node *cur_node = &all_nodes[i];
           if (is_tail) {
             if (cur_node->tail_len > 1) {
               ptr_vals_info *vi = get_info_func(cur_node, info_vec);
               freq_grp& fg = freq_grp_vec[vi->grp_no];
               bit_count += fg.grp_log2;
+              bit_count3 += fg.grp_log2;
             }
           } else {
             if (cur_node->flags & NFLAG_LEAF) {
               ptr_vals_info *vi = get_info_func(cur_node, info_vec);
               freq_grp& fg = freq_grp_vec[vi->grp_no];
               bit_count += fg.grp_log2;
+              bit_count3 += fg.grp_log2;
             }
           }
         }
+        if (node_id && (node_id % nodes_per_ptr_block) == 0) {
+          pos3 = 0;
+        } else {
+          if (node_id && (node_id % nodes_per_ptr_block3) == 0)
+            pos3++;
+        }
         node_id++;
       }
+      for (int j = 0; j < 3; j++)
+        gen::write_uint16(bit_counts[j], fp);
     }
     void write_ptrs_data(std::vector<node>& all_nodes, get_info_fn get_info_func, bool is_tail,
           std::vector<ptr_vals_info *>& info_vec, uint32_t start_nid, uint32_t end_nid, FILE *fp) {
@@ -1616,12 +1651,12 @@ class fragment_builder {
       bldr_printf("Start node id: %u, end node id: %u\n", start_node_id, end_node_id);
       bldr_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
       trie_loc = _fragment_start_loc + 8;
-      tail_vals.get_tail_grp_ptrs()->build(trie_loc + trie.size(), fragment_node_count);
+      tail_vals.get_tail_grp_ptrs()->build(trie_loc + trie.size(), fragment_node_count, start_node_id, end_node_id);
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       fragment_end_loc = 0;
       if (get_uniq_val_count() > 0) {
         freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
-        val_ptrs->build(trie_loc + trie.size() + tail_size, fragment_node_count);
+        val_ptrs->build(trie_loc + trie.size() + tail_size, fragment_node_count, start_node_id, end_node_id);
         //fragment_end_loc += val_ptrs->get_total_size();
       }
       fragment_end_loc += (trie_loc + trie.size() + tail_size);
@@ -2135,10 +2170,10 @@ class builder {
       uint32_t sec_cache_size = 0;
       uint32_t sec_cache_count = 0;
 
-      uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 2) * 6 * 2;
+      uint32_t trie_bv = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 12);
       // uint32_t trie_bv = (ceil((node_count - 1)/nodes_per_bv_block3) + 1) * 4 * 2;
-      uint32_t leaf_bv = (ceil((node_count - 1)/nodes_per_bv_block) + 2) * 6;
-      uint32_t select_lookup = (ceil((term_count - 1)/term_divisor) + 2) * 3;
+      uint32_t leaf_bv = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 6);
+      uint32_t select_lookup = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
 
       uint32_t dummy_loc = 4 + 15 * 4; // 64
       uint32_t common_node_loc = dummy_loc + 0;

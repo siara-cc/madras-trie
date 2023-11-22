@@ -22,7 +22,7 @@ namespace squeezed {
 #define DCT_INSERT_CHILD_LEAF -8
 
 #define bm_init_mask 0x0000000000000001UL
-#define term_divisor 512
+#define term_divisor 256
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
 #define nodes_per_bv_block3 64
@@ -37,20 +37,6 @@ struct cache {
   uint8_t child_node_id2;
   uint8_t child_node_id3;
   uint8_t node_byte;
-};
-
-struct sec_cache {
-  uint8_t parent_node_id1;
-  uint8_t parent_node_id2;
-  uint8_t parent_node_id3;
-  uint8_t node_offset;
-  uint8_t child_node_id1;
-  uint8_t child_node_id2;
-  uint8_t child_node_id3;
-  uint8_t grp_no;
-  uint8_t tail_ptr1;
-  uint8_t tail_ptr2;
-  uint8_t tail_ptr3;
 };
 
 class byte_str {
@@ -239,10 +225,20 @@ class grp_ptr_data_map {
       return ptr_bit_count;
     }
 
+    #define nodes_per_ptr_block 256
+    #define nodes_per_ptr_block3 64
+    #define bytes_per_ptr_block3 96
     uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t block_loc = (node_id - block_start_node_id) / 64 * 4;
-      ptr_bit_count = cmn::read_uint32(ptr_lookup_tbl_loc + block_loc);
-      return trie_loc + block_loc * 24; // block_loc / 4 * 96
+      uint32_t node_ct = (node_id - (block_start_node_id - (block_start_node_id % nodes_per_ptr_block)));
+      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_ct / nodes_per_ptr_block) * 10;
+      ptr_bit_count = cmn::read_uint32(block_ptr);
+      int pos = (node_ct / nodes_per_ptr_block3) % 4;
+      if (pos > 0) {
+        pos--;
+        uint8_t *ptr3 = block_ptr + 4 + pos * 2;
+        ptr_bit_count += cmn::read_uint16(ptr3);
+      }
+      return trie_loc + ((node_id - block_start_node_id) / nodes_per_ptr_block3) * bytes_per_ptr_block3;
     }
 
     uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
@@ -738,10 +734,7 @@ class static_dict {
         } else {
           child_block = bin_srch_bv_term(start_block, end_block, target_term_count);
         }
-        // printf("%u,%u,%.0f\t%u,%u,%.0f,%u\n", node_id_block, bv_block_count, ceil(log2(bv_block_count - node_id_block)), start_block, end_block, ceil(log2(end_block - start_block)), child_block);
       }
-      // uint32_t node_id_block = node_id / nodes_per_bv_block;
-      // child_block = bin_srch_bv_term(node_id_block, bv_block_count, target_term_count);
       child_block++;
       uint32_t term_count;
       do {
