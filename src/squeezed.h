@@ -103,6 +103,10 @@ class cmn {
           return 0;
         return ++k;
     }
+    static uint32_t read_uintx(uint8_t *ptr, uint32_t mask) {
+      uint32_t ret = *((uint32_t *) ptr);
+      return ret & mask; // faster endian dependent
+    }
     static uint32_t read_uint32(uint8_t *ptr) {
       return *((uint32_t *) ptr); // faster endian dependent
       // uint32_t ret = 0;
@@ -156,17 +160,17 @@ class cmn {
 
 class grp_ptr_data_map {
   private:
+    uint8_t ptr_lkup_tbl_ptr_width;
     uint8_t *ptr_lookup_tbl_loc;
-    uint8_t *grp_data_loc;
+    uint32_t ptr_lkup_tbl_mask;
+    uint8_t *ptrs_loc;
     uint8_t start_bits;
+    int8_t grp_idx_limit;
+    uint8_t last_grp_no;
+    uint8_t *grp_data_loc;
     uint32_t two_byte_tail_count;
     uint32_t idx2_ptr_count;
-    uint8_t idx2_ptr_size;
-    int8_t grp_idx_limit;
-    uint8_t *ptrs_loc;
     uint8_t *two_byte_tails_loc;
-    uint8_t *idx2_ptrs_map_loc;
-    uint8_t last_grp_no;
     uint8_t *code_lookup_tbl;
     std::vector<uint8_t *> grp_data;
 
@@ -177,10 +181,12 @@ class grp_ptr_data_map {
     uint32_t end_node_id;
 
     int idx_map_arr[6] = {0, 384, 3456, 28032, 224640, 1797504};
-    uint32_t (*read_idx_ptr)(uint8_t *) = &cmn::read_uint24;
+    uint8_t *idx2_ptrs_map_loc;
+    uint8_t idx2_ptr_size;
+    uint32_t idx_ptr_mask;
     uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
       int idx_map_start = idx_map_arr[grp_no];
-      ptr = read_idx_ptr(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size);
+      ptr = cmn::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
       return ptr;
     }
 
@@ -229,13 +235,13 @@ class grp_ptr_data_map {
     #define nodes_per_ptr_block3 64
     #define bytes_per_ptr_block3 96
     uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t node_ct = (node_id - (block_start_node_id - (block_start_node_id % nodes_per_ptr_block)));
-      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_ct / nodes_per_ptr_block) * 10;
-      ptr_bit_count = cmn::read_uint32(block_ptr);
+      uint32_t node_ct = (node_id - block_start_node_id);
+      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_ct / nodes_per_ptr_block) * ptr_lkup_tbl_ptr_width;
+      ptr_bit_count = cmn::read_uintx(block_ptr, ptr_lkup_tbl_mask);
       int pos = (node_ct / nodes_per_ptr_block3) % 4;
       if (pos) {
         pos--;
-        uint8_t *ptr3 = block_ptr + 4 + pos * 2;
+        uint8_t *ptr3 = block_ptr + (ptr_lkup_tbl_ptr_width - 6) + pos * 2;
         ptr_bit_count += cmn::read_uint16(ptr3);
       }
       return trie_loc + ((node_id - block_start_node_id) / nodes_per_ptr_block3) * bytes_per_ptr_block3;
@@ -306,17 +312,23 @@ class grp_ptr_data_map {
       block_start_node_id = _block_start_node_id;
       end_node_id = _end_node_id;
 
-      ptr_lookup_tbl_loc = tails_loc + cmn::read_uint32(tails_loc);
-      grp_data_loc = tails_loc + cmn::read_uint32(tails_loc + 4);
-      two_byte_tail_count = cmn::read_uint32(tails_loc + 8);
-      idx2_ptr_count = cmn::read_uint32(tails_loc + 12);
+      ptr_lkup_tbl_ptr_width = *tails_loc;
+      if (ptr_lkup_tbl_ptr_width == 10)
+        ptr_lkup_tbl_mask = 0xFFFFFFFF;
+      else
+        ptr_lkup_tbl_mask = 0x00FFFFFF;
+      ptr_lookup_tbl_loc = tails_loc + cmn::read_uint32(tails_loc + 1);
+      grp_data_loc = tails_loc + cmn::read_uint32(tails_loc + 5);
+      two_byte_tail_count = cmn::read_uint32(tails_loc + 9);
+      idx2_ptr_count = cmn::read_uint32(tails_loc + 13);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
+      idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x7F;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = tails_loc + cmn::read_uint32(tails_loc + 16);
-      two_byte_tails_loc = tails_loc + cmn::read_uint32(tails_loc + 20);
-      idx2_ptrs_map_loc = tails_loc + cmn::read_uint32(tails_loc + 24);
+      ptrs_loc = tails_loc + cmn::read_uint32(tails_loc + 17);
+      two_byte_tails_loc = tails_loc + cmn::read_uint32(tails_loc + 21);
+      idx2_ptrs_map_loc = tails_loc + cmn::read_uint32(tails_loc + 25);
 
       last_grp_no = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
@@ -328,8 +340,6 @@ class grp_ptr_data_map {
         idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
         _start_bits += 3;
       }
-      if (idx2_ptr_size == 2)
-        read_idx_ptr = &cmn::cmn::read_uint16;
     }
 
     void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
