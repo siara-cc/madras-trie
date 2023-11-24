@@ -165,6 +165,7 @@ class grp_ptr_data_map {
     uint32_t ptr_lkup_tbl_mask;
     uint8_t *ptrs_loc;
     uint8_t start_bits;
+    uint8_t idx_step_bits;
     int8_t grp_idx_limit;
     uint8_t last_grp_no;
     uint8_t *grp_data_loc;
@@ -180,7 +181,7 @@ class grp_ptr_data_map {
     uint32_t block_start_node_id;
     uint32_t end_node_id;
 
-    int idx_map_arr[6] = {0, 384, 3456, 28032, 224640, 1797504};
+    int idx_map_arr[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     uint8_t *idx2_ptrs_map_loc;
     uint8_t idx2_ptr_size;
     uint32_t idx_ptr_mask;
@@ -324,7 +325,8 @@ class grp_ptr_data_map {
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
-      grp_idx_limit = (idx2_ptr_count >> 24) & 0x7F;
+      grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
+      idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
       ptrs_loc = tails_loc + cmn::read_uint32(tails_loc + 17);
       two_byte_tails_loc = tails_loc + cmn::read_uint32(tails_loc + 21);
@@ -338,7 +340,7 @@ class grp_ptr_data_map {
       int _start_bits = start_bits;
       for (int i = 1; i <= grp_idx_limit; i++) {
         idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
-        _start_bits += 3;
+        _start_bits += idx_step_bits;
       }
     }
 
@@ -347,8 +349,8 @@ class grp_ptr_data_map {
       uint8_t code = read_ptr_bits8(node_id, ptr_bit_count);
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
-      uint8_t grp_no = *lookup_tbl_ptr & 0x1F;
-      uint8_t code_len = *lookup_tbl_ptr >> 5;
+      uint8_t grp_no = *lookup_tbl_ptr & 0x0F;
+      uint8_t code_len = *lookup_tbl_ptr >> 4;
       ptr_bit_count += code_len;
       uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
@@ -364,8 +366,8 @@ class grp_ptr_data_map {
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
-      grp_no = *lookup_tbl_ptr & 0x1F;
-      uint8_t code_len = *lookup_tbl_ptr >> 5;
+      grp_no = *lookup_tbl_ptr & 0x0F;
+      uint8_t code_len = *lookup_tbl_ptr >> 4;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
       if (bit_len > 0) {
@@ -467,9 +469,9 @@ class fragment {
     fragment(uint8_t _frag_id, uint8_t *_dict_buf, uint8_t *_val_buf, uint8_t *_fragment_loc, uint32_t _start_nid, uint32_t _block_start_nid, uint32_t _end_nid)
         : frag_id (_frag_id), dict_buf (_dict_buf), fragment_loc (_fragment_loc), start_node_id (_start_nid),
           block_start_node_id (_block_start_nid), end_node_id (_end_nid) {
-      trie_loc = fragment_loc + 8;
-      trie_size = cmn::read_uint32(fragment_loc);
-      uint8_t *tails_loc = trie_loc + trie_size;
+      uint32_t tail_size = cmn::read_uint32(fragment_loc);
+      uint8_t *tails_loc = fragment_loc + 8;
+      trie_loc = tails_loc + tail_size;
       uint32_t val_fp_offset = cmn::read_uint32(_fragment_loc + 4);
       tail_map.init(_dict_buf, trie_loc, _start_nid, _block_start_nid, _end_nid, tails_loc);
       if (val_fp_offset > 0) // todo: fix
