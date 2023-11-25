@@ -2,9 +2,12 @@
 #define STATIC_DICT_H
 
 #include <stdlib.h>
+#include <stdarg.h>
 #include <math.h>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <cstring>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <immintrin.h>
@@ -723,6 +726,7 @@ class static_dict {
           return cur_frag;
         cur_frag = &fragments[cur_frag->frag_id + 1];
       } while (cur_frag->frag_id < fragment_count);
+      std::cout "WARNING: which_fragment node_id: " << node_id << " not found " << fragments[fragment_count - 1].end_node_id << std::endl;
       return cur_frag;
     }
 
