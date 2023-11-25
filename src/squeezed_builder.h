@@ -152,6 +152,24 @@ class gen {
       vec.push_back(vint & 0x7F);
       return len;
     }
+    static int8_t get_v2len_of_uint32(uint32_t vint) {
+      return vint < (1 << 6) ? 1 : (vint < (1 << 14) ? 2 : (vint < (1 << 22) ? 3 : 4));
+    }
+    static int append_v2uint32(byte_vec& vec, uint32_t vint) {
+      int len = get_v2len_of_uint32(vint);
+      if (len == 1) {
+        vec.push_back(vint);
+        return 1;
+      }
+      len--;
+      vec.push_back((len << 6) + vint & 0x1F);
+      vint >>= 6;
+      while (len--) {
+        vec.push_back(vint & 0xFF);
+        vint >>= 8;
+      }
+      return len;
+    }
     static clock_t print_time_taken(clock_t t, const char *msg) {
       t = clock() - t;
       double time_taken = ((double)t)/CLOCKS_PER_SEC; // in seconds
@@ -866,7 +884,7 @@ class tail_val_maps {
       return var_len;
     }
 
-    uint32_t get_len_len(uint32_t len, byte_vec *vec = NULL) {
+    uint32_t get_set_len_len(uint32_t len, byte_vec *vec = NULL) {
       if (len < 15) {
         if (vec != NULL)
           vec->push_back(len);
@@ -1076,7 +1094,7 @@ class tail_val_maps {
     }
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
-    #define sfx_set_max 64
+    #define sfx_set_max_dflt 64
     void build_tail_val_maps(std::vector<node>& all_nodes, byte_block& all_tails, byte_block& all_vals, uint32_t start_node_id, uint32_t end_node_id) {
 
       FILE *fp;
@@ -1181,6 +1199,7 @@ class tail_val_maps {
       uint32_t savings_partial = 0;
       uint32_t savings_count_partial = 0;
       uint32_t sfx_set_len = 0;
+      uint32_t sfx_set_max = sfx_set_max_dflt;
       uint32_t sfx_set_count = 0;
       uint32_t sfx_set_freq = 0;
       uint32_t sfx_set_tot_cnt = 0;
@@ -1219,7 +1238,7 @@ class tail_val_maps {
           if (ti->flags & UTI_FLAG_SUFFIX_PARTIAL) {
             uint32_t cmp = ti->cmp_rev;
             uint32_t remain_len = ti->len - cmp;
-            uint32_t len_len = get_len_len(cmp);
+            uint32_t len_len = get_set_len_len(cmp);
             remain_len += len_len;
             uint32_t new_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, remain_len);
             if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
@@ -1236,7 +1255,7 @@ class tail_val_maps {
               remain_len -= len_len;
               ti->ptr = tail_ptrs.append_text_to_grp_data(grp_no, uniq_tails.data() + ti->pos, remain_len);
               byte_vec& tail_data = tail_ptrs.get_data(grp_no);
-              get_len_len(cmp, &tail_data);
+              get_set_len_len(cmp, &tail_data);
             } else {
               // bldr_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               sfx_set_len = 1;
@@ -1244,6 +1263,9 @@ class tail_val_maps {
               sfx_set_count = 1;
               sfx_set_freq = ti->freq_count;
               sfx_set_tot_cnt++;
+              sfx_set_max = sfx_set_max_dflt;
+              if (ti->len > sfx_set_max)
+               sfx_set_max = ti->len * 2;
               tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
               ti->ptr = tail_ptrs.append_text_to_grp_data(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
             }
@@ -1256,6 +1278,9 @@ class tail_val_maps {
             sfx_set_count = 1;
             sfx_set_freq = ti->freq_count;
             sfx_set_tot_cnt++;
+            sfx_set_max = sfx_set_max_dflt;
+            if (ti->len > sfx_set_max)
+             sfx_set_max = ti->len * 2;
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, ti->len + 1);
             tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
             ti->ptr = tail_ptrs.append_text_to_grp_data(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
@@ -1766,6 +1791,7 @@ class builder {
     byte_block all_vals;
     std::vector<fragment_builder> map_fragments;
     std::string out_filename;
+    // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(int _frag_count = 1, const char *out_file = NULL) {
       node_count = 0;
       fragment_count = _frag_count;
