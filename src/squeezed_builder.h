@@ -479,7 +479,7 @@ struct freq_grp {
   uint8_t code_len;
 };
 
-#define step_bits_idx 1
+#define step_bits_idx 3
 #define step_bits_rest 3
 class freq_grp_ptrs_data {
   private:
@@ -641,7 +641,7 @@ class freq_grp_ptrs_data {
       if (tot_ptr_bit_count >= (1 << 24))
         ptr_lkup_tbl_ptr_width = 10;
       ptr_lookup_tbl_loc = 7 * 4 + 1;
-      ptr_lookup_tbl = gen::get_lkup_tbl_size(fragment_node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
+      ptr_lookup_tbl = gen::get_lkup_tbl_size2(fragment_node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
       grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
       grp_tails_size = get_hdr_size() + get_data_size();
       tail_ptrs_loc = grp_tails_loc + grp_tails_size;
@@ -750,6 +750,12 @@ class freq_grp_ptrs_data {
           node_id++;
         }
       }
+      for (int j = 0; j < 3; j++)
+        gen::write_uint16(bit_counts[j], fp);
+      if (ptr_lkup_tbl_ptr_width == 10)
+        gen::write_uint32(bit_count, fp);
+      else
+        gen::write_uint24(bit_count, fp);
       for (int j = 0; j < 3; j++)
         gen::write_uint16(bit_counts[j], fp);
       if (ftell(fp) - ftell1 != ptr_lookup_tbl) {
@@ -1839,7 +1845,7 @@ class builder {
     }
 
     void sort_nodes(bool mark_sorted = true) {
-      const bool to_sort_nodes_on_freq = true;
+      const bool to_sort_nodes_on_freq = false;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;

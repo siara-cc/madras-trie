@@ -121,16 +121,14 @@ class cmn {
       // return ret;
     }
     static uint32_t read_uint24(uint8_t *ptr) {
-      uint32_t ret = *((uint32_t *) ptr);
-      return ret & 0x00FFFFFF; // faster endian dependent
+      return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
       // uint32_t ret = *ptr++;
       // ret |= (*ptr++ << 8);
       // ret |= (*ptr << 16);
       // return ret;
     }
     static uint32_t read_uint16(uint8_t *ptr) {
-      uint16_t ret = *((uint16_t *) ptr);
-      return ret; // faster endian dependent
+      return *((uint16_t *) ptr); // faster endian dependent
       // uint32_t ret = *ptr++;
       // ret |= (*ptr << 8);
       // return ret;
@@ -680,28 +678,21 @@ class static_dict {
       return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
     }
 
-    uint8_t *scan_block64(uint32_t& node_id, uint32_t& child_count, uint32_t& term_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint32_t target_term_count) {
+    fragment *scan_block64(uint32_t& node_id, uint32_t& child_count, uint32_t term_count, uint32_t target_term_count, fragment *cur_frag) {
 
-      fragment *frag = which_fragment(node_id, &fragments[0]);
-      uint8_t *t = frag->trie_loc + (node_id - frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
-      t = cmn::read_uint64(t, bm_leaf);
-      t = cmn::read_uint64(t, bm_term);
+      cur_frag = which_fragment(node_id, cur_frag);
+      uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
+      uint64_t bm_term, bm_child;
+      t = cmn::read_uint64(t + 8, bm_term);
       t = cmn::read_uint64(t, bm_child);
-      t = cmn::read_uint64(t, bm_ptr);
+      t += 8;
       int i = target_term_count - term_count - 1;
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
       node_id += pos;
-      if (node_id >= frag->end_node_id) {
-        frag = which_fragment(node_id, frag);
-        t = frag->trie_loc + (node_id - frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
-        if (node_id % 64) {
-          t += 32;
-          t += pos;
-        }
-      } else
-        t += pos;
+      if (node_id >= cur_frag->end_node_id)
+        cur_frag = &fragments[cur_frag->frag_id + 1];
       term_count = target_term_count;
       child_count = child_count + __builtin_popcountll(bm_child & ((isolated_bit << 1) - 1));
       // size_t k = 0;
@@ -717,7 +708,7 @@ class static_dict {
       // }
       // if (child_count != child_count1)
       //   printf("Node_Id: %u,%u\tChild count: %u,%u\n", node_id, node_id1, child_count, child_count1);
-      return t;
+      return cur_frag;
     }
 
     fragment* which_fragment(uint32_t node_id, fragment* cur_frag) {
@@ -726,11 +717,11 @@ class static_dict {
           return cur_frag;
         cur_frag = &fragments[cur_frag->frag_id + 1];
       } while (cur_frag->frag_id < fragment_count);
-      std::cout "WARNING: which_fragment node_id: " << node_id << " not found " << fragments[fragment_count - 1].end_node_id << std::endl;
+      std::cout << "WARNING: which_fragment node_id: " << node_id << " not found " << fragments[fragment_count - 1].end_node_id << std::endl;
       return cur_frag;
     }
 
-    uint8_t *find_child(uint32_t& node_id, uint32_t& child_count, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
+    fragment *find_child(uint32_t& node_id, uint32_t& child_count, fragment *cur_frag) {
       uint32_t target_term_count = child_count;
       uint32_t child_block;
       uint8_t *select_loc = select_lkup_loc + target_term_count / term_divisor * 3;
@@ -771,7 +762,7 @@ class static_dict {
         term_count += bv3_term[pos3];
         child_count += bv3_child[pos3];
       }
-      return scan_block64(node_id, child_count, term_count, bm_leaf, bm_term, bm_child, bm_ptr, target_term_count);
+      return scan_block64(node_id, child_count, term_count, target_term_count, cur_frag);
     }
 
     uint8_t *read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
@@ -792,7 +783,7 @@ class static_dict {
       uint8_t *t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm_child;
       cmn::read_uint64(t + 16, bm_child);
-      uint64_t mask = bm_init_mask << (node_id % 64);
+      uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block3);
       return child_rank + __builtin_popcountll(bm_child & (mask - 1));
     }
 
@@ -853,19 +844,22 @@ class static_dict {
         if (ret == 0)
           return node_id;
         if (child_count == UINT32_MAX) {
-          key_byte = key[key_pos];
           cur_frag = which_fragment(node_id, cur_frag);
           child_count = find_child_rank(cur_frag, node_id);
+          t = NULL;
+        }
+        if (t == NULL) {
+          key_byte = key[key_pos];
           t = cur_frag->trie_loc + (node_id - cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
-          if (node_id % 64) {
+          if (node_id % nodes_per_bv_block3) {
             t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-            t += node_id % 64;
+            t += (node_id % nodes_per_bv_block3);
           }
-          bm_mask = (bm_init_mask << (node_id % 64));
+          bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
           ptr_bit_count = UINT32_MAX;
         }
         do {
-          if ((node_id % 64) == 0) {
+          if ((node_id % nodes_per_bv_block3) == 0) {
             bm_mask = bm_init_mask;
             t = read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
           }
@@ -875,7 +869,7 @@ class static_dict {
           }
           if (bm_mask & bm_child)
             child_count++;
-          if (key_byte != trie_byte) {
+          if (key_byte > trie_byte) {
             if (bm_mask & bm_term) {
               last_exit_loc = t - dict_buf;
               //result = DCT_INSERT_AFTER;
@@ -901,11 +895,8 @@ class static_dict {
               //result = DCT_INSERT_CHILD_LEAF;
               return UINT32_MAX;
             }
-            t = find_child(node_id, child_count, bm_leaf, bm_term, bm_child, bm_ptr);
-            cur_frag = which_fragment(node_id, cur_frag);
-            ptr_bit_count = UINT32_MAX;
-            bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
-            key_byte = key[key_pos];
+            cur_frag = find_child(node_id, child_count, cur_frag);
+            t = NULL;
             continue;
           }
           if (cmp == 0 && key_pos == key_len && (bm_leaf & bm_mask)) {
@@ -987,17 +978,21 @@ class static_dict {
       read_from_ctx(ctx, cv);
     }
 
+    void init_cv_from_node_id(ctx_vars& cv) {
+      cv.t = cv.cur_frag->trie_loc + (cv.node_id - cv.cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
+      if (cv.node_id % nodes_per_bv_block3) {
+        cv.t = read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
+        cv.t += cv.node_id % 64;
+      }
+      cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block3);
+    }
+
     void read_from_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
       cv.child_count = ctx.child_count[ctx.cur_idx];
       cv.node_id = ctx.node_path[ctx.cur_idx];
       cv.cur_frag = ctx.node_frag[ctx.cur_idx];
       //cv.ptr_bit_count = ctx.ptr_bit_count[ctx.cur_idx];
-      cv.t = cv.cur_frag->trie_loc + (cv.node_id - cv.cur_frag->block_start_node_id) / nodes_per_bv_block3 * bytes_per_bv_block3;
-      if (cv.node_id % 64) {
-        cv.t = read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
-        cv.t += cv.node_id % 64;
-        cv.bm_mask = bm_init_mask << (cv.node_id % 64);
-      }
+      init_cv_from_node_id(cv);
     }
 
     void read_flags_block_begin(ctx_vars& cv) {
@@ -1047,10 +1042,9 @@ class static_dict {
           cv.child_count++;
           cv.cur_frag->tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
           update_ctx(ctx, cv);
-          cv.t = find_child(cv.node_id, cv.child_count, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
-          cv.cur_frag = which_fragment(cv.node_id, cv.cur_frag);
+          cv.cur_frag = find_child(cv.node_id, cv.child_count, cv.cur_frag);
+          init_cv_from_node_id(cv);
           cv.ptr_bit_count = UINT32_MAX;
-          cv.bm_mask = (bm_init_mask << (cv.node_id % nodes_per_bv_block3));
           push_to_ctx(ctx, cv);
         }
       } while (cv.node_id < node_count);
