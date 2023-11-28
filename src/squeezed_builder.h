@@ -1688,7 +1688,7 @@ class fragment_builder {
       }
       if (get_uniq_val_count() > 0) // read beyond protection
         tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8);
-      if (fragment_node_count % 64) {
+      if (!to_exit && ((fragment_node_count - 1) % 64)) {
         append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
         append_byte_vec(trie, byte_vec64);
       }
@@ -2419,8 +2419,8 @@ class builder {
       fwrite(term1_buf3, 3, 1, fp);
       fwrite(child_buf3, 3, 1, fp);
       // dummy
-      gen::write_uint24(0, fp);
-      gen::write_uint24(0, fp);
+      gen::write_uint24(term1_count, fp);
+      gen::write_uint24(child_count, fp);
       fwrite(term1_buf3, 3, 1, fp);
       fwrite(child_buf3, 3, 1, fp);
       bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
@@ -2469,7 +2469,7 @@ class builder {
       }
       fwrite(buf3, 3, 1, fp);
       // dummy
-      gen::write_uint24(0, fp);
+      gen::write_uint24(count, fp);
       fwrite(buf3, 3, 1, fp);
     }
 

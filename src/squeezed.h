@@ -690,6 +690,11 @@ class static_dict {
       uint64_t isolated_bit = _pdep_u64(1ULL << i, bm_term);
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
+      if (pos == 65) {
+        std::cout << "WARNING: UNEXPECTED pos=65, node_id: " << node_id << " nc: " << node_count << " cf: " << cur_frag->frag_id
+          << " enid: " << cur_frag->end_node_id << " tc: " << term_count << " ttc: " << target_term_count << " cc: " << child_count << std::endl;
+        return cur_frag;
+      }
       node_id += pos;
       if (node_id >= cur_frag->end_node_id)
         cur_frag = &fragments[cur_frag->frag_id + 1];
