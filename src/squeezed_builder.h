@@ -1688,7 +1688,7 @@ class fragment_builder {
       }
       if (get_uniq_val_count() > 0) // read beyond protection
         tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8);
-      if (!to_exit && ((fragment_node_count - 1) % 64)) {
+      if (!to_exit) {
         append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
         append_byte_vec(trie, byte_vec64);
       }

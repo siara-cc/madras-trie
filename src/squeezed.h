@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <immintrin.h>
+#include <sys/mman.h>
 
 using namespace std;
 
@@ -539,6 +540,8 @@ class static_dict {
     uint8_t *dict_buf;
     uint8_t *val_buf;
     size_t dict_size;
+    size_t val_size;
+    bool is_mmapped;
 
     uint32_t node_count;
     uint32_t common_node_count;
@@ -568,9 +571,12 @@ class static_dict {
     static_dict() {
       dict_buf = NULL;
       val_buf = NULL;
+      is_mmapped = false;
     }
 
     ~static_dict() {
+      if (is_mmapped)
+        map_unmap();
       if (dict_buf != NULL)
         free(dict_buf);
       if (val_buf != NULL)
@@ -581,27 +587,7 @@ class static_dict {
       is_dict_print_enabled = to_print_messages;
     }
 
-    void load(std::string filename) {
-
-      struct stat file_stat;
-      memset(&file_stat, '\0', sizeof(file_stat));
-      stat(filename.c_str(), &file_stat);
-      dict_size = file_stat.st_size;
-      dict_buf = (uint8_t *) malloc(dict_size);
-
-      FILE *fp = fopen(filename.c_str(), "rb+");
-      fread(dict_buf, dict_size, 1, fp);
-      fclose(fp);
-
-      memset(&file_stat, '\0', sizeof(file_stat));
-      stat((filename + ".val").c_str(), &file_stat);
-      uint32_t val_size = file_stat.st_size;
-      if (val_size > 0) { // todo: need flag to indicate val file present or not
-        val_buf = (uint8_t *) malloc(val_size);
-        fp = fopen((filename + ".val").c_str(), "rb+");
-        fread(val_buf, val_size, 1, fp);
-        fclose(fp);
-      }
+    void load_into_vars() {
 
       fragment_count = dict_buf[2];
       node_count = cmn::read_uint32(dict_buf + 4);
@@ -630,6 +616,78 @@ class static_dict {
         fragments.push_back(fragment(i, dict_buf, val_buf, dict_buf + fragment_loc, start_node_id, block_start_node_id, end_node_id));
         start_node_id = end_node_id;
       }
+    }
+
+    uint8_t *map_file(const char *filename, size_t& sz) {
+      struct stat buf;
+      int fd = open(filename, O_RDONLY);
+      if (fd < 0) {
+        perror("open: ");
+        return NULL;
+      }
+      fstat(fd, &buf);
+      sz = buf.st_size;
+      uint8_t *map_buf = (uint8_t *) mmap((caddr_t) 0, sz, PROT_READ, MAP_SHARED, fd, 0);
+      if (map_buf == MAP_FAILED) {
+        perror("mmap: ");
+        close(fd);
+        return NULL;
+      }
+      close(fd);
+      return map_buf;
+    }
+
+    void map_file_to_mem(const char *filename) {
+      dict_buf = map_file(filename, dict_size);
+      std::string val_file = std::string(filename) + ".val";
+      val_buf = map_file(val_file.c_str(), val_size);
+      load_into_vars();
+      is_mmapped = true;
+    }
+
+    void map_unmap() {
+      int err = munmap(dict_buf, dict_size);
+      if(err != 0){
+        printf("UnMapping dict_buf Failed\n");
+        return;
+      }
+      dict_buf = NULL;
+      if (val_buf != NULL) {
+        err = munmap(val_buf, val_size);
+        if(err != 0){
+          printf("UnMapping val_buf Failed\n");
+          return;
+        }
+        val_buf = NULL;
+      }
+      is_mmapped = false;
+    }
+
+    void load(const char* filename) {
+
+      struct stat file_stat;
+      memset(&file_stat, '\0', sizeof(file_stat));
+      stat(filename, &file_stat);
+      dict_size = file_stat.st_size;
+      dict_buf = (uint8_t *) malloc(dict_size);
+
+      FILE *fp = fopen(filename, "rb+");
+      fread(dict_buf, dict_size, 1, fp);
+      fclose(fp);
+
+      std::string val_file = std::string(filename) + ".val";
+      memset(&file_stat, '\0', sizeof(file_stat));
+      stat(val_file.c_str(), &file_stat);
+      uint32_t val_size = file_stat.st_size;
+      if (val_size > 0) { // todo: need flag to indicate val file present or not
+        val_buf = (uint8_t *) malloc(val_size);
+        fp = fopen(val_file.c_str(), "rb+");
+        fread(val_buf, val_size, 1, fp);
+        fclose(fp);
+      }
+
+      load_into_vars();
+
     }
 
     template <typename T>
