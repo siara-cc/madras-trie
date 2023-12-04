@@ -1,6 +1,8 @@
 #ifndef STATIC_DICT_H
 #define STATIC_DICT_H
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <math.h>
@@ -26,7 +28,7 @@ namespace squeezed {
 #define DCT_INSERT_CHILD_LEAF -8
 
 #define bm_init_mask 0x0000000000000001UL
-#define term_divisor 256
+#define term_divisor 128
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
 #define nodes_per_bv_block3 64
@@ -352,7 +354,7 @@ class grp_ptr_data_map {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       uint8_t grp_no = *lookup_tbl_ptr & 0x0F;
-      uint8_t code_len = *lookup_tbl_ptr >> 4;
+      uint8_t code_len = *lookup_tbl_ptr >> 5;
       ptr_bit_count += code_len;
       uint32_t ptr = read_extra_ptr(node_id, ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
@@ -369,7 +371,7 @@ class grp_ptr_data_map {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       grp_no = *lookup_tbl_ptr & 0x0F;
-      uint8_t code_len = *lookup_tbl_ptr >> 4;
+      uint8_t code_len = *lookup_tbl_ptr >> 5;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
       if (bit_len > 0) {

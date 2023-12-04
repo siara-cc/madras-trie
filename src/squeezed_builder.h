@@ -1,6 +1,10 @@
 #ifndef builder_H
 #define builder_H
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdarg.h>
+#include <cstring>
 #include <algorithm>
 #include <map>
 #include <string>
@@ -8,10 +12,6 @@
 #include <iostream>
 #include <math.h>
 #include <time.h>
-
-#include "../../index_research/src/art.h"
-#include "../../index_research/src/basix.h"
-#include "../../index_research/src/univix_util.h"
 
 enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHAR};
 #define DCT_INSERT_AFTER -2
@@ -26,7 +26,7 @@ namespace squeezed {
 
 #define nodes_per_bv_block3 64
 #define nodes_per_bv_block 256
-#define term_divisor 256
+#define term_divisor 128
 
 typedef std::vector<uint8_t> byte_vec;
 
@@ -660,7 +660,7 @@ class freq_grp_ptrs_data {
           if ((code_i >> (8 - code_len)) == code) {
             int bit_len = freq_grp_vec[j].grp_log2;
             fputc(bit_len, fp);
-            fputc((j - 1) | (code_len << 4), fp);
+            fputc((j - 1) | (code_len << 5), fp);
             code_found = true;
             break;
           }
@@ -1816,7 +1816,6 @@ class builder {
       first_node.next_sibling = 0;
       all_nodes.push_back(root);
       all_nodes.push_back(first_node);
-      util::generate_bit_counts();
       //art_tree_init(&at);
       if (out_file != NULL)
         set_out_file(out_file);
@@ -1932,7 +1931,7 @@ class builder {
         uint8_t trie_byte = get_first_byte(all_tails, cur_node);
         while (nodes_sorted ? (key_byte != trie_byte) : (key_byte > trie_byte)) {
           if (nodes_sorted ? (cur_node->flags & NFLAG_TERM) : (cur_node->next_sibling == 0)) {
-            result = INSERT_AFTER;
+            result = DCT_INSERT_AFTER;
             return cur_node;
           }
           if (nodes_sorted)
@@ -1961,12 +1960,12 @@ class builder {
           if (cmp == 0 || abs(cmp) - 1 == cur_node->tail_len) {
             key_pos += cur_node->tail_len;
             if (key_pos >= key_len) {
-              result = INSERT_LEAF;
+              result = DCT_INSERT_LEAF;
               return cur_node;
             }
             node_id = cur_node->first_child;
             if (node_id == 0) {
-              result = INSERT_CHILD_LEAF;
+              result = DCT_INSERT_CHILD_LEAF;
               return cur_node;
             }
             cur_node = &all_nodes[node_id];
@@ -1974,13 +1973,13 @@ class builder {
             continue;
           }
           if (abs(cmp) - 1 == key_len - key_pos) {
-            result = INSERT_CHILD_LEAF;
+            result = DCT_INSERT_CHILD_LEAF;
             return cur_node;
           }
-          result = INSERT_THREAD;
+          result = DCT_INSERT_THREAD;
           return cur_node;
         }
-        result = INSERT_BEFORE;
+        result = DCT_INSERT_BEFORE;
         return cur_node;
       } while (1);
       return 0;
@@ -2014,20 +2013,20 @@ class builder {
       if (max_val_len < val_len)
         max_val_len = val_len;
       switch (result) {
-        case INSERT_AFTER:
+        case DCT_INSERT_AFTER:
           add_sibling(ins_node, key, key_len, key_pos, val, val_len);
           break;
-        case INSERT_BEFORE:
+        case DCT_INSERT_BEFORE:
           insert_sibling(ins_node, key, key_len, key_pos, val, val_len, ins_node_pos);
           break;
-        case INSERT_LEAF:
+        case DCT_INSERT_LEAF:
           ins_node->flags |= NFLAG_LEAF;
           append_val_vec(val, val_len, ins_node_pos);
           break;
-        case INSERT_CHILD_LEAF:
+        case DCT_INSERT_CHILD_LEAF:
           add_child_leaf(ins_node, key, key_len, key_pos, val, val_len, cmp);
           break;
-        case INSERT_THREAD: {
+        case DCT_INSERT_THREAD: {
           bool swap = (cmp > 0);
           if (cmp != 0) {
             cmp = abs(cmp) - 1;
@@ -2227,7 +2226,7 @@ class builder {
       while (cache_count < key_count / 512) {
         cache_count *= 2;
       }
-      //cache_count *= 4;
+      cache_count *= 4;
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
       byte_vec sec_cache_bytes;
@@ -2509,7 +2508,7 @@ class builder {
             gen::copy_uint24(child_node_id, &cche->child_node_id1);
             cche->node_byte = cur_node->v0;
           }
-       }
+        }
         node_id++;
         if (cur_node->flags & NFLAG_TERM)
           node_set_id = node_id;
