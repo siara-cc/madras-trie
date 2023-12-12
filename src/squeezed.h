@@ -579,10 +579,14 @@ class static_dict {
     ~static_dict() {
       if (is_mmapped)
         map_unmap();
-      if (dict_buf != NULL)
+      if (dict_buf != NULL) {
+        madvise(dict_buf, dict_size, MADV_NORMAL);
         free(dict_buf);
-      if (val_buf != NULL)
+      }
+      if (val_buf != NULL) {
+        madvise(val_buf, val_size, MADV_NORMAL);
         free(val_buf);
+      }
     }
 
     void set_print_enabled(bool to_print_messages = true) {
@@ -629,7 +633,7 @@ class static_dict {
       }
       fstat(fd, &buf);
       sz = buf.st_size;
-      uint8_t *map_buf = (uint8_t *) mmap((caddr_t) 0, sz, PROT_READ, MAP_SHARED, fd, 0);
+      uint8_t *map_buf = (uint8_t *) mmap((caddr_t) 0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
       if (map_buf == MAP_FAILED) {
         perror("mmap: ");
         close(fd);
@@ -641,6 +645,8 @@ class static_dict {
 
     void map_file_to_mem(const char *filename) {
       dict_buf = map_file(filename, dict_size);
+      int len_will_need = (dict_size >> 1);
+      madvise(dict_buf, len_will_need, MADV_WILLNEED);
       std::string val_file = std::string(filename) + ".val";
       val_buf = map_file(val_file.c_str(), val_size);
       load_into_vars();
@@ -677,6 +683,10 @@ class static_dict {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
+      int len_will_need = (dict_size >> 1);
+      madvise(dict_buf, len_will_need, MADV_WILLNEED);
+      //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
+
       std::string val_file = std::string(filename) + ".val";
       memset(&file_stat, '\0', sizeof(file_stat));
       stat(val_file.c_str(), &file_stat);
@@ -685,6 +695,7 @@ class static_dict {
         val_buf = (uint8_t *) malloc(val_size);
         fp = fopen(val_file.c_str(), "rb+");
         fread(val_buf, val_size, 1, fp);
+	//madvise(val_buf, val_size, MADV_RANDOM);
         fclose(fp);
       }
 
