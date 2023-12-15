@@ -2,8 +2,8 @@
 #include <iostream>
 #include <string>
 
-#include "squeezed.h"
-#include "squeezed_builder.h"
+#include "src/squeezed.h"
+#include "src/squeezed_builder.h"
 
 using namespace std;
 
@@ -38,9 +38,9 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      // sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
+      // sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       sb.append((const uint8_t *) line.c_str(), line.length());
-      // sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 3 ? 4 : line.length());
+      // sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
       prev_line = line;
@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
 
   squeezed::static_dict dict_reader; //, &sb);
   dict_reader.set_print_enabled(true);
-  dict_reader.load(out_file);
+  dict_reader.load(out_file.c_str());
   //dict_reader.dump_tail_ptrs();
 
   int val_len;
@@ -101,8 +101,8 @@ int main(int argc, char *argv[]) {
     // else {
     //   if (memcmp(line.c_str(), key_buf, key_len) != 0)
     //     printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
-    //   if (memcmp(line.substr(0, line.length() > 3 ? 4 : line.length()).c_str(), val_buf, val_len) != 0)
-    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 3 ? 4 : line.length()), line.c_str(), val_len, val_buf);
+    //   if (memcmp(line.substr(0, line.length() > 6 ? 7 : line.length()).c_str(), val_buf, val_len) != 0)
+    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 6 ? 7 : line.length()), line.c_str(), val_len, val_buf);
     // }
 
     uint32_t node_id = dict_reader.lookup((const uint8_t *) line.c_str(), line.length());
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
     // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
     // if (success) {
     //   val_buf[val_len] = 0;
-    //   if (line.substr(0, 4).compare((const char *) val_buf) != 0)
+    //   if (line.substr(0, 7).compare((const char *) val_buf) != 0)
     //     printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
     // } else
     //   std::cout << line << std::endl;

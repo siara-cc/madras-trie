@@ -1951,8 +1951,6 @@ class builder {
             // bldr_printf("%d\t%.*s\n", (int) key.size() - key_pos, (int) key.size() - key_pos, key.data() + key_pos);
           } else
             cmp = 0;
-            if (cur_node->node_id >= 345568 && cur_node->node_id <= 345571)
-              bldr_printf("NodeId: %u, Key: [%.*s]\n", cur_node->node_id, key_len, key);
           if (cmp == 0 && key_pos + cur_node->tail_len == key_len && (cur_node->flags & NFLAG_LEAF)) {
             result = 0;
             return cur_node;
@@ -2226,7 +2224,7 @@ class builder {
       while (cache_count < key_count / 512) {
         cache_count *= 2;
       }
-      cache_count *= 4;
+      cache_count *= 2;
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
       byte_vec sec_cache_bytes;
@@ -2524,14 +2522,19 @@ class builder {
     void write_select_lkup(FILE *fp) {
       uint32_t node_id = 0;
       uint32_t term_count = 0;
+      uint32_t prev_val = 0;
       gen::write_uint24(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (cur_node->flags & NFLAG_TERM) {
           if (term_count && (term_count % term_divisor) == 0) {
-            gen::write_uint24(node_id / nodes_per_bv_block, fp);
-            if (node_id / nodes_per_bv_block > (1 << 24))
-              bldr_printf("WARNING: %u\t%u\n", term_count, node_id / nodes_per_bv_block);
+            uint32_t val_to_write = node_id / nodes_per_bv_block;
+            // if (val_to_write - prev_val > 4)
+            //   bldr_printf("Nid:\t%u\tblk:\t%u\tdiff:\t%u\n", node_id, val_to_write, val_to_write-prev_val);
+            gen::write_uint24(val_to_write, fp);
+            if (val_to_write > (1 << 24))
+              bldr_printf("WARNING: %u\t%u\n", term_count, val_to_write);
+            prev_val = val_to_write;
           }
           term_count++;
         }
