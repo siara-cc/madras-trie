@@ -173,9 +173,9 @@ class grp_ptr_data_map {
     int8_t grp_idx_limit;
     uint8_t last_grp_no;
     uint8_t *grp_data_loc;
-    uint32_t two_byte_tail_count;
+    uint32_t two_byte_data_count;
     uint32_t idx2_ptr_count;
-    uint8_t *two_byte_tails_loc;
+    uint8_t *two_byte_data_loc;
     uint8_t *code_lookup_tbl;
     std::vector<uint8_t *> grp_data;
 
@@ -309,7 +309,7 @@ class grp_ptr_data_map {
     }
 
     void init(uint8_t *_dict_buf, uint8_t *_trie_loc, uint32_t _start_node_id, 
-        uint32_t _block_start_node_id, uint32_t _end_node_id, uint8_t *tails_loc) {
+        uint32_t _block_start_node_id, uint32_t _end_node_id, uint8_t *data_loc) {
 
       dict_buf = _dict_buf;
       trie_loc = _trie_loc;
@@ -317,30 +317,30 @@ class grp_ptr_data_map {
       block_start_node_id = _block_start_node_id;
       end_node_id = _end_node_id;
 
-      ptr_lkup_tbl_ptr_width = *tails_loc;
+      ptr_lkup_tbl_ptr_width = *data_loc;
       if (ptr_lkup_tbl_ptr_width == 10)
         ptr_lkup_tbl_mask = 0xFFFFFFFF;
       else
         ptr_lkup_tbl_mask = 0x00FFFFFF;
-      ptr_lookup_tbl_loc = tails_loc + cmn::read_uint32(tails_loc + 1);
-      grp_data_loc = tails_loc + cmn::read_uint32(tails_loc + 5);
-      two_byte_tail_count = cmn::read_uint32(tails_loc + 9);
-      idx2_ptr_count = cmn::read_uint32(tails_loc + 13);
+      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 1);
+      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 5);
+      two_byte_data_count = cmn::read_uint32(data_loc + 9);
+      idx2_ptr_count = cmn::read_uint32(data_loc + 13);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
       idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = tails_loc + cmn::read_uint32(tails_loc + 17);
-      two_byte_tails_loc = tails_loc + cmn::read_uint32(tails_loc + 21);
-      idx2_ptrs_map_loc = tails_loc + cmn::read_uint32(tails_loc + 25);
+      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 17);
+      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 21);
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 25);
 
       last_grp_no = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
       uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
       for (int i = 0; i <= last_grp_no; i++)
-        grp_data.push_back(tails_loc + cmn::read_uint32(grp_data_idx_start + i * 4));
+        grp_data.push_back(data_loc + cmn::read_uint32(grp_data_idx_start + i * 4));
       int _start_bits = start_bits;
       for (int i = 1; i <= grp_idx_limit; i++) {
         idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
@@ -574,6 +574,7 @@ class static_dict {
       dict_buf = NULL;
       val_buf = NULL;
       is_mmapped = false;
+      last_exit_loc = 0;
     }
 
     ~static_dict() {
@@ -645,7 +646,7 @@ class static_dict {
 
     void map_file_to_mem(const char *filename) {
       dict_buf = map_file(filename, dict_size);
-      int len_will_need = (dict_size >> 1);
+      int len_will_need = (dict_size >> 2);
       madvise(dict_buf, len_will_need, MADV_WILLNEED);
       std::string val_file = std::string(filename) + ".val";
       val_buf = map_file(val_file.c_str(), val_size);

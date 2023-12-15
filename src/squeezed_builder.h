@@ -495,10 +495,10 @@ class freq_grp_ptrs_data {
     uint32_t next_idx;
     uint32_t ptr_lookup_tbl;
     uint32_t ptr_lookup_tbl_loc;
-    uint32_t grp_tails_loc;
-    uint32_t grp_tails_size;
+    uint32_t grp_data_loc;
+    uint32_t grp_data_size;
     uint32_t tail_ptrs_loc;
-    uint32_t two_byte_tails_loc;
+    uint32_t two_byte_data_loc;
     uint32_t idx2_ptrs_map_loc;
     uint32_t two_byte_count;
     uint32_t idx2_ptr_count;
@@ -642,13 +642,13 @@ class freq_grp_ptrs_data {
         ptr_lkup_tbl_ptr_width = 10;
       ptr_lookup_tbl_loc = 7 * 4 + 1;
       ptr_lookup_tbl = gen::get_lkup_tbl_size2(fragment_node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
-      grp_tails_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      grp_tails_size = get_hdr_size() + get_data_size();
-      tail_ptrs_loc = grp_tails_loc + grp_tails_size;
       two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
-      two_byte_tails_loc = tail_ptrs_loc + get_ptrs_size();
+      two_byte_data_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
       idx2_ptr_count = get_idx2_ptrs_count();
-      idx2_ptrs_map_loc = two_byte_tails_loc + 0; // todo: fix two_byte_tails.size();
+      idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
+      grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
+      grp_data_size = get_hdr_size() + get_data_size();
+      tail_ptrs_loc = grp_data_loc + grp_data_size;
     }
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -767,18 +767,18 @@ class freq_grp_ptrs_data {
           std::vector<ptr_vals_info *>& info_vec, uint32_t block_start_nid, uint32_t start_nid, uint32_t end_nid, FILE *fp) {
       fputc(ptr_lkup_tbl_ptr_width, fp);
       gen::write_uint32(ptr_lookup_tbl_loc, fp);
-      gen::write_uint32(grp_tails_loc, fp);
+      gen::write_uint32(grp_data_loc, fp);
       gen::write_uint32(two_byte_count, fp);
       gen::write_uint32(idx2_ptr_count, fp);
       gen::write_uint32(tail_ptrs_loc, fp);
-      gen::write_uint32(two_byte_tails_loc, fp);
+      gen::write_uint32(two_byte_data_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
       write_ptr_lookup_tbl(all_nodes, get_info_func, is_tail, info_vec, block_start_nid, start_nid, end_nid, fp);
-      write_grp_data(grp_tails_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
-      write_ptrs(fp);
       fwrite(all_nodes.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
       byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
       fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
+      write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
+      write_ptrs(fp);
       bldr_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Uniq count: %u\n",
         get_data_size(), get_ptrs_size(), ptr_lookup_tbl, idx2_ptrs_map->size(), info_vec.size());
     }
