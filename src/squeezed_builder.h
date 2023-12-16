@@ -26,7 +26,7 @@ namespace squeezed {
 
 #define nodes_per_bv_block3 64
 #define nodes_per_bv_block 256
-#define term_divisor 128
+#define term_divisor 512
 
 typedef std::vector<uint8_t> byte_vec;
 
@@ -497,7 +497,7 @@ class freq_grp_ptrs_data {
     uint32_t ptr_lookup_tbl_loc;
     uint32_t grp_data_loc;
     uint32_t grp_data_size;
-    uint32_t tail_ptrs_loc;
+    uint32_t grp_ptrs_loc;
     uint32_t two_byte_data_loc;
     uint32_t idx2_ptrs_map_loc;
     uint32_t two_byte_count;
@@ -648,7 +648,7 @@ class freq_grp_ptrs_data {
       idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
       grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
       grp_data_size = get_hdr_size() + get_data_size();
-      tail_ptrs_loc = grp_data_loc + grp_data_size;
+      grp_ptrs_loc = grp_data_loc + grp_data_size;
     }
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -770,7 +770,7 @@ class freq_grp_ptrs_data {
       gen::write_uint32(grp_data_loc, fp);
       gen::write_uint32(two_byte_count, fp);
       gen::write_uint32(idx2_ptr_count, fp);
-      gen::write_uint32(tail_ptrs_loc, fp);
+      gen::write_uint32(grp_ptrs_loc, fp);
       gen::write_uint32(two_byte_data_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
       write_ptr_lookup_tbl(all_nodes, get_info_func, is_tail, info_vec, block_start_nid, start_nid, end_nid, fp);
@@ -2207,7 +2207,7 @@ class builder {
     #define BV_LEAF 1
     #define BV_CHILD 2
     #define BV_TERM 3
-    const static uint32_t frag0_child_pct = 10;
+    const static uint32_t frag0_child_pct = 30;
     std::string build(std::string filename) {
 
       out_filename = filename;
@@ -2224,7 +2224,7 @@ class builder {
       while (cache_count < key_count / 512) {
         cache_count *= 2;
       }
-      cache_count *= 2;
+      //cache_count *= 2;
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
       byte_vec sec_cache_bytes;

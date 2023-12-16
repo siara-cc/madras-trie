@@ -28,7 +28,7 @@ namespace squeezed {
 #define DCT_INSERT_CHILD_LEAF -8
 
 #define bm_init_mask 0x0000000000000001UL
-#define term_divisor 128
+#define term_divisor 512
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
 #define nodes_per_bv_block3 64
