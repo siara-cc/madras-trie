@@ -661,11 +661,11 @@ class static_dict {
       if (is_mmapped)
         map_unmap();
       if (dict_buf != NULL) {
-        madvise(dict_buf, dict_size, MADV_NORMAL);
+        //madvise(dict_buf, dict_size, MADV_NORMAL);
         free(dict_buf);
       }
       if (val_buf != NULL) {
-        madvise(val_buf, val_size, MADV_NORMAL);
+        //madvise(val_buf, val_size, MADV_NORMAL);
         free(val_buf);
       }
     }
@@ -733,7 +733,8 @@ class static_dict {
     void map_file_to_mem(const char *filename) {
       dict_buf = map_file(filename, dict_size);
       int len_will_need = (dict_size >> 2);
-      madvise(dict_buf, len_will_need, MADV_WILLNEED);
+      //madvise(dict_buf, len_will_need, MADV_WILLNEED);
+      mlock(dict_buf, len_will_need);
       std::string val_file = std::string(filename) + ".val";
       val_buf = map_file(val_file.c_str(), val_size);
       load_into_vars();
@@ -741,6 +742,7 @@ class static_dict {
     }
 
     void map_unmap() {
+      munlock(dict_buf, dict_size >> 2);
       int err = munmap(dict_buf, dict_size);
       if(err != 0){
         printf("UnMapping dict_buf Failed\n");
@@ -771,7 +773,8 @@ class static_dict {
       fclose(fp);
 
       int len_will_need = (dict_size >> 1);
-      madvise(dict_buf, len_will_need, MADV_WILLNEED);
+      mlock(dict_buf, len_will_need);
+      //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
 
       std::string val_file = std::string(filename) + ".val";
