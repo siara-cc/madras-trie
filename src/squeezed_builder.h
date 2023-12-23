@@ -2188,7 +2188,7 @@ class builder {
       uint32_t sec_cache_size = 0;
       uint32_t sec_cache_count = 0;
 
-      uint32_t term_bv = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 6);
+      uint32_t term_bv = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
       uint32_t child_bv = term_bv;
       uint32_t leaf_bv = term_bv;
       uint32_t trie_select_lookup = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
@@ -2283,8 +2283,8 @@ class builder {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         fwrite(term1_buf3, 3, 1, fp);
         fwrite(child_buf3, 3, 1, fp);
-        gen::write_uint24(term1_count, fp);
-        gen::write_uint24(child_count, fp);
+        gen::write_uint32(term1_count, fp);
+        gen::write_uint32(child_count, fp);
         term1_count3 = 0;
         child_count3 = 0;
         memset(term1_buf3, 0, 3);
@@ -2310,8 +2310,8 @@ class builder {
       uint8_t pos3 = 0;
       memset(term1_buf3, 0, 3);
       memset(child_buf3, 0, 3);
-      gen::write_uint24(0, fp);
-      gen::write_uint24(0, fp);
+      gen::write_uint32(0, fp);
+      gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         write_bv3(node_id, term1_count, child_count, term1_count3, child_count3, term1_buf3, child_buf3, pos3, fp);
@@ -2328,8 +2328,8 @@ class builder {
       fwrite(term1_buf3, 3, 1, fp);
       fwrite(child_buf3, 3, 1, fp);
       // dummy
-      gen::write_uint24(term1_count, fp);
-      gen::write_uint24(child_count, fp);
+      gen::write_uint32(term1_count, fp);
+      gen::write_uint32(child_count, fp);
       fwrite(term1_buf3, 3, 1, fp);
       fwrite(child_buf3, 3, 1, fp);
       bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
@@ -2338,7 +2338,7 @@ class builder {
     void write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         fwrite(buf3, 3, 1, fp);
-        gen::write_uint24(count, fp);
+        gen::write_uint32(count, fp);
         count3 = 0;
         memset(buf3, 0, 3);
         pos3 = 0;
@@ -2356,7 +2356,7 @@ class builder {
       uint8_t buf3[3];
       uint8_t pos3 = 0;
       memset(buf3, 0, 3);
-      gen::write_uint24(0, fp);
+      gen::write_uint32(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         write_bv3(node_id, count, count3, buf3, pos3, fp);
@@ -2378,7 +2378,7 @@ class builder {
       }
       fwrite(buf3, 3, 1, fp);
       // dummy
-      gen::write_uint24(count, fp);
+      gen::write_uint32(count, fp);
       fwrite(buf3, 3, 1, fp);
     }
 

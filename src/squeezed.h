@@ -468,7 +468,7 @@ class bv_lookup_tbl {
     int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first < last) {
         const uint32_t middle = (first + last) >> 1;
-        if (cmn::read_uint24(lt_rank_loc + middle * 6) < given_count)
+        if (cmn::read_uint24(lt_rank_loc + middle * 7) < given_count)
           first = middle + 1;
         else
           last = middle;
@@ -486,7 +486,7 @@ class bv_lookup_tbl {
         if (start_block + 10 >= end_block) {
           do {
             start_block++;
-          } while (cmn::read_uint24(lt_rank_loc + start_block * 6) < target_count && start_block <= end_block);
+          } while (cmn::read_uint24(lt_rank_loc + start_block * 7) < target_count && start_block <= end_block);
           block = start_block - 1;
         } else {
           block = bin_srch_lkup_tbl(start_block, end_block, target_count);
@@ -496,10 +496,10 @@ class bv_lookup_tbl {
       uint32_t cur_count;
       do {
         block--;
-        cur_count = cmn::read_uint24(lt_rank_loc + block * 6);
+        cur_count = cmn::read_uint24(lt_rank_loc + block * 7);
       } while (cur_count >= target_count);
       node_id = block * nodes_per_bv_block;
-      uint8_t *bv3 = lt_rank_loc + block * 6 + 3;
+      uint8_t *bv3 = lt_rank_loc + block * 7 + 4;
       int pos3;
       for (pos3 = 0; pos3 < 3 && node_id + nodes_per_bv_block3 < node_count; pos3++) {
         uint8_t count3 = bv3[pos3];
@@ -515,11 +515,88 @@ class bv_lookup_tbl {
       return cur_count;
     }
     uint32_t block_rank(uint32_t node_id) {
-      uint8_t *rank_ptr = lt_rank_loc + node_id / nodes_per_bv_block * 6;
+      uint8_t *rank_ptr = lt_rank_loc + node_id / nodes_per_bv_block * 7;
       uint32_t rank = cmn::read_uint24(rank_ptr);
       int pos = (node_id / nodes_per_bv_block3) % 4;
       if (pos > 0) {
-        uint8_t *bv3 = rank_ptr + 3;
+        uint8_t *bv3 = rank_ptr + 4;
+        rank += bv3[--pos];
+      }
+      return rank;
+    }
+};
+
+class trie_bv_lookup_tbl {
+  private:
+    uint8_t *term_sel_lt_loc;
+    uint8_t *rank_lt_loc;
+    uint32_t node_count;
+  public:
+    trie_bv_lookup_tbl() {
+    }
+    void init(uint8_t *_rank_lt_loc, uint8_t *_term_sel_lt_loc, uint32_t _node_count) {
+      rank_lt_loc = _rank_lt_loc;
+      term_sel_lt_loc = _term_sel_lt_loc;
+      node_count = _node_count;
+    }
+    int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
+      while (first < last) {
+        const uint32_t middle = (first + last) >> 1;
+        if (cmn::read_uint24(rank_lt_loc + middle * 12) < given_count)
+          first = middle + 1;
+        else
+          last = middle;
+      }
+      return last;
+    }
+    uint32_t find_block(uint32_t target_count, uint32_t& node_id, uint32_t& child_count) {
+      uint32_t block;
+      uint8_t *select_loc = term_sel_lt_loc + target_count / term_divisor * 3;
+      if ((target_count % term_divisor) == 0) {
+        block = cmn::read_uint24(select_loc);
+      } else {
+        uint32_t start_block = cmn::read_uint24(select_loc);
+        uint32_t end_block = cmn::read_uint24(select_loc + 3);
+        if (start_block + 8 >= end_block) {
+          do {
+            start_block++;
+          } while (cmn::read_uint24(rank_lt_loc + start_block * 12) < target_count && start_block <= end_block);
+          block = start_block - 1;
+        } else {
+          block = bin_srch_lkup_tbl(start_block, end_block, target_count);
+        }
+      }
+      block++;
+      uint32_t term_count;
+      do {
+        block--;
+        term_count = cmn::read_uint24(rank_lt_loc + block * 12);
+      } while (term_count >= target_count);
+      child_count = cmn::read_uint24(rank_lt_loc + block * 12 + 3);
+      node_id = block * nodes_per_bv_block;
+      uint8_t *bv3_term = rank_lt_loc + block * 12 + 6;
+      int pos3;
+      for (pos3 = 0; pos3 < 3 && node_id + nodes_per_bv_block3 < node_count; pos3++) {
+        uint8_t count3 = bv3_term[pos3];
+        if (term_count + count3 < target_count) {
+          node_id += nodes_per_bv_block3;
+        } else
+          break;
+      }
+      if (pos3) {
+        pos3--;
+        term_count += bv3_term[pos3];
+        uint8_t *bv3_child = bv3_term + 3;
+        child_count += bv3_child[pos3];
+      }
+      return term_count;
+    }
+    uint32_t child_rank(uint32_t node_id) {
+      uint8_t *rank_ptr = rank_lt_loc + node_id / nodes_per_bv_block * 12 + 3;
+      uint32_t rank = cmn::read_uint24(rank_ptr);
+      int pos = (node_id / nodes_per_bv_block3) % 4;
+      if (pos > 0) {
+        uint8_t *bv3 = rank_ptr + 6;
         rank += bv3[--pos];
       }
       return rank;
