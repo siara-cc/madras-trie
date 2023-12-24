@@ -2188,23 +2188,25 @@ class builder {
       uint32_t sec_cache_size = 0;
       uint32_t sec_cache_count = 0;
 
-      uint32_t term_bv = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
-      uint32_t child_bv = term_bv;
-      uint32_t leaf_bv = term_bv;
-      uint32_t trie_select_lookup = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
-      uint32_t leaf_select_lookup = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
+      uint32_t term_bvlt_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
+      uint32_t child_bvlt_sz = term_bvlt_sz;
+      uint32_t leaf_bvlt_sz = term_bvlt_sz;
+      uint32_t term_select_lt_sz = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
+      uint32_t child_select_lt_sz = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
+      uint32_t leaf_select_lt_sz = gen::get_lkup_tbl_size2(key_count, term_divisor, 3);
 
-      uint32_t dummy_loc = 4 + 17 * 4; // 72
+      uint32_t dummy_loc = 4 + 18 * 4; // 76
       uint32_t common_node_loc = dummy_loc + 0;
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
       uint32_t sec_cache_loc = cache_loc + cache_size;
-      uint32_t trie_select_lkup_loc = sec_cache_loc + sec_cache_size;
-      uint32_t term_bv_loc = trie_select_lkup_loc + trie_select_lookup;
-      uint32_t child_bv_loc = term_bv_loc + term_bv;
-      uint32_t trie_ptrs_data_loc = child_bv_loc + child_bv;
+      uint32_t term_select_lkup_loc = sec_cache_loc + sec_cache_size;
+      uint32_t term_bv_loc = term_select_lkup_loc + term_select_lt_sz;
+      uint32_t child_bv_loc = term_bv_loc + term_bvlt_sz;
+      uint32_t trie_ptrs_data_loc = child_bv_loc + child_bvlt_sz;
       uint32_t trie_ptrs_data_end = trie_builder.build();
-      uint32_t leaf_select_lkup_loc = trie_ptrs_data_end;
-      uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lookup;
+      uint32_t child_select_lkup_loc = trie_ptrs_data_end;
+      uint32_t leaf_select_lkup_loc = child_select_lkup_loc + child_select_lt_sz;
+      uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
 
       make_cache(cache_count, cache_bytes, cache_size);
       //make_sec_cache(sec_cache_count, sec_cache_bytes, sec_cache_size);
@@ -2227,8 +2229,9 @@ class builder {
       gen::write_uint32(cache_loc, fp);
       gen::write_uint32(sec_cache_loc, fp);
 
-      gen::write_uint32(trie_select_lkup_loc, fp);
+      gen::write_uint32(term_select_lkup_loc, fp);
       gen::write_uint32(term_bv_loc, fp);
+      gen::write_uint32(child_select_lkup_loc, fp);
       gen::write_uint32(child_bv_loc, fp);
       gen::write_uint32(leaf_select_lkup_loc, fp);
       gen::write_uint32(leaf_bv_loc, fp);
@@ -2236,17 +2239,19 @@ class builder {
 
       fwrite(cache_bytes.data(), cache_bytes.size(), 1, fp);
       //write_sec_cache(sec_cache_count, fp);
-      write_trie_select_lkup(fp);
+      write_select_lkup(BV_TERM, fp);
       write_bv(BV_TERM, fp);
       write_bv(BV_CHILD, fp);
 
       FILE *fp_val = fopen((out_filename + ".val").c_str(), "wb+");
 
-      uint32_t total_idx_size = 4 + 17 * 4 + cache_size + sec_cache_size +
-                trie_select_lookup + term_bv + child_bv + leaf_select_lookup + leaf_bv;
+      uint32_t total_idx_size = 4 + 18 * 4 + cache_size + sec_cache_size +
+                term_select_lt_sz + term_bvlt_sz + child_bvlt_sz + leaf_select_lt_sz + leaf_bvlt_sz;
       uint32_t val_fp_offset = 0;
       val_fp_offset = trie_builder.write(fp, fp_val, val_fp_offset);
       total_idx_size += trie_builder.size();
+      write_select_lkup(BV_CHILD, fp);
+      write_select_lkup(BV_LEAF, fp);
       write_bv(BV_LEAF, fp);
 
       uint32_t total_val_size = val_fp_offset;
@@ -2255,10 +2260,10 @@ class builder {
       fclose(fp);
       fclose(fp_val);
 
-      bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lkup tbl trie: %u, Select lkup tbl leaf: %u\n"
+      bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
         "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
-            node_count, term_bv * 2, leaf_bv, trie_select_lookup, leaf_select_lookup, cache_size, sizeof(bldr_cache), sec_cache_size,
-            sizeof(node), max_tail_len);
+            node_count, term_bvlt_sz * 2, leaf_bvlt_sz, term_select_lt_sz, child_select_lt_sz, leaf_select_lt_sz,
+            cache_size, sizeof(bldr_cache), sec_cache_size, sizeof(node), max_tail_len);
 
       // fp = fopen("nodes.txt", "wb+");
       // // dump_nodes(first_node, fp);
@@ -2420,44 +2425,41 @@ class builder {
       }
     }
 
-    void write_trie_select_lkup(FILE *fp) {
+    uint32_t write_select_val(uint32_t node_id, FILE *fp) {
+      uint32_t val_to_write = node_id / nodes_per_bv_block;
+      // if (val_to_write - prev_val > 4)
+      //   bldr_printf("Nid:\t%u\tblk:\t%u\tdiff:\t%u\n", node_id, val_to_write, val_to_write-prev_val);
+      gen::write_uint24(val_to_write, fp);
+      return val_to_write;
+    }
+
+    bool node_qualifies_for_select(node *cur_node, int which) {
+      switch (which) {
+        case BV_TERM:
+          return cur_node->flags & NFLAG_TERM;
+        case BV_LEAF:
+          return cur_node->flags & NFLAG_LEAF;
+        case BV_CHILD:
+          return cur_node->first_child > 0;
+      }
+      return false;
+    }
+
+    void write_select_lkup(int which, FILE *fp) {
       uint32_t node_id = 0;
-      uint32_t term_count = 0;
+      uint32_t sel_count = 0;
       uint32_t prev_val = 0;
       gen::write_uint24(0, fp);
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
-        if (cur_node->flags & NFLAG_TERM) {
-          if (term_count && (term_count % term_divisor) == 0) {
-            uint32_t val_to_write = node_id / nodes_per_bv_block;
-            // if (val_to_write - prev_val > 4)
-            //   bldr_printf("Nid:\t%u\tblk:\t%u\tdiff:\t%u\n", node_id, val_to_write, val_to_write-prev_val);
-            gen::write_uint24(val_to_write, fp);
+        if (node_qualifies_for_select(cur_node, which)) {
+          if (sel_count && (sel_count % term_divisor) == 0) {
+            uint32_t val_to_write = write_select_val(node_id, fp);
             if (val_to_write > (1 << 24))
-              bldr_printf("WARNING: %u\t%u\n", term_count, val_to_write);
+              bldr_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
             prev_val = val_to_write;
           }
-          term_count++;
-        }
-        node_id++;
-      }
-      gen::write_uint24(node_count/nodes_per_bv_block, fp);
-    }
-
-    void write_leaf_select_lkup(FILE *fp) {
-      uint32_t node_id = 0;
-      uint32_t leaf_count = 0;
-      gen::write_uint24(0, fp);
-      for (int i = 1; i < all_nodes.size(); i++) {
-        node *cur_node = &all_nodes[i];
-        if (cur_node->flags & NFLAG_LEAF) {
-          if (leaf_count && (leaf_count % term_divisor) == 0) {
-            uint32_t val_to_write = node_id / nodes_per_bv_block;
-            gen::write_uint24(val_to_write, fp);
-            if (val_to_write > (1 << 24))
-              bldr_printf("WARNING: %u\t%u\n", leaf_count, val_to_write);
-          }
-          leaf_count++;
+          sel_count++;
         }
         node_id++;
       }
