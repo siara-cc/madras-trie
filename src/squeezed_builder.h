@@ -26,7 +26,7 @@ namespace squeezed {
 
 #define nodes_per_bv_block3 64
 #define nodes_per_bv_block 256
-#define term_divisor 512
+#define sel_divisor 512
 
 typedef std::vector<uint8_t> byte_vec;
 
@@ -1689,7 +1689,7 @@ class trie_ptrs_data_builder {
       return val_fp_offset;
     }
     size_t size() {
-      size_t ret = 8 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size() + 12;
+      size_t ret = 8 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
       //if (get_uniq_val_count() > 0)
       //  ret += tail_vals.get_val_grp_ptrs()->get_total_size();
       return ret;
@@ -2191,9 +2191,9 @@ class builder {
       uint32_t term_bvlt_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
       uint32_t child_bvlt_sz = term_bvlt_sz;
       uint32_t leaf_bvlt_sz = term_bvlt_sz;
-      uint32_t term_select_lt_sz = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
-      uint32_t child_select_lt_sz = gen::get_lkup_tbl_size2(term_count, term_divisor, 3);
-      uint32_t leaf_select_lt_sz = gen::get_lkup_tbl_size2(key_count, term_divisor, 3);
+      uint32_t term_select_lt_sz = gen::get_lkup_tbl_size2(term_count, sel_divisor, 3);
+      uint32_t child_select_lt_sz = gen::get_lkup_tbl_size2(term_count, sel_divisor, 3);
+      uint32_t leaf_select_lt_sz = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
 
       uint32_t dummy_loc = 4 + 18 * 4; // 76
       uint32_t common_node_loc = dummy_loc + 0;
@@ -2203,10 +2203,10 @@ class builder {
       uint32_t term_bv_loc = term_select_lkup_loc + term_select_lt_sz;
       uint32_t child_bv_loc = term_bv_loc + term_bvlt_sz;
       uint32_t trie_ptrs_data_loc = child_bv_loc + child_bvlt_sz;
-      uint32_t trie_ptrs_data_end = trie_builder.build();
-      uint32_t child_select_lkup_loc = trie_ptrs_data_end;
-      uint32_t leaf_select_lkup_loc = child_select_lkup_loc + child_select_lt_sz;
+      uint32_t trie_ptrs_data_sz = trie_builder.build();
+      uint32_t leaf_select_lkup_loc = trie_ptrs_data_loc + trie_ptrs_data_sz;
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
+      uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
 
       make_cache(cache_count, cache_bytes, cache_size);
       //make_sec_cache(sec_cache_count, sec_cache_bytes, sec_cache_size);
@@ -2239,20 +2239,21 @@ class builder {
 
       fwrite(cache_bytes.data(), cache_bytes.size(), 1, fp);
       //write_sec_cache(sec_cache_count, fp);
-      write_select_lkup(BV_TERM, fp);
-      write_bv(BV_TERM, fp);
-      write_bv(BV_CHILD, fp);
+      write_bv_select_lt(BV_TERM, fp);
+      write_bv_rank_lt(BV_TERM, fp);
+      write_bv_rank_lt(BV_CHILD, fp);
 
       FILE *fp_val = fopen((out_filename + ".val").c_str(), "wb+");
 
       uint32_t total_idx_size = 4 + 18 * 4 + cache_size + sec_cache_size +
-                term_select_lt_sz + term_bvlt_sz + child_bvlt_sz + leaf_select_lt_sz + leaf_bvlt_sz;
+                term_select_lt_sz + term_bvlt_sz + child_bvlt_sz +
+                leaf_select_lt_sz + child_select_lt_sz + leaf_bvlt_sz;
       uint32_t val_fp_offset = 0;
       val_fp_offset = trie_builder.write(fp, fp_val, val_fp_offset);
       total_idx_size += trie_builder.size();
-      write_select_lkup(BV_CHILD, fp);
-      write_select_lkup(BV_LEAF, fp);
-      write_bv(BV_LEAF, fp);
+      write_bv_select_lt(BV_LEAF, fp);
+      write_bv_rank_lt(BV_LEAF, fp);
+      write_bv_select_lt(BV_CHILD, fp);
 
       uint32_t total_val_size = val_fp_offset;
       uint32_t total_size = total_idx_size + total_val_size;
@@ -2282,64 +2283,6 @@ class builder {
     //   uint32_t ptr;
     // };
 
-    void write_bv3(uint32_t node_id, uint32_t& term1_count, uint32_t& child_count,
-                    uint32_t& term1_count3, uint32_t& child_count3,
-                    uint8_t *term1_buf3, uint8_t *child_buf3, uint8_t& pos3, FILE *fp) {
-      if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(term1_buf3, 3, 1, fp);
-        fwrite(child_buf3, 3, 1, fp);
-        gen::write_uint32(term1_count, fp);
-        gen::write_uint32(child_count, fp);
-        term1_count3 = 0;
-        child_count3 = 0;
-        memset(term1_buf3, 0, 3);
-        memset(child_buf3, 0, 3);
-        pos3 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
-        term1_buf3[pos3] = term1_count3;
-        child_buf3[pos3] = child_count3;
-        // term1_count3 = 0;
-        // child_count3 = 0;
-        pos3++;
-      }
-    }
-
-    void write_trie_bv(FILE *fp) {
-      uint32_t node_id = 0;
-      uint32_t term1_count = 0;
-      uint32_t child_count = 0;
-      uint32_t term1_count3 = 0;
-      uint32_t child_count3 = 0;
-      uint8_t term1_buf3[3];
-      uint8_t child_buf3[3];
-      uint8_t pos3 = 0;
-      memset(term1_buf3, 0, 3);
-      memset(child_buf3, 0, 3);
-      gen::write_uint32(0, fp);
-      gen::write_uint32(0, fp);
-      for (int i = 1; i < all_nodes.size(); i++) {
-        node *cur_node = &all_nodes[i];
-        write_bv3(node_id, term1_count, child_count, term1_count3, child_count3, term1_buf3, child_buf3, pos3, fp);
-        // if (node_id && (node_id % nodes_per_bv_block3) == 0) {
-        //   gen::write_uint32(term1_count, fp);
-        //   gen::write_uint32(child_count, fp);
-        // }
-        term1_count += (cur_node->flags & NFLAG_TERM ? 1 : 0);
-        child_count += (cur_node->first_child == 0 ? 0 : 1);
-        term1_count3 += (cur_node->flags & NFLAG_TERM ? 1 : 0);
-        child_count3 += (cur_node->first_child == 0 ? 0 : 1);
-        node_id++;
-      }
-      fwrite(term1_buf3, 3, 1, fp);
-      fwrite(child_buf3, 3, 1, fp);
-      // dummy
-      gen::write_uint32(term1_count, fp);
-      gen::write_uint32(child_count, fp);
-      fwrite(term1_buf3, 3, 1, fp);
-      fwrite(child_buf3, 3, 1, fp);
-      bldr_printf("Term1_count: %u, Child count: %u\n", term1_count, child_count);
-    }
-
     void write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, FILE *fp) {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         fwrite(buf3, 3, 1, fp);
@@ -2354,7 +2297,7 @@ class builder {
       }
     }
 
-    void write_bv(int which, FILE *fp) {
+    void write_bv_rank_lt(int which, FILE *fp) {
       uint32_t node_id = 0;
       uint32_t count = 0;
       uint32_t count3 = 0;
@@ -2382,7 +2325,7 @@ class builder {
         node_id++;
       }
       fwrite(buf3, 3, 1, fp);
-      // dummy
+      // extra (guard)
       gen::write_uint32(count, fp);
       fwrite(buf3, 3, 1, fp);
     }
@@ -2425,7 +2368,7 @@ class builder {
       }
     }
 
-    uint32_t write_select_val(uint32_t node_id, FILE *fp) {
+    uint32_t write_bv_select_val(uint32_t node_id, FILE *fp) {
       uint32_t val_to_write = node_id / nodes_per_bv_block;
       // if (val_to_write - prev_val > 4)
       //   bldr_printf("Nid:\t%u\tblk:\t%u\tdiff:\t%u\n", node_id, val_to_write, val_to_write-prev_val);
@@ -2436,16 +2379,16 @@ class builder {
     bool node_qualifies_for_select(node *cur_node, int which) {
       switch (which) {
         case BV_TERM:
-          return cur_node->flags & NFLAG_TERM;
+          return (cur_node->flags & NFLAG_TERM) > 0;
         case BV_LEAF:
-          return cur_node->flags & NFLAG_LEAF;
+          return (cur_node->flags & NFLAG_LEAF) > 0;
         case BV_CHILD:
           return cur_node->first_child > 0;
       }
       return false;
     }
 
-    void write_select_lkup(int which, FILE *fp) {
+    void write_bv_select_lt(int which, FILE *fp) {
       uint32_t node_id = 0;
       uint32_t sel_count = 0;
       uint32_t prev_val = 0;
@@ -2453,8 +2396,8 @@ class builder {
       for (int i = 1; i < all_nodes.size(); i++) {
         node *cur_node = &all_nodes[i];
         if (node_qualifies_for_select(cur_node, which)) {
-          if (sel_count && (sel_count % term_divisor) == 0) {
-            uint32_t val_to_write = write_select_val(node_id, fp);
+          if (sel_count && (sel_count % sel_divisor) == 0) {
+            uint32_t val_to_write = write_bv_select_val(node_id, fp);
             if (val_to_write > (1 << 24))
               bldr_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
             prev_val = val_to_write;
