@@ -1,4 +1,8 @@
+.DS_Store
 *.o
 run_tests*
-!run_tests.cpp
+!run_tests_dv1.cpp
 a.out*
+*.txt
+*.rst
+*.val
