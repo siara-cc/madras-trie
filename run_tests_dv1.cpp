@@ -34,8 +34,8 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      // sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
-      sb.append((const uint8_t *) line.c_str(), line.length());
+      sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
+      // sb.append((const uint8_t *) line.c_str(), line.length());
       // sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
@@ -96,15 +96,15 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    // int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
-    // if (key_len != line.length())
-    //   printf("Len mismatch: [%.*s], %u, %u\n", (int) line.length(), line.c_str(), key_len, val_len);
-    // else {
-    //   if (memcmp(line.c_str(), key_buf, key_len) != 0)
-    //     printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
-    //   if (memcmp(line.substr(0, line.length() > 6 ? 7 : line.length()).c_str(), val_buf, val_len) != 0)
-    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 6 ? 7 : line.length()), line.c_str(), val_len, val_buf);
-    // }
+    int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    if (key_len != line.length())
+      printf("Len mismatch: [%.*s], %u, %u\n", (int) line.length(), line.c_str(), key_len, val_len);
+    else {
+      if (memcmp(line.c_str(), key_buf, key_len) != 0)
+        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line.length(), line.c_str(), key_len, key_buf);
+      if (memcmp(line.substr(0, line.length() > 6 ? 7 : line.length()).c_str(), val_buf, val_len) != 0)
+        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line.length() > 6 ? 7 : line.length()), line.c_str(), val_len, val_buf);
+    }
 
     uint32_t node_id;
     bool is_found = dict_reader.lookup((const uint8_t *) line.c_str(), line.length(), node_id);
@@ -116,18 +116,18 @@ int main(int argc, char *argv[]) {
     if (line.compare((const char *) key_buf) != 0)
       printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line.c_str(), key_len, key_buf);
 
-    // bool success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
-    // if (success) {
-    //   val_buf[val_len] = 0;
-    //   if (line.substr(0, 7).compare((const char *) val_buf) != 0)
-    //     printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
-    // } else
-    //   std::cout << line << std::endl;
+    success = dict_reader.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    if (success) {
+      val_buf[val_len] = 0;
+      if (line.substr(0, 7).compare((const char *) val_buf) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    } else
+      std::cout << line << std::endl;
 
-    // int ret, key_pos, cmp;
-    // uint32_t n_id;
-    // std::vector<uint32_t> node_path;
-    // madras_dv1::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
+    int ret, key_pos, cmp;
+    uint32_t n_id;
+    std::vector<uint32_t> node_path;
+    madras_dv1::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
 
     line_count++;
     if ((line_count % 100000) == 0) {
