@@ -597,6 +597,9 @@ class dict_iter_ctx {
     //std::vector<uint32_t> ptr_bit_count;
     std::vector<uint32_t> last_tail_len;
     dict_iter_ctx() {
+      init();
+    }
+    void init() {
       cur_idx = key_pos = 0;
       node_path.push_back(0);
       child_count.push_back(0);
@@ -756,7 +759,7 @@ class static_dict {
       dict_size = file_stat.st_size;
       dict_buf = (uint8_t *) malloc(dict_size);
 
-      FILE *fp = fopen(filename, "rb+");
+      FILE *fp = fopen(filename, "rb");
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
@@ -771,7 +774,7 @@ class static_dict {
       uint32_t val_size = file_stat.st_size;
       if (val_size > 0) { // todo: need flag to indicate val file present or not
         val_buf = (uint8_t *) malloc(val_size);
-        fp = fopen(val_file.c_str(), "rb+");
+        fp = fopen(val_file.c_str(), "rb");
         fread(val_buf, val_size, 1, fp);
 	      //madvise(val_buf, val_size, MADV_RANDOM);
         fclose(fp);
@@ -1096,7 +1099,15 @@ class static_dict {
     }
 
     uint32_t get_max_key_len() {
+      return max_key_len;
+    }
+
+    uint32_t get_max_tail_len() {
       return max_tail_len;
+    }
+
+    uint32_t get_max_val_len() {
+      return max_val_len;
     }
 
     uint32_t get_leaf_rank(uint32_t node_id) {
