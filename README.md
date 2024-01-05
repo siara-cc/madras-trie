@@ -1,6 +1,6 @@
 # Madras Trie
 
-Madras stands for Matching algorithm with density ranked succinct trie index.
+Madras stands for <u>M</u>atching <u>a</u>lgorithms with <u>d</u>ensely-packed <u>ra</u>nk-stacked <u>s</u>uccinct trie index.
 
 A compact static dictionary based on Ext-LOUDS Patricia Trie structure
 
