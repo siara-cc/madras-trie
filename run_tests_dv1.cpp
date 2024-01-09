@@ -34,9 +34,9 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
+      //sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       // sb.append((const uint8_t *) line.c_str(), line.length());
-      // sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
+      sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
       lines.push_back(line);
       prev_line = line;
@@ -128,6 +128,8 @@ int main(int argc, char *argv[]) {
     uint32_t n_id;
     std::vector<uint32_t> node_path;
     madras_dv1::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
+    if (ret != 0)
+      std::cout << line << std::endl;
 
     line_count++;
     if ((line_count % 100000) == 0) {
