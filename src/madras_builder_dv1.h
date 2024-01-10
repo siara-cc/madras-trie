@@ -47,6 +47,7 @@ struct node {
     uint32_t swap_pos;
     uint32_t v0;
   };
+  // TODO: fix freq_count removed for insert
   uint32_t freq_count;
   uint32_t val_pos;
   // uint8_t level;
@@ -1631,6 +1632,9 @@ class tail_val_maps {
     byte_vec *get_uniq_tails() {
       return &uniq_tails;
     }
+    byte_vec *get_uniq_vals() {
+      return &uniq_vals;
+    }
     ptr_vals_info_vec *get_uniq_vals_fwd() {
       return &uniq_vals_fwd;
     }
@@ -1866,6 +1870,7 @@ class builder {
     void append_tail_vec(const uint8_t *tail, int tail_len, uint32_t node_pos) {
       node *n = &all_nodes[node_pos];
       n->tail_pos = all_tails.push_back_with_vlen(tail, tail_len);
+      n->v0 = *tail;
       if (tail_len > 1)
         n->flags |= NFLAG_PTR;
       else
@@ -1957,6 +1962,7 @@ class builder {
           n = swap_nodes(nxt_n, node_id);
           swap_pos_vec.push_back(n->swap_pos);
           nxt_n = n->next_sibling;
+          n->flags &= ~NFLAG_TERM;
           n->flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
           n->node_id = node_id++;
         } while (nxt_n != 0);
@@ -1964,7 +1970,10 @@ class builder {
           n->flags &= ~NFLAG_TERM;
           uint32_t start_nid = all_nodes[nxt].first_child;
           std::sort(all_nodes.begin() + start_nid, all_nodes.begin() + node_id, [this](struct node& lhs, struct node& rhs) -> bool {
-            return (lhs.freq_count == rhs.freq_count) ? *(this->all_tails[lhs.tail_pos]) < *(this->all_tails[rhs.tail_pos]) : (lhs.freq_count > rhs.freq_count);
+            uint32_t dummy;
+            uint8_t *lhs_tail = this->trie_builder.tail_vals.get_tail(this->all_tails, &lhs, dummy);
+            uint8_t *rhs_tail = this->trie_builder.tail_vals.get_tail(this->all_tails, &rhs, dummy);
+            return (lhs.freq_count == rhs.freq_count) ? *lhs_tail < *rhs_tail : (lhs.freq_count > rhs.freq_count);
           });
           std::vector<uint32_t>::iterator it = swap_pos_vec.begin();
           while (start_nid < node_id) {
@@ -1986,6 +1995,7 @@ class builder {
       append_tail_vec(key, key_len, 1);
       append_val_vec(val, val_len, 1);
       all_nodes[1].flags |= NFLAG_LEAF;
+      all_nodes[1].flags |= NFLAG_TERM;
       node_count++;
       term_count++;
     }
@@ -1995,13 +2005,23 @@ class builder {
         return false;
       int result, key_pos, cmp;
       uint32_t node_id;
-      std::vector<uint32_t> node_path;
-      node *n = lookup(key, key_len, result, key_pos, cmp, node_id, node_path);
-      if (result == 0) {
+      node *n = lookup(key, key_len, result, key_pos, cmp, node_id);
+      if (result == 0 && val != NULL) {
         int8_t vlen;
-        int node_val_len = gen::read_vint32(all_vals[n->val_pos], &vlen);
+        ptr_vals_info_vec *vi_vec = trie_builder.tail_vals.get_uniq_vals_fwd();
+        uint8_t *v;
+        int node_val_len;
+        if (vi_vec->size() > 0) {
+          ptr_vals_info *vi = vi_vec->at(n->val_pos);
+          v = trie_builder.tail_vals.get_uniq_vals()->data() + vi->pos;
+          node_val_len = vi->len;
+        } else {
+          v = all_vals[n->val_pos];
+          node_val_len = gen::read_vint32(v, &vlen);
+          v += vlen;
+        }
         *in_size_out_value_len = node_val_len;
-        memcpy(val, all_vals[n->val_pos] + vlen, node_val_len);
+        memcpy(val, v, node_val_len);
         return true;
       }
       return false;
@@ -2011,16 +2031,14 @@ class builder {
       return insert(key, key_len, value, value_len);
     }
 
-    node *lookup(const uint8_t *key, int key_len, int& result, int& key_pos, int& cmp, uint32_t& node_id, std::vector<uint32_t>& node_path) {
+    node *lookup(const uint8_t *key, int key_len, int& result, int& key_pos, int& cmp, uint32_t& node_id) {
       key_pos = 0;
       node_id = 1;
-      node_path.clear();
       uint8_t key_byte = key[key_pos];
       node *cur_node = all_nodes.data() + node_id;
       do {
-        uint8_t trie_byte = trie_builder.tail_vals.get_first_byte(all_tails, cur_node);
-        while (nodes_sorted ? (key_byte != trie_byte) : (key_byte > trie_byte)) {
-          if (nodes_sorted ? (cur_node->flags & NFLAG_TERM) : (cur_node->next_sibling == 0)) {
+        while (key_byte > cur_node->v0) {
+           if (cur_node->flags & NFLAG_TERM) { // nodes_sorted ? (cur_node->flags & NFLAG_TERM) : (cur_node->next_sibling == 0
             result = DCT_INSERT_AFTER;
             return cur_node;
           }
@@ -2029,10 +2047,8 @@ class builder {
           else
             node_id = cur_node->next_sibling;
           cur_node = all_nodes.data() + node_id; // &all_nodes[node_id];
-          trie_byte = trie_builder.tail_vals.get_first_byte(all_tails, cur_node);
         }
-        if (key_byte == trie_byte) {
-          node_path.push_back(node_id);
+        if (key_byte == cur_node->v0) {
           uint32_t tail_len = 1;
           if (cur_node->flags & NFLAG_PTR) {
             std::string tail_str = trie_builder.tail_vals.get_tail_str(all_tails, cur_node);
@@ -2089,10 +2105,9 @@ class builder {
       }
       int result, key_pos, cmp;
       uint32_t ins_node_pos;
-      std::vector<uint32_t> node_path;
-      node *ins_node = lookup(key, key_len, result, key_pos, cmp, ins_node_pos, node_path);
-      for (int i = 0; i < node_path.size(); i++)
-        all_nodes[node_path[i]].freq_count++;
+      node *ins_node = lookup(key, key_len, result, key_pos, cmp, ins_node_pos);
+      // for (int i = 0; i < node_path.size(); i++)
+      //   all_nodes[node_path[i]].freq_count++;
       if (result == 0) {
         replace_or_append_val(val, val_len, ins_node_pos);
         return true;
@@ -2136,6 +2151,7 @@ class builder {
       node child1;
       uint32_t child1_pos = all_nodes.size();
       child1.flags |= NFLAG_LEAF;
+      child1.flags |= NFLAG_TERM;
       //child1->parent = last_child;
       child1.next_sibling = 0;
       int8_t vlen;
@@ -2165,9 +2181,11 @@ class builder {
       node new_node;
       uint32_t new_node_pos = all_nodes.size();
       new_node.flags |= NFLAG_LEAF;
+      new_node.flags |= NFLAG_TERM;
       //new_node->parent = last_child->parent;
       new_node.next_sibling = 0;
       last_child->next_sibling = new_node_pos;
+      last_child->flags &= ~NFLAG_TERM;
       all_nodes.push_back(new_node);
       append_tail_vec(key + key_pos, key_len - key_pos, new_node_pos);
       append_val_vec(val, val_len, new_node_pos);
@@ -2209,6 +2227,7 @@ class builder {
         child1.first_child = last_child->first_child;
       node child2;
       child2.flags |= NFLAG_LEAF;
+      child2.flags |= NFLAG_TERM;
       //child2->parent = last_child;
       child2.next_sibling = 0;
       //if (child2->val == string(" discuss"))
@@ -2567,13 +2586,8 @@ class builder {
       gen::write_uint24(node_count/nodes_per_bv_block, fp);
     }
 
-    tail_val_maps *get_tail_maps(node *n) {
-      return &trie_builder.tail_vals;
-      //return n->level < 6 ? &tails_lvl_set1 : &tails_lvl_set2;
-    }
-
     uniq_tails_info *get_ti(node *n) {
-      tail_val_maps *tm = get_tail_maps(n);
+      tail_val_maps *tm = &trie_builder.tail_vals;
       uniq_tails_info_vec *uniq_tails_rev = tm->get_uniq_tails_rev();
       return (*uniq_tails_rev)[n->tail_pos];
     }
@@ -2584,7 +2598,7 @@ class builder {
     }
 
     ptr_vals_info *get_vi(node *n) {
-      tail_val_maps *tm = get_tail_maps(n);
+      tail_val_maps *tm = &trie_builder.tail_vals;
       ptr_vals_info_vec *uniq_vals_fwd = tm->get_uniq_vals_fwd();
       return (*uniq_vals_fwd)[n->val_pos];
     }

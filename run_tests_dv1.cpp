@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     while (getline(infile, line)) {
       if (line == prev_line)
          continue;
-      //sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
+      // sb.append((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       // sb.append((const uint8_t *) line.c_str(), line.length());
       sb.insert((const uint8_t *) line.c_str(), line.length(), (const uint8_t *) line.c_str(), line.length() > 6 ? 7 : line.length());
       //sb.insert((const uint8_t *) line.c_str(), line.length());
@@ -73,6 +73,7 @@ int main(int argc, char *argv[]) {
   // dict_reader.dump_vals();
 
   line_count = 0;
+  bool success = false;
   for (int i = 0; i < lines.size(); i++) {
     std::string& line = lines[i];
     // if (line.compare("don't think there's anything wrong") == 0)
@@ -124,11 +125,12 @@ int main(int argc, char *argv[]) {
     } else
       std::cout << line << std::endl;
 
-    int ret, key_pos, cmp;
-    uint32_t n_id;
-    std::vector<uint32_t> node_path;
-    madras_dv1::node *n = sb.lookup((const uint8_t *) line.c_str(), line.length(), ret, key_pos, cmp, n_id, node_path);
-    if (ret != 0)
+    success = sb.get((const uint8_t *) line.c_str(), line.length(), &val_len, val_buf);
+    if (success) {
+      val_buf[val_len] = 0;
+      if (line.substr(0, 7).compare((const char *) val_buf) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", (int) line.length(), line.c_str(), val_len, val_buf);
+    } else
       std::cout << line << std::endl;
 
     line_count++;
