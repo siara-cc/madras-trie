@@ -42,15 +42,16 @@ struct node {
   };
   //node *parent;
   uint32_t tail_pos;
-  uint8_t flags;
-  union {
+  // union {
     uint32_t swap_pos;
-    uint32_t v0;
-  };
+    uint32_t freq_count;
+  // };
   // TODO: fix freq_count removed for insert
-  uint32_t freq_count;
   uint32_t val_pos;
-  // uint8_t level;
+  uint8_t flags;
+  uint8_t level;
+  uint8_t grp_no;
+  uint8_t b0;
   node() {
     memset(this, '\0', sizeof(*this));
     freq_count = 1;
@@ -1030,7 +1031,7 @@ class tail_val_maps {
         node *n = &all_nodes[i];
         uint32_t tail_len;
         uint8_t *tail = get_tail(all_tails, n, tail_len);
-        n->v0 = tail[0];
+        n->b0 = tail[0];
         if (n->flags & NFLAG_PTR) {
           nodes_for_sort.push_back((struct sort_data) { tail, tail_len, i, 1}); // n->freq_count} );
         }
@@ -1564,7 +1565,7 @@ class tail_val_maps {
         return *tail;
       }
       if ((n->flags & NFLAG_PTR) == 0)
-        return n->v0;
+        return n->b0;
       uniq_tails_info *ti = uniq_tails_rev[n->tail_pos];
       uint32_t grp_no = ti->grp_no;
       uint32_t ptr = get_tail_ptr(grp_no, ti);
@@ -1696,7 +1697,7 @@ class trie_ptrs_data_builder {
     }
     uint8_t append_tail_ptr(node *cur_node) {
       if ((cur_node->flags & NFLAG_PTR) == 0)
-        return cur_node->v0;
+        return cur_node->b0;
       uint8_t node_val;
       uint32_t ptr = 0;
       freq_grp_ptrs_data *tail_ptrs = tail_vals.get_tail_grp_ptrs();
@@ -1842,8 +1843,9 @@ class builder {
     uint32_t key_count;
     uint32_t max_key_len;
     uint32_t max_val_len;
-    uint32_t common_node_count;
+    uint32_t max_level;
     uint32_t max_tail_len;
+    uint32_t common_node_count;
     uint32_t term_count;
     bool nodes_sorted;
     std::vector<node> all_nodes;
@@ -1870,7 +1872,7 @@ class builder {
     void append_tail_vec(const uint8_t *tail, int tail_len, uint32_t node_pos) {
       node *n = &all_nodes[node_pos];
       n->tail_pos = all_tails.push_back_with_vlen(tail, tail_len);
-      n->v0 = *tail;
+      n->b0 = *tail;
       if (tail_len > 1)
         n->flags |= NFLAG_PTR;
       else
@@ -1910,6 +1912,7 @@ class builder {
       key_count = 0;
       max_key_len = 0;
       max_val_len = 0;
+      max_level = 1;
       nodes_sorted = false;
       //root->parent = NULL;
       root.flags = NFLAG_TERM;
@@ -1945,7 +1948,7 @@ class builder {
     }
 
     void sort_nodes(bool mark_sorted = true) {
-      const bool to_sort_nodes_on_freq = false;
+      const bool to_sort_nodes_on_freq = true;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
@@ -2037,7 +2040,7 @@ class builder {
       uint8_t key_byte = key[key_pos];
       node *cur_node = all_nodes.data() + node_id;
       do {
-        while (key_byte > cur_node->v0) {
+        while (key_byte != cur_node->b0) {
            if (cur_node->flags & NFLAG_TERM) { // nodes_sorted ? (cur_node->flags & NFLAG_TERM) : (cur_node->next_sibling == 0
             result = DCT_INSERT_AFTER;
             return cur_node;
@@ -2048,7 +2051,7 @@ class builder {
             node_id = cur_node->next_sibling;
           cur_node = all_nodes.data() + node_id; // &all_nodes[node_id];
         }
-        if (key_byte == cur_node->v0) {
+        if (key_byte == cur_node->b0) {
           uint32_t tail_len = 1;
           if (cur_node->flags & NFLAG_PTR) {
             std::string tail_str = trie_builder.tail_vals.get_tail_str(all_tails, cur_node);
@@ -2227,7 +2230,6 @@ class builder {
         child1.first_child = last_child->first_child;
       node child2;
       child2.flags |= NFLAG_LEAF;
-      child2.flags |= NFLAG_TERM;
       //child2->parent = last_child;
       child2.next_sibling = 0;
       //if (child2->val == string(" discuss"))
@@ -2244,19 +2246,22 @@ class builder {
       //last_child->tail_len = child_at;
       if (child_at == 1)
         last_child->flags &= ~NFLAG_PTR;
+      uint32_t last_child_tail_pos = last_child->tail_pos;
       if (swap) {
         child2_pos = all_nodes.size();
         child1_pos = child2_pos + 1;
         last_child->first_child = child2_pos;
         child1.next_sibling = 0;
+        child1.flags |= NFLAG_TERM;
         child2.next_sibling = child1_pos;
         all_nodes.push_back(child2);
         all_nodes.push_back(child1);
       } else {
+        child2.flags |= NFLAG_TERM;
         all_nodes.push_back(child1);
         all_nodes.push_back(child2);
       }
-      append_tail_vec(all_tails[last_child->tail_pos + vlen + child_at], last_child_tail_len - child_at, child1_pos);
+      append_tail_vec(all_tails[last_child_tail_pos + vlen + child_at], last_child_tail_len - child_at, child1_pos);
       append_tail_vec(key + key_pos, key_len - key_pos, child2_pos);
       append_val_vec(val, val_len, child2_pos);
       node_count += 2;
@@ -2297,7 +2302,7 @@ class builder {
               uint32_t new_node_pos = add_sibling(last_child, key, key_len, key_pos, val, val_len);
               last_children[level] = new_node_pos;
             } else {
-              last_child->freq_count++;
+              //last_child->freq_count++;
               uint32_t child2_pos = add_children(last_child, key, key_len, key_pos, val, val_len, i);
               last_children.push_back(child2_pos);
             }
@@ -2306,13 +2311,13 @@ class builder {
           key_pos++;
         }
         if (key_pos < key_len && (last_child->flags & NFLAG_LEAF) && last_child->first_child == 0) {
-          last_child->freq_count++;
+          //last_child->freq_count++;
           uint32_t child1_pos = add_child_leaf(last_child, key, key_len, key_pos, val, val_len);
           last_children.resize(level + 1);
           last_children.push_back(child1_pos);
           return;
         }
-        last_child->freq_count++;
+        //last_child->freq_count++;
         level++;
       } while (last_child != 0);
     }
@@ -2328,16 +2333,28 @@ class builder {
       return ret;
     }
 
-    // void set_level(uint32_t node_id, int level) {
-    //   if (node_id == 0)
-    //     return;
-    //   do {
-    //     node& n = all_nodes[node_id];
-    //     n.level = level;
-    //     set_level(n.first_child, level + 1);
-    //     node_id = n.next_sibling;
-    //   } while (node_id != 0);
-    // }
+    uint32_t set_level_and_freq_count(uint32_t node_id, int level) {
+      if (node_id == 0)
+        return 0;
+      if (level > max_level)
+        max_level = level;
+      node *n;
+      uint32_t freq_count = 1;
+      do {
+        n = &all_nodes[node_id];
+        n->level = level;
+        n->freq_count = set_level_and_freq_count(n->first_child, level + 1);
+        freq_count += n->freq_count;
+        if (n->flags & NFLAG_LEAF) {
+          n->freq_count++;
+          freq_count++;
+        }
+        node_id = n->next_sibling;
+      //  node_id++;
+      //} while ((n->flags & NFLAG_TERM) == 0);
+      } while (node_id != 0);
+      return freq_count;
+    }
 
     #define BV_LEAF 1
     #define BV_CHILD 2
@@ -2348,7 +2365,7 @@ class builder {
 
       clock_t t = clock();
 
-      //set_level(1, 0);
+      set_level_and_freq_count(1, 0);
       sort_nodes();
 
       printf("Key count: %u, Level node count: %u\n", key_count, get_level_node_count(5));
@@ -2517,7 +2534,7 @@ class builder {
       bldr_cache *cche0 = (bldr_cache *) cache_bytes.data();
       do {
         node *cur_node = &all_nodes[node_id + 1];
-        uint8_t node_byte = cur_node->v0;
+        uint8_t node_byte = cur_node->b0;
         uint32_t cache_loc = (node_set_id ^ (node_set_id << 5) ^ node_byte) & cache_mask;
         bldr_cache *cche = cche0 + cache_loc;
         uint32_t cche_node_id = gen::read_uint24(&cche->parent_node_id1);
@@ -2530,7 +2547,7 @@ class builder {
             cche->node_offset = node_id - node_set_id;
             gen::copy_uint24(node_set_id, &cche->parent_node_id1);
             gen::copy_uint24(child_node_id, &cche->child_node_id1);
-            cche->node_byte = cur_node->v0;
+            cche->node_byte = cur_node->b0;
           }
         }
         node_id++;
@@ -2541,7 +2558,7 @@ class builder {
 
     void write_sec_cache(uint32_t cache_count, FILE *fp) {
       for (int i = 1; i <= cache_count; i++) {
-        fputc(all_nodes[i].v0 & 0xFF, fp);
+        fputc(all_nodes[i].b0, fp);
       }
     }
 
