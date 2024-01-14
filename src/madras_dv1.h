@@ -978,7 +978,7 @@ class static_dict {
           }
           if (bm_mask & bm_child)
             child_count++;
-          if (key_byte != trie_byte) {
+          if (key_byte > trie_byte) {
             if (bm_mask & bm_term) {
               last_exit_loc = t - dict_buf;
               //result = DCT_INSERT_AFTER;

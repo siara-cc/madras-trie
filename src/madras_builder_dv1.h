@@ -42,11 +42,10 @@ struct node {
   };
   //node *parent;
   uint32_t tail_pos;
-  // union {
+  union {
     uint32_t swap_pos;
     uint32_t freq_count;
-  // };
-  // TODO: fix freq_count removed for insert
+  };
   uint32_t val_pos;
   uint8_t flags;
   uint8_t level;
@@ -1948,7 +1947,7 @@ class builder {
     }
 
     void sort_nodes(bool mark_sorted = true) {
-      const bool to_sort_nodes_on_freq = true;
+      const bool to_sort_nodes_on_freq = false;
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
@@ -2040,7 +2039,7 @@ class builder {
       uint8_t key_byte = key[key_pos];
       node *cur_node = all_nodes.data() + node_id;
       do {
-        while (key_byte != cur_node->b0) {
+        while (key_byte > cur_node->b0) {
            if (cur_node->flags & NFLAG_TERM) { // nodes_sorted ? (cur_node->flags & NFLAG_TERM) : (cur_node->next_sibling == 0
             result = DCT_INSERT_AFTER;
             return cur_node;
@@ -2109,8 +2108,6 @@ class builder {
       int result, key_pos, cmp;
       uint32_t ins_node_pos;
       node *ins_node = lookup(key, key_len, result, key_pos, cmp, ins_node_pos);
-      // for (int i = 0; i < node_path.size(); i++)
-      //   all_nodes[node_path[i]].freq_count++;
       if (result == 0) {
         replace_or_append_val(val, val_len, ins_node_pos);
         return true;
@@ -2349,10 +2346,10 @@ class builder {
           n->freq_count++;
           freq_count++;
         }
-        node_id = n->next_sibling;
-      //  node_id++;
-      //} while ((n->flags & NFLAG_TERM) == 0);
-      } while (node_id != 0);
+        // node_id = n->next_sibling;
+        node_id++;
+      } while ((n->flags & NFLAG_TERM) == 0);
+      // } while (node_id != 0);
       return freq_count;
     }
 
@@ -2365,8 +2362,8 @@ class builder {
 
       clock_t t = clock();
 
-      set_level_and_freq_count(1, 0);
       sort_nodes();
+      set_level_and_freq_count(1, 0);
 
       printf("Key count: %u, Level node count: %u\n", key_count, get_level_node_count(5));
 
