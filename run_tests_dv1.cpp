@@ -2,8 +2,8 @@
 #include <iostream>
 #include <string>
 
-#include "src/madras_dv1.h"
-#include "src/madras_builder_dv1.h"
+#include "src/madras_dv1.hpp"
+#include "src/madras_builder_dv1.hpp"
 
 using namespace std;
 

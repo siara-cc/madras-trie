@@ -20,5 +20,5 @@ clean:
 	rm run_tests
 	rm -rf run_tests.dSYM
 
-run_tests: run_tests_dv1.cpp src/madras_dv1.h src/madras_builder_dv1.h
+run_tests: run_tests_dv1.cpp src/madras_dv1.hpp src/madras_builder_dv1.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++11 run_tests_dv1.cpp -o run_tests
