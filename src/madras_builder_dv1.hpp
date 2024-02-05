@@ -2330,13 +2330,26 @@ class builder {
       return ret;
     }
 
+    uint8_t node_set_min_b;
+    uint8_t node_set_max_b;
+    uint8_t node_set_min_len;
+    uint8_t node_set_max_len;
+    uint32_t node_set_len_count[256];
+    uint32_t node_set_lvl_sum[256];
+    uint32_t node_set_lvl_count[256];
+    uint8_t node_set_byte_pos_min[256][256];
+    uint8_t node_set_byte_pos_max[256][256];
+    uint32_t node_set_byte_pos_sum[256][256];
+    uint32_t node_set_byte_pos_count[256][256];
     uint32_t set_level_and_freq_count(uint32_t node_id, int level) {
       if (node_id == 0)
         return 0;
       if (level > max_level)
         max_level = level;
       node *n;
+      uint32_t orig_node_id = node_id;
       uint32_t freq_count = 1;
+      uint32_t node_set_len = 0;
       do {
         n = &all_nodes[node_id];
         n->level = level;
@@ -2348,8 +2361,35 @@ class builder {
         }
         // node_id = n->next_sibling;
         node_id++;
+        node_set_len++;
       } while ((n->flags & NFLAG_TERM) == 0);
+      node_set_len--;
       // } while (node_id != 0);
+      node_set_len_count[node_set_len]++;
+      node_set_lvl_sum[node_set_len] += level;
+      node_set_lvl_sum[node_set_len]++;
+      node_set_lvl_count[node_set_len]++;
+      node_id = orig_node_id;
+      int node_pos = 0;
+      do {
+        n = &all_nodes[node_id];
+        if (node_pos < node_set_byte_pos_min[node_set_len][n->b0])
+          node_set_byte_pos_min[node_set_len][n->b0] = node_pos;
+        if (node_pos > node_set_byte_pos_max[node_set_len][n->b0])
+          node_set_byte_pos_max[node_set_len][n->b0] = node_pos;
+        node_set_byte_pos_sum[node_set_len][n->b0] += node_pos;
+        node_set_byte_pos_count[node_set_len][n->b0]++;
+        if (node_set_min_b > n->b0)
+          node_set_min_b = n->b0;
+        if (node_set_max_b < n->b0)
+          node_set_max_b = n->b0;
+        node_id++;
+        node_pos++;
+      } while ((n->flags & NFLAG_TERM) == 0);
+      if (node_set_min_len > node_set_len)
+        node_set_min_len = node_set_len;
+      if (node_set_max_len < node_set_len)
+        node_set_max_len = node_set_len;
       return freq_count;
     }
 
@@ -2362,10 +2402,33 @@ class builder {
 
       clock_t t = clock();
 
+      memset(node_set_len_count, '\0', 256*sizeof(uint32_t));
+      memset(node_set_lvl_sum, '\0', 256*sizeof(uint32_t));
+      memset(node_set_lvl_count, '\0', 256*sizeof(uint32_t));
+      memset(node_set_byte_pos_min, 0xFF, 256*256);
+      memset(node_set_byte_pos_max, '\0', 256*256);
+      memset(node_set_byte_pos_sum, '\0', 256*256*sizeof(uint32_t));
+      memset(node_set_byte_pos_count, '\0', 256*256*sizeof(uint32_t));
+      node_set_min_b = 0xFF;
+      node_set_max_b = 0;
+      node_set_min_len = 0xFF;
+      node_set_max_len = 0;
+
       sort_nodes();
       set_level_and_freq_count(1, 0);
-
-      printf("Key count: %u, Level node count: %u\n", key_count, get_level_node_count(5));
+/*
+      for (int i = node_set_min_len; i <= node_set_max_len; i++) {
+        printf("Len:\t%d\tcount:\t%u\tavg:\t%lu\t", i, node_set_len_count[i], node_set_lvl_sum[i] / gen::max(node_set_lvl_count[i],1));
+        for (int j = node_set_min_b; j <= node_set_max_b; j++) {
+          if (node_set_byte_pos_min[i][j] == 255)
+            printf("\t_");
+          else
+            printf("\t%d/%c: %d/%lu", j, j, node_set_byte_pos_min[i][j], node_set_byte_pos_sum[i][j] / gen::max(node_set_byte_pos_count[i][j],1));
+        }
+        printf("\n");
+      }
+*/
+      printf("Key count: %u, Term count: %u, Level node count: %u\n", key_count, term_count, get_level_node_count(5));
 
       byte_vec cache_bytes;
       uint32_t cache_count = 256;
