@@ -1951,6 +1951,7 @@ class builder {
       clock_t t = clock();
       uint32_t nxt = 0;
       uint32_t node_id = 1;
+      // FILE *fp = fopen("sort_nodex.txt", "wb+");
       while (node_id < all_nodes.size() && nxt < all_nodes.size()) {
         if (all_nodes[nxt].first_child == 0) {
           nxt++;
@@ -1967,7 +1968,11 @@ class builder {
           n->flags &= ~NFLAG_TERM;
           n->flags |= (nxt_n == 0 ? NFLAG_TERM : 0);
           n->node_id = node_id++;
+          // uint32_t tail_len;
+          // uint8_t *tail = this->trie_builder.tail_vals.get_tail(this->all_tails, n, tail_len);
+          // fprintf(fp, "[%.*s] ", tail_len, tail);
         } while (nxt_n != 0);
+        // fprintf(fp, "\n");
         if (to_sort_nodes_on_freq) {
           n->flags &= ~NFLAG_TERM;
           uint32_t start_nid = all_nodes[nxt].first_child;
@@ -1989,6 +1994,7 @@ class builder {
         swap_pos_vec.clear();
         nxt++;
       }
+      // fclose(fp);
       nodes_sorted = mark_sorted;
       gen::print_time_taken(t, "Time taken for sort_nodes(): ");
     }
@@ -2428,7 +2434,7 @@ class builder {
         printf("\n");
       }
 */
-      printf("Key count: %u, Term count: %u, Level node count: %u\n", key_count, term_count, get_level_node_count(5));
+      printf("N#: %u, NS#: %u, K#: %u, mk#: %u, mt#: %u, mv#: %u\n", node_count, term_count, key_count, max_key_len, max_tail_len, max_val_len);
 
       byte_vec cache_bytes;
       uint32_t cache_count = 256;
