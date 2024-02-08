@@ -178,6 +178,8 @@ int main(int argc, char *argv[]) {
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for retrieve: ");
 
+  free(file_buf);
+
   return 0;
 
 }
