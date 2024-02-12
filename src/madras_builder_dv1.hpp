@@ -628,7 +628,7 @@ class freq_grp_ptrs_data {
           }
         }
         if (is_tail) {
-          if (cur_node.get_tail() > 0) {
+          if (cur_node.get_flags() & NFLAG_TAIL) {
             ptr_vals_info *vi = get_info_func(&cur_node, info_vec);
             freq_grp& fg = freq_grp_vec[vi->grp_no];
             bit_count += fg.grp_log2;
@@ -839,6 +839,7 @@ class tail_val_maps {
       leopard::node_set_handler ns(all_node_sets, ns_id);
       leopard::node n = ns[node_idx];
       n.set_tail(pos);
+      n.set_flags(n.get_flags() | NFLAG_TAIL);
     }
     static void set_val_pos_fn(byte_ptr_vec& all_node_sets, uint32_t ns_id, uint8_t node_idx, uint32_t pos) {
       leopard::node_set_handler ns(all_node_sets, ns_id);
@@ -1361,7 +1362,7 @@ class tail_val_maps {
         uint8_t *tail = get_tail(all_tails, *n, tail_len);
         return *tail;
       }
-      if (n->get_tail() > 0)
+      if ((n->get_flags() & NFLAG_TAIL) == 0)
         return n->get_byte();
       uniq_tails_info *ti = uniq_tails_rev[n->get_tail()];
       uint32_t grp_no = ti->grp_no;
@@ -1493,12 +1494,11 @@ class trie_ptrs_data_builder {
               max_tail_len (_max_tail_len), total_node_count (_node_count) {
     }
     uint8_t append_tail_ptr(leopard::node *cur_node) {
-      if (cur_node->get_tail() > 0)
+      if ((cur_node->get_flags() & NFLAG_TAIL) == 0)
         return cur_node->get_byte();
       uint8_t node_val;
       uint32_t ptr = 0;
       freq_grp_ptrs_data *tail_ptrs = tail_vals.get_tail_grp_ptrs();
-      if (cur_node->get_tail() > 0) {
         uniq_tails_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
         uint8_t grp_no = ti->grp_no;
         // if (grp_no == 0 || ti->tail_ptr == 0)
@@ -1509,7 +1509,6 @@ class trie_ptrs_data_builder {
         node_val = (fg->code << node_val_bits) | (ptr & ((1 << node_val_bits) - 1));
         ptr >>= node_val_bits;
         tail_ptrs->append_ptr_bits(ptr, fg->grp_log2);
-      }
       return node_val;
     }
 
@@ -1551,16 +1550,17 @@ class trie_ptrs_data_builder {
        for (int k = 0; k < cur_ns_hdr->node_count; k++) {
         leopard::node cur_node = cur_ns[k];
         uint8_t flags = (cur_node.get_flags() & NFLAG_LEAF ? 1 : 0) +
-          (cur_node.get_child() > 0 ? 2 : 0) + (cur_node.get_tail() > 0 ? 4 : 0) +
+          (cur_node.get_child() > 0 ? 2 : 0) + (cur_node.get_flags() & NFLAG_TAIL ? 4 : 0) +
           (cur_node.get_flags() & NFLAG_TERM ? 8 : 0);
-        if (cur_node.get_tail() > 0) {
+        if (cur_node.get_flags() & NFLAG_TAIL) {
           uniq_tails_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
           uniq_tails_info *ti = (*uniq_tails_rev)[cur_node.get_tail()];
           if (ti->flags & UTI_FLAG_SUFFIX_FULL)
             sfx_full_count++;
           if (ti->flags & UTI_FLAG_SUFFIX_PARTIAL)
             sfx_partial_count++;
-          char_counts[(ti->len > 8) ? 7 : (ti->len - 2)]++;
+          if (ti->len > 1)
+            char_counts[(ti->len > 8) ? 7 : (ti->len - 2)]++;
           if (ti->len > max_tail_len)
             max_tail_len = ti->len;
           ptr_count++;
@@ -1582,7 +1582,7 @@ class trie_ptrs_data_builder {
           bm_term |= bm_mask;
         if (cur_node.get_child() != 0)
           bm_child |= bm_mask;
-        if (cur_node.get_tail() > 0)
+        if (cur_node.get_flags() & NFLAG_TAIL)
           bm_ptr |= bm_mask;
         bm_mask <<= 1;
         byte_vec64.push_back(node_val);
@@ -1660,6 +1660,7 @@ class builder {
       //art_tree_init(&at);
       if (out_file != NULL)
         set_out_file(out_file);
+      memtrie.set_print_enabled(is_bldr_print_enabled);
     }
 
     ~builder() {
@@ -1667,6 +1668,7 @@ class builder {
 
     void set_print_enabled(bool to_print_messages = true) {
       is_bldr_print_enabled = to_print_messages;
+      memtrie.set_print_enabled(is_bldr_print_enabled);
     }
 
     void set_out_file(const char *out_file) {
@@ -1702,18 +1704,9 @@ class builder {
 
       clock_t t = clock();
 
-/*
-      for (int i = node_set_min_len; i <= node_set_max_len; i++) {
-        printf("Len:\t%d\tcount:\t%u\tavg:\t%lu\t", i, node_set_len_count[i], node_set_lvl_sum[i] / gen::max(node_set_lvl_count[i],1));
-        for (int j = node_set_min_b; j <= node_set_max_b; j++) {
-          if (node_set_byte_pos_min[i][j] == 255)
-            printf("\t_");
-          else
-            printf("\t%d/%c: %d/%lu", j, j, node_set_byte_pos_min[i][j], node_set_byte_pos_sum[i][j] / gen::max(node_set_byte_pos_count[i][j],1));
-        }
-        printf("\n");
-      }
-*/
+      printf("Key count: %u\n", memtrie.key_count);
+
+      memtrie.sort_node_sets();
 
       byte_vec cache_bytes;
       uint32_t cache_count = 256;
@@ -1874,22 +1867,21 @@ class builder {
     }
 
     void make_cache(uint32_t cache_count, byte_vec& cache_bytes, uint32_t& cache_size) {
-      uint32_t node_id = 0;
       uint32_t node_set_id = 0;
       uint32_t cache_mask = cache_count - 1;
       cache_size = cache_count * sizeof(bldr_cache);
       cache_bytes.resize(cache_size);
       memset(cache_bytes.data(), 0xFF, cache_size);
       // bldr_cache *cche0 = (bldr_cache *) cache_bytes.data();
+      // leopard::node_set_handler nsh(memtrie.all_node_sets, 1);
       // do {
-      //   node *cur_node = &all_node_sets[node_id + 1];
       //   uint8_t node_byte = cur_node->b0;
       //   uint32_t cache_loc = (node_set_id ^ (node_set_id << 5) ^ node_byte) & cache_mask;
       //   bldr_cache *cche = cche0 + cache_loc;
       //   uint32_t cche_node_id = gen::read_uint24(&cche->parent_node_id1);
       //   uint32_t cche_freq = 0;
       //   if (cche_node_id != 0xFFFFFF)
-      //     cche_freq = all_node_sets[cche_node_id + cche->node_offset + 1].freq_count;
+      //     cche_freq = memtrie.all_node_sets[cche_node_id + cche->node_offset + 1].freq_count;
       //   if (cche_freq < cur_node->freq_count && cur_node->first_child > 0 && (cur_node->flags & NFLAG_PTR) == 0) {
       //     uint32_t child_node_id = cur_node->first_child - 1;
       //     if (node_set_id < (1 << 24) && child_node_id < (1 << 24)) {

@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    int key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
     if (key_len != line_len)
       printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
     else {
