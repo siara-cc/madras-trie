@@ -1036,6 +1036,10 @@ class static_dict {
             if (find_in_cache(key_byte, node_id)) {
               while (key_pos + 1 < key_len && find_in_cache(key[key_pos + 1], node_id))
                 key_byte = key[++key_pos];
+              if (key_pos + 1 < key_len) {
+                key_byte = key[++key_pos];
+                find_child(node_id, child_lt.rank(node_id) + 1);
+              }
             } else
               find_child(node_id, child_lt.rank(node_id) + 1);
             t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
