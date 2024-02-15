@@ -12,7 +12,7 @@
 #include <cstring>
 #include <sys/stat.h> 
 #include <sys/types.h>
-//#include <immintrin.h>
+#include <immintrin.h>
 #include <sys/mman.h>
 
 using namespace std;
@@ -38,11 +38,11 @@ struct cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
-  uint8_t parent_node_id4;
+  uint8_t node_offset;
   uint8_t child_node_id1;
   uint8_t child_node_id2;
   uint8_t child_node_id3;
-  uint8_t child_node_id4;
+  uint8_t node_byte;
 };
 
 class byte_str {
@@ -581,7 +581,6 @@ class bv_lookup_tbl {
       }
       return rank;
     }
-    // https://stackoverflow.com/a/76608807/5072621
     uint32_t rank(uint32_t node_id) {
       uint32_t rank = block_rank(node_id);
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
@@ -590,88 +589,6 @@ class bv_lookup_tbl {
       uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block3);
       return rank + __builtin_popcountll(bm & (mask - 1));
     }
-    const uint8_t bit_count[256] = {
-      0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 
-      1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-      1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-      2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-      1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-      2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-      2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-      3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
-    const uint8_t select_lookup_tbl[8][256] = {{
-      8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-      6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1
-    }, {
-      8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-      7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
-      8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-      8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
-      8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-      8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
-      8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-      8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
-      8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
-      8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
-      8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
-      8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
-      8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
-      8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
-      8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
-      8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
-      8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7
-    }, {
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-      8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
-    }};
     void select(uint32_t& node_id, uint32_t target_count) {
       if (target_count == 0) {
         node_id = 0;
@@ -681,39 +598,27 @@ class bv_lookup_tbl {
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm;
       cmn::read_uint64(t + bm_pos, bm);
-
-      // int remaining = target_count - block_count - 1;
-      // uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
-      // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
-      // // size_t bit_loc = find_nth_set_bit(bm, i) + 1;
-      // if (bit_loc == 65) {
-      //   std::cout << "WARNING: UNEXPECTED bit_loc=65, node_id: " << node_id << " nc: " << node_count <<
-      //     " tc: " << block_count << " ttc: " << target_count << std::endl;
-      //   return;
-      // }
-      // node_id += bit_loc;
-
-      // The performance of this is not too different from using bmi2. Keeping this for now
-      size_t bit_loc = 0;
-      while (bit_loc < 64) {
-        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-        if (block_count + next_count >= target_count)
-          break;
-        bit_loc += 8;
-        block_count += next_count;
+      int i = target_count - block_count - 1;
+      uint64_t isolated_bit = _pdep_u64(1ULL << i, bm);
+      size_t pos = _tzcnt_u64(isolated_bit) + 1;
+      // size_t pos = find_nth_set_bit(bm_term, i) + 1;
+      if (pos == 65) {
+        std::cout << "WARNING: UNEXPECTED pos=65, node_id: " << node_id << " nc: " << node_count <<
+          " tc: " << block_count << " ttc: " << target_count << std::endl;
+        return;
       }
-      if (block_count < target_count)
-        bit_loc += select_lookup_tbl[target_count - block_count - 1][(bm >> bit_loc) & 0xFF];
-      node_id += bit_loc;
-
-      // uint64_t bm_mask = bm_init_mask << bit_loc;
-      // while (block_count < target_count) {
-      //   if (bm & bm_mask)
-      //     block_count++;
-      //   bit_loc++;
+      node_id += pos;
+      // size_t k = 0;
+      // while (term_count < target_term_count) {
+      //   if (bm_child & bm_mask)
+      //     child_count++;
+      //   if (bm_term & bm_mask)
+      //     term_count++;
+      //   node_id++;
+      //   t++;
       //   bm_mask <<= 1;
+      //   k++;
       // }
-      //std::cout << "Bit loc: " << bit_loc << ", Pos: " << pos << std::endl;
     }
 
 };
@@ -794,7 +699,7 @@ class static_dict {
     uint32_t bv_block_count;
     uint32_t max_tail_len;
     uint8_t *common_nodes_loc;
-    cache *cache_loc;
+    uint8_t *cache_loc;
     uint8_t *term_lt_loc;
     uint8_t *child_lt_loc;
     uint8_t *leaf_lt_loc;
@@ -850,7 +755,7 @@ class static_dict {
       max_tail_len = cmn::read_uint32(dict_buf + 28) + 1;
       cache_count = cmn::read_uint32(dict_buf + 32);
       sec_cache_count = cmn::read_uint32(dict_buf + 36);
-      cache_loc = (cache *) (dict_buf + cmn::read_uint32(dict_buf + 40));
+      cache_loc = dict_buf + cmn::read_uint32(dict_buf + 40);
       sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 44);
 
       term_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 48);
@@ -960,20 +865,72 @@ class static_dict {
       return 0;
     }
 
+    // https://stackoverflow.com/a/76608807/5072621
+    // https://vigna.di.unimi.it/ftp/papers/Broadword.pdf
+    const uint64_t sMSBs8 = 0x8080808080808080ull;
+    const uint64_t sLSBs8 = 0x0101010101010101ull;
+    inline uint64_t leq_bytes(uint64_t pX, uint64_t pY) {
+      return ((((pY | sMSBs8) - (pX & ~sMSBs8)) ^ pX ^ pY) & sMSBs8) >> 7;
+    }
+    inline uint64_t gt_zero_bytes(uint64_t pX) {
+      return ((pX | ((pX | sMSBs8) - sLSBs8)) & sMSBs8) >> 7;
+    }
+    inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR) {
+      const uint64_t sOnesStep4  = 0x1111111111111111ull;
+      const uint64_t sIncrStep8  = 0x8040201008040201ull;
+      uint64_t byte_sums = pWord - ((pWord & 0xA*sOnesStep4) >> 1);
+      byte_sums = (byte_sums & 3*sOnesStep4) + ((byte_sums >> 2) & 3*sOnesStep4);
+      byte_sums = (byte_sums + (byte_sums >> 4)) & 0xF*sLSBs8;
+      byte_sums *= sLSBs8;
+      const uint64_t k_step_8 = pR * sLSBs8;
+      const uint64_t place = (leq_bytes( byte_sums, k_step_8 ) * sLSBs8 >> 53) & ~0x7;
+      const int byte_rank = pR - (((byte_sums << 8) >> place) & 0xFF);
+      const uint64_t spread_bits = (pWord >> place & 0xFF) * sLSBs8 & sIncrStep8;
+      const uint64_t bit_sums = gt_zero_bytes(spread_bits) * sLSBs8;
+      const uint64_t byte_rank_step_8 = byte_rank * sLSBs8;
+      return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
+    }
+
     void find_child(uint32_t& node_id, uint32_t child_count) {
       term_lt.select(node_id, child_count);
       //child_count = child_lt.rank(node_id);
     }
 
-    bool find_in_cache(uint8_t key_byte, uint32_t& node_id) {
+    int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id, uint32_t& child_count) {
+      uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = cache_count - 1;
-      uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
-      cache *cche = cache_loc + cache_idx;
-      if (node_id == cmn::read_uint32(&cche->parent_node_id1)) {
-        node_id = cmn::read_uint32(&cche->child_node_id1);
-        return true;
-      }
-      return false;
+      cache *cche0 = (cache *) cache_loc;
+      do {
+        uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
+        cache *cche = cche0 + cache_idx;
+        uint32_t cache_node_id = cmn::read_uint24(&cche->parent_node_id1);
+        if (node_id == cache_node_id) {
+          child_count = UINT32_MAX;
+          if (cche->node_byte == key_byte) {
+            key_pos++;
+            if (key_pos < key_len) {
+              node_id = cmn::read_uint24(&cche->child_node_id1);
+              key_byte = key[key_pos];
+              continue;
+            }
+            node_id += cche->node_offset;
+            uint8_t *t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
+            uint64_t bm_leaf;
+            cmn::read_uint64(t, bm_leaf);
+            uint64_t bm_mask = (bm_init_mask << (node_id % 64));
+            if (bm_leaf & bm_mask) {
+              last_exit_loc = 0;
+              return 0;
+            } else {
+              last_exit_loc = t - dict_buf;
+              // result = DCT_INSERT_LEAF;
+              return -1;
+            }
+          }
+        }
+        break;
+      } while (1);
+      return -1;
     }
 
     bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = NULL) {
@@ -982,6 +939,7 @@ class static_dict {
         pcmp = &cmp;
       int key_pos = 0;
       node_id = 0;
+      uint32_t child_count = 0;
       uint8_t tail_str_buf[max_tail_len];
       byte_str tail_str(tail_str_buf, max_tail_len);
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
@@ -991,32 +949,46 @@ class static_dict {
       uint32_t ptr_bit_count = UINT32_MAX;
       uint8_t *t = trie_ptrs_data.trie_loc;
       uint8_t key_byte = key[key_pos];
-      if (!find_in_cache(key_byte, node_id))
-        node_id++;
-      if (node_id % nodes_per_bv_block3) {
-        t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
-        t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        t += (node_id % nodes_per_bv_block3);
-        bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
-      }
       do {
-        if ((node_id % nodes_per_bv_block3) == 0) {
-          bm_mask = bm_init_mask;
-          t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+        int ret = find_in_cache(key, key_len, key_pos, node_id, child_count);
+        if (ret == 0)
+          return true;
+        if (child_count == UINT32_MAX) {
+          child_count = child_lt.rank(node_id);
+          t = NULL;
         }
-        uint8_t node_byte = trie_byte = *t++;
-        if (bm_mask & bm_ptr)
-          trie_byte = trie_ptrs_data.tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
-        if (key_byte > trie_byte) {
-          if (bm_mask & bm_term) {
-            last_exit_loc = t - dict_buf;
-            //result = DCT_INSERT_AFTER;
-            return false;
+        if (t == NULL) {
+          key_byte = key[key_pos];
+          t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
+          if (node_id % nodes_per_bv_block3) {
+            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+            t += (node_id % nodes_per_bv_block3);
           }
-          bm_mask <<= 1;
-          node_id++;
-          continue;
+          bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
+          ptr_bit_count = UINT32_MAX;
         }
+        do {
+          if ((node_id % nodes_per_bv_block3) == 0) {
+            bm_mask = bm_init_mask;
+            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+          }
+          uint8_t node_byte = trie_byte = *t++;
+          if (bm_mask & bm_ptr) {
+            trie_byte = trie_ptrs_data.tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
+          }
+          if (bm_mask & bm_child)
+            child_count++;
+          if (key_byte > trie_byte) {
+            if (bm_mask & bm_term) {
+              last_exit_loc = t - dict_buf;
+              //result = DCT_INSERT_AFTER;
+              return false;
+            }
+            bm_mask <<= 1;
+            node_id++;
+          } else
+            break;
+        } while (1);
         if (key_byte == trie_byte) {
           *pcmp = 0;
           uint32_t tail_len = 1;
@@ -1032,27 +1004,9 @@ class static_dict {
               //result = DCT_INSERT_CHILD_LEAF;
               return false;
             }
-            key_byte = key[key_pos];
-            if (find_in_cache(key_byte, node_id)) {
-              while (key_pos + 1 < key_len && find_in_cache(key[key_pos + 1], node_id))
-                key_byte = key[++key_pos];
-              if (key_pos + 1 < key_len) {
-                key_byte = key[++key_pos];
-                find_child(node_id, child_lt.rank(node_id) + 1);
-              }
-            } else
-              find_child(node_id, child_lt.rank(node_id) + 1);
-            t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
-            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-            t += (node_id % nodes_per_bv_block3);
-            bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
-            if (key_pos < key_len) {
-              if ((node_id % nodes_per_bv_block3) == 0)
-                t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
-              ptr_bit_count = UINT32_MAX;
-              continue;
-            }
-            *pcmp = 0;
+            find_child(node_id, child_count);
+            child_count = UINT32_MAX;
+            continue;
           }
           if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask)) {
             last_exit_loc = 0;
@@ -1074,7 +1028,7 @@ class static_dict {
       std::vector<uint8_t> val_str;
       uint32_t node_id;
       bool is_found = lookup(key, key_len, node_id);
-      if (is_found && val != NULL) {
+      if (node_id >= 0 && val != NULL) {
         // if (memcmp(key, "don't think there's anything wrong", key_len) == 0) {
         //   uint32_t leaf_count = leaf_lt.rank(node_id);
         //   printf("node_id: %u, leaf_count: %u, key: [%.*s]\n", node_id, leaf_count, key_len, key);
