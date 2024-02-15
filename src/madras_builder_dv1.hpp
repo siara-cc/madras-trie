@@ -37,11 +37,11 @@ struct bldr_cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
-  uint8_t node_offset;
+  uint8_t parent_node_id4;
   uint8_t child_node_id1;
   uint8_t child_node_id2;
   uint8_t child_node_id3;
-  uint8_t node_byte;
+  uint8_t child_node_id4;
 };
 
 struct tail_token {
@@ -604,7 +604,7 @@ class freq_grp_ptrs_data {
         gen::write_uint32(bit_count, fp);
       else
         gen::write_uint24(bit_count, fp);
-      for (int i = 1; i < all_node_sets.size(); i++) {
+      for (int i = 0; i < all_node_sets.size(); i++) {
        leopard::node_set_handler cur_ns(all_node_sets, i);
        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
         leopard::node cur_node = cur_ns[k];
@@ -812,7 +812,7 @@ class tail_val_maps {
     uint32_t make_uniq_tails(byte_ptr_vec& all_node_sets, leopard::byte_block& all_tails) {
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
-      for (uint32_t i = 1; i < all_node_sets.size(); i++) {
+      for (uint32_t i = 0; i < all_node_sets.size(); i++) {
        leopard::node_set_handler cur_ns(all_node_sets, i);
        for (uint8_t k = 0; k <= cur_ns.last_node_idx(); k++) {
         leopard::node n = cur_ns[k];
@@ -894,7 +894,7 @@ class tail_val_maps {
     uint32_t make_uniq_vals(byte_ptr_vec& all_node_sets, leopard::byte_block& all_vals) {
       clock_t t = clock();
       std::vector<sort_data> nodes_for_sort;
-      for (uint32_t i = 1; i < all_node_sets.size(); i++) {
+      for (uint32_t i = 0; i < all_node_sets.size(); i++) {
        leopard::node_set_handler cur_ns(all_node_sets, i);
        for (uint8_t k = 0; k <= cur_ns.last_node_idx(); k++) {
         leopard::node n = cur_ns[k];
@@ -1540,7 +1540,7 @@ class trie_ptrs_data_builder {
       uint32_t ptr_count = 0;
       node_count = 0;
       max_tail_len = 1;
-      uint32_t cur_ns_idx = 1;
+      uint32_t cur_ns_idx = 0;
       for (; cur_ns_idx < all_node_sets.size(); cur_ns_idx++) {
        leopard::node_set_handler cur_ns(all_node_sets, cur_ns_idx);
        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
@@ -1644,7 +1644,6 @@ class builder {
     //builder(builder const&);
     //builder& operator=(builder const&);
 
-
   public:
     leopard::trie memtrie;
     trie_ptrs_data_builder trie_builder;
@@ -1704,12 +1703,7 @@ class builder {
 
       memtrie.sort_node_sets();
 
-      byte_vec cache_bytes;
-      uint32_t cache_count = 256;
-      while (cache_count < memtrie.key_count / 512) {
-        cache_count *= 2;
-      }
-      //cache_count *= 2;
+      uint32_t cache_count = memtrie.build_cache();
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
       byte_vec sec_cache_bytes;
@@ -1736,7 +1730,6 @@ class builder {
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
       uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
 
-      make_cache(cache_count, cache_bytes, cache_size);
       //make_sec_cache(sec_cache_count, sec_cache_bytes, sec_cache_size);
 
       FILE *fp = fopen(out_filename.c_str(), "wb+");
@@ -1765,7 +1758,7 @@ class builder {
       gen::write_uint32(leaf_bv_loc, fp);
       gen::write_uint32(trie_ptrs_data_loc, fp);
 
-      fwrite(cache_bytes.data(), cache_bytes.size(), 1, fp);
+      make_cache(memtrie.node_cache_vec, fp);
       //write_sec_cache(sec_cache_count, fp);
       write_bv_select_lt(BV_TERM, fp);
       write_bv_rank_lt(BV_TERM, fp);
@@ -1833,7 +1826,7 @@ class builder {
       uint8_t pos3 = 0;
       memset(buf3, 0, 3);
       gen::write_uint32(0, fp);
-      for (int i = 1; i < memtrie.all_node_sets.size(); i++) {
+      for (int i = 0; i < memtrie.all_node_sets.size(); i++) {
        leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
         leopard::node cur_node = cur_ns[k];
@@ -1861,35 +1854,12 @@ class builder {
       fwrite(buf3, 3, 1, fp);
     }
 
-    void make_cache(uint32_t cache_count, byte_vec& cache_bytes, uint32_t& cache_size) {
-      uint32_t node_set_id = 0;
-      uint32_t cache_mask = cache_count - 1;
-      cache_size = cache_count * sizeof(bldr_cache);
-      cache_bytes.resize(cache_size);
-      memset(cache_bytes.data(), 0xFF, cache_size);
-      // bldr_cache *cche0 = (bldr_cache *) cache_bytes.data();
-      // leopard::node_set_handler nsh(memtrie.all_node_sets, 1);
-      // do {
-      //   uint8_t node_byte = cur_node->b0;
-      //   uint32_t cache_loc = (node_set_id ^ (node_set_id << 5) ^ node_byte) & cache_mask;
-      //   bldr_cache *cche = cche0 + cache_loc;
-      //   uint32_t cche_node_id = gen::read_uint24(&cche->parent_node_id1);
-      //   uint32_t cche_freq = 0;
-      //   if (cche_node_id != 0xFFFFFF)
-      //     cche_freq = memtrie.all_node_sets[cche_node_id + cche->node_offset + 1].freq_count;
-      //   if (cche_freq < cur_node->freq_count && cur_node->first_child > 0 && (cur_node->flags & NFLAG_PTR) == 0) {
-      //     uint32_t child_node_id = cur_node->first_child - 1;
-      //     if (node_set_id < (1 << 24) && child_node_id < (1 << 24)) {
-      //       cche->node_offset = node_id - node_set_id;
-      //       gen::copy_uint24(node_set_id, &cche->parent_node_id1);
-      //       gen::copy_uint24(child_node_id, &cche->child_node_id1);
-      //       cche->node_byte = cur_node->b0;
-      //     }
-      //   }
-      //   node_id++;
-      //   if (cur_node->flags & NFLAG_TERM)
-      //     node_set_id = node_id;
-      // } while (node_id < memtrie.node_count);
+    void make_cache(std::vector<leopard::node_cache>& node_cache_vec, FILE *fp) {
+      for (int i = 0; i < node_cache_vec.size(); i++) {
+        leopard::node_cache& nc = node_cache_vec[i];
+        gen::write_uint32(nc.parent_node_id, fp);
+        gen::write_uint32(nc.child_node_id, fp);
+      }
     }
 
     void write_sec_cache(uint32_t cache_count, FILE *fp) {
@@ -1923,7 +1893,7 @@ class builder {
       uint32_t sel_count = 0;
       uint32_t prev_val = 0;
       gen::write_uint24(0, fp);
-      for (int i = 1; i < memtrie.all_node_sets.size(); i++) {
+      for (int i = 0; i < memtrie.all_node_sets.size(); i++) {
        leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
         leopard::node cur_node = cur_ns[k];
