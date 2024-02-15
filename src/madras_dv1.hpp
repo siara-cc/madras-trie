@@ -965,21 +965,15 @@ class static_dict {
       //child_count = child_lt.rank(node_id);
     }
 
-    uint32_t find_in_cache(const uint8_t *key, int& key_pos, uint32_t& node_id) {
-      bool is_found = false;
-      do {
-        uint8_t key_byte = key[key_pos];
-        uint32_t cache_mask = cache_count - 1;
-        uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
-        cache *cche = cache_loc + cache_idx;
-        is_found = false;
-        if (node_id == cmn::read_uint32(&cche->parent_node_id1)) {
-          key_pos++;
-          is_found = true;
-          node_id = cmn::read_uint32(&cche->child_node_id1);
-        }
-      } while (is_found);
-      return 0;
+    bool find_in_cache(uint8_t key_byte, uint32_t& node_id) {
+      uint32_t cache_mask = cache_count - 1;
+      uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
+      cache *cche = cache_loc + cache_idx;
+      if (node_id == cmn::read_uint32(&cche->parent_node_id1)) {
+        node_id = cmn::read_uint32(&cche->child_node_id1);
+        return true;
+      }
+      return false;
     }
 
     bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = NULL) {
@@ -987,7 +981,7 @@ class static_dict {
       if (pcmp == NULL)
         pcmp = &cmp;
       int key_pos = 0;
-      node_id = 1;
+      node_id = 0;
       uint8_t tail_str_buf[max_tail_len];
       byte_str tail_str(tail_str_buf, max_tail_len);
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
@@ -997,9 +991,14 @@ class static_dict {
       uint32_t ptr_bit_count = UINT32_MAX;
       uint8_t *t = trie_ptrs_data.trie_loc;
       uint8_t key_byte = key[key_pos];
-      bm_mask = bm_init_mask << 1;
-      t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-      t++;
+      if (!find_in_cache(key_byte, node_id))
+        node_id++;
+      if (node_id % nodes_per_bv_block3) {
+        t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
+        t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+        t += (node_id % nodes_per_bv_block3);
+        bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
+      }
       do {
         if ((node_id % nodes_per_bv_block3) == 0) {
           bm_mask = bm_init_mask;
@@ -1033,17 +1032,23 @@ class static_dict {
               //result = DCT_INSERT_CHILD_LEAF;
               return false;
             }
-            //find_in_cache(key, key_pos, node_id);
-            find_child(node_id, child_lt.rank(node_id) + 1);
             key_byte = key[key_pos];
+            if (find_in_cache(key_byte, node_id)) {
+              while (key_pos + 1 < key_len && find_in_cache(key[key_pos + 1], node_id))
+                key_byte = key[++key_pos];
+            } else
+              find_child(node_id, child_lt.rank(node_id) + 1);
             t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
-            if (node_id % nodes_per_bv_block3) {
-              t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-              t += (node_id % nodes_per_bv_block3);
-            }
+            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+            t += (node_id % nodes_per_bv_block3);
             bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
-            ptr_bit_count = UINT32_MAX;
-            continue;
+            if (key_pos < key_len) {
+              if ((node_id % nodes_per_bv_block3) == 0)
+                t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
+              ptr_bit_count = UINT32_MAX;
+              continue;
+            }
+            *pcmp = 0;
           }
           if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask)) {
             last_exit_loc = 0;
@@ -1065,7 +1070,7 @@ class static_dict {
       std::vector<uint8_t> val_str;
       uint32_t node_id;
       bool is_found = lookup(key, key_len, node_id);
-      if (node_id >= 0 && val != NULL) {
+      if (is_found && val != NULL) {
         // if (memcmp(key, "don't think there's anything wrong", key_len) == 0) {
         //   uint32_t leaf_count = leaf_lt.rank(node_id);
         //   printf("node_id: %u, leaf_count: %u, key: [%.*s]\n", node_id, leaf_count, key_len, key);
