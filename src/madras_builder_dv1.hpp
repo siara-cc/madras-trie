@@ -818,7 +818,7 @@ class tail_val_maps {
         leopard::node n = cur_ns[k];
         uint32_t tail_len;
         uint8_t *tail = get_tail(all_tails, n, tail_len);
-        if (n.get_tail() > 0) {
+        if (n.get_flags() & NFLAG_TAIL) {
           nodes_for_sort.push_back((struct sort_data) { tail, tail_len, 1, i, k}); // n->freq_count} );
         }
        }
@@ -837,7 +837,6 @@ class tail_val_maps {
       leopard::node_set_handler ns(all_node_sets, ns_id);
       leopard::node n = ns[node_idx];
       n.set_tail(pos);
-      n.set_flags(n.get_flags() | NFLAG_TAIL);
     }
     static void set_val_pos_fn(byte_ptr_vec& all_node_sets, uint32_t ns_id, uint8_t node_idx, uint32_t pos) {
       leopard::node_set_handler ns(all_node_sets, ns_id);
