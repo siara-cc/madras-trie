@@ -98,7 +98,7 @@ int main(int argc, char *argv[]) {
   int val_len = 0;
   uint8_t key_buf[1000];
   uint8_t val_buf[100];
-  madras_dv1::dict_iter_ctx dict_ctx;
+  madras_dv1::dict_iter_ctx dict_ctx(dict_reader.get_max_key_len(), dict_reader.get_max_level());
 
   // dict_reader.reverse_lookup(1096762, &line_count, key_buf, &val_len, val_buf);
   // //dict_reader.reverse_lookup_from_node_id(65, &line_count, key_buf, &val_len, val_buf);

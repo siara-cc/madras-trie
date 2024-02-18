@@ -5,11 +5,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <math.h>
-#include <string>
-#include <vector>
-#include <iostream>
-#include <cstring>
 #include <sys/stat.h> 
 #include <sys/types.h>
 #include <immintrin.h>
@@ -216,7 +211,7 @@ class grp_ptr_data_map {
     uint32_t idx2_ptr_count;
     uint8_t *two_byte_data_loc;
     uint8_t *code_lookup_tbl;
-    std::vector<uint8_t *> grp_data;
+    uint8_t **grp_data;
 
     uint8_t *dict_buf;
     uint8_t *trie_loc;
@@ -333,6 +328,12 @@ class grp_ptr_data_map {
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
+      grp_data = NULL;
+    }
+
+    ~grp_ptr_data_map() {
+      if (grp_data != NULL)
+        delete grp_data;
     }
 
     bool exists() {
@@ -367,11 +368,12 @@ class grp_ptr_data_map {
       last_grp_no = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
       uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
+      grp_data = new uint8_t*[last_grp_no + 1];
       for (int i = 0; i <= last_grp_no; i++)
-        grp_data.push_back(data_loc + cmn::read_uint32(grp_data_idx_start + i * 4));
+        grp_data[i] = data_loc + cmn::read_uint32(grp_data_idx_start + i * 4);
       int _start_bits = start_bits;
       for (int i = 1; i <= grp_idx_limit; i++) {
-        idx_map_arr[i] = idx_map_arr[i - 1] + pow(2, _start_bits) * idx2_ptr_size;
+        idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
         _start_bits += idx_step_bits;
       }
     }
@@ -654,29 +656,36 @@ class trie_ptrs_data_handler {
 class dict_iter_ctx {
   public:
     int32_t cur_idx;
-    int32_t key_pos;
-    std::vector<uint8_t> key;
-    std::vector<uint32_t> node_path;
-    std::vector<uint32_t> child_count;
-    //std::vector<uint32_t> ptr_bit_count;
-    std::vector<uint32_t> last_tail_len;
+    uint16_t key_len;
+    uint8_t *key;
+    uint32_t *node_path;
+    uint32_t *child_count;
+    uint16_t *last_tail_len;
     bool to_skip_first_leaf;
-    dict_iter_ctx() {
+    dict_iter_ctx(uint16_t max_key_len, uint16_t max_level) {
+      key = new uint8_t[max_key_len];
+      node_path = new uint32_t[max_level];
+      child_count = new uint32_t[max_level];
+      last_tail_len = new uint16_t[max_level];
+      memset(node_path, '\0', max_level * sizeof(uint32_t));
+      memset(child_count, '\0', max_level * sizeof(uint32_t));
+      memset(last_tail_len, '\0', max_level * sizeof(uint16_t));
       init();
     }
+    ~dict_iter_ctx() {
+      delete key;
+      delete node_path;
+      delete child_count;
+      delete last_tail_len;
+    }
     void init() {
-      cur_idx = key_pos = 0;
+      cur_idx = key_len = 0;
       to_skip_first_leaf = false;
-      node_path.push_back(0);
-      child_count.push_back(0);
-      //ptr_bit_count.push_back(0);
-      last_tail_len.push_back(0);
+      node_path[0] = 0;
+      child_count[0] = 0;
+      last_tail_len[0] = 0;
     }
     void reset() {
-      key.resize(0);
-      child_count.resize(0);
-      node_path.resize(0);
-      last_tail_len.resize(0);
       init();
     }
 };
@@ -697,7 +706,8 @@ class static_dict {
     uint32_t max_val_len;
     uint32_t cache_count;
     uint32_t bv_block_count;
-    uint32_t max_tail_len;
+    uint16_t max_tail_len;
+    uint16_t max_level;
     uint8_t *common_nodes_loc;
     uint8_t *cache_loc;
     uint8_t *term_lt_loc;
@@ -752,7 +762,8 @@ class static_dict {
       key_count = cmn::read_uint32(dict_buf + 16);
       max_key_len = cmn::read_uint32(dict_buf + 20);
       max_val_len = cmn::read_uint32(dict_buf + 24);
-      max_tail_len = cmn::read_uint32(dict_buf + 28) + 1;
+      max_tail_len = cmn::read_uint16(dict_buf + 28) + 1;
+      max_level = cmn::read_uint16(dict_buf + 30);
       cache_count = cmn::read_uint32(dict_buf + 32);
       sec_cache_count = cmn::read_uint32(dict_buf + 36);
       cache_loc = dict_buf + cmn::read_uint32(dict_buf + 40);
@@ -798,8 +809,10 @@ class static_dict {
       int len_will_need = (dict_size >> 2);
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       mlock(dict_buf, len_will_need);
-      std::string val_file = std::string(filename) + ".val";
-      val_buf = map_file(val_file.c_str(), val_size);
+      char val_file[strlen(filename) + 5];
+      strcpy(val_file, filename);
+      strcat(val_file, ".val");
+      val_buf = map_file(val_file, val_size);
       load_into_vars();
       is_mmapped = true;
     }
@@ -840,13 +853,15 @@ class static_dict {
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
 
-      std::string val_file = std::string(filename) + ".val";
+      char val_file[strlen(filename) + 5];
+      strcpy(val_file, filename);
+      strcat(val_file, ".val");
       memset(&file_stat, '\0', sizeof(file_stat));
-      stat(val_file.c_str(), &file_stat);
+      stat(val_file, &file_stat);
       uint32_t val_size = file_stat.st_size;
       if (val_size > 0) { // todo: need flag to indicate val file present or not
         val_buf = (uint8_t *) malloc(val_size);
-        fp = fopen(val_file.c_str(), "rb");
+        fp = fopen(val_file, "rb");
         fread(val_buf, val_size, 1, fp);
 	      //madvise(val_buf, val_size, MADV_RANDOM);
         fclose(fp);
@@ -856,40 +871,6 @@ class static_dict {
 
     }
 
-    template <typename T>
-    string operator[](uint32_t id) const {
-      string ret;
-      return ret;
-    }
-    uint32_t find_match(string key) {
-      return 0;
-    }
-
-    // https://stackoverflow.com/a/76608807/5072621
-    // https://vigna.di.unimi.it/ftp/papers/Broadword.pdf
-    const uint64_t sMSBs8 = 0x8080808080808080ull;
-    const uint64_t sLSBs8 = 0x0101010101010101ull;
-    inline uint64_t leq_bytes(uint64_t pX, uint64_t pY) {
-      return ((((pY | sMSBs8) - (pX & ~sMSBs8)) ^ pX ^ pY) & sMSBs8) >> 7;
-    }
-    inline uint64_t gt_zero_bytes(uint64_t pX) {
-      return ((pX | ((pX | sMSBs8) - sLSBs8)) & sMSBs8) >> 7;
-    }
-    inline uint64_t find_nth_set_bit(uint64_t pWord, uint64_t pR) {
-      const uint64_t sOnesStep4  = 0x1111111111111111ull;
-      const uint64_t sIncrStep8  = 0x8040201008040201ull;
-      uint64_t byte_sums = pWord - ((pWord & 0xA*sOnesStep4) >> 1);
-      byte_sums = (byte_sums & 3*sOnesStep4) + ((byte_sums >> 2) & 3*sOnesStep4);
-      byte_sums = (byte_sums + (byte_sums >> 4)) & 0xF*sLSBs8;
-      byte_sums *= sLSBs8;
-      const uint64_t k_step_8 = pR * sLSBs8;
-      const uint64_t place = (leq_bytes( byte_sums, k_step_8 ) * sLSBs8 >> 53) & ~0x7;
-      const int byte_rank = pR - (((byte_sums << 8) >> place) & 0xFF);
-      const uint64_t spread_bits = (pWord >> place & 0xFF) * sLSBs8 & sIncrStep8;
-      const uint64_t bit_sums = gt_zero_bytes(spread_bits) * sLSBs8;
-      const uint64_t byte_rank_step_8 = byte_rank * sLSBs8;
-      return place + (leq_bytes( bit_sums, byte_rank_step_8 ) * sLSBs8 >> 56);
-    }
 
     void find_child(uint32_t& node_id, uint32_t child_count) {
       term_lt.select(node_id, child_count);
@@ -1025,7 +1006,6 @@ class static_dict {
 
     bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val) {
       int key_pos, cmp;
-      std::vector<uint8_t> val_str;
       uint32_t node_id;
       bool is_found = lookup(key, key_len, node_id);
       if (node_id >= 0 && val != NULL) {
@@ -1041,37 +1021,35 @@ class static_dict {
 
     void push_to_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
       ctx.cur_idx++;
-      if (ctx.cur_idx < ctx.node_path.size()) {
-        //ctx.last_tail_len[ctx.cur_idx] = 0;
-        cv.tail.clear();
-        update_ctx(ctx, cv);
-      } else {
-        ctx.child_count.push_back(cv.child_count);
-        ctx.node_path.push_back(cv.node_id);
-        //ctx.ptr_bit_count.push_back(cv.ptr_bit_count);
-        ctx.last_tail_len.push_back(0); //cv.tail.length());
-      }
+      cv.tail.clear();
+      update_ctx(ctx, cv);
+    }
+
+    template<typename INS_ARR_T>
+    void insert_arr(INS_ARR_T *arr, int arr_len, int pos, INS_ARR_T val) {
+      for (int i = arr_len; i >= pos; i++)
+        arr[i + 1] = arr[i];
+      arr[pos] = val;
     }
 
     void insert_into_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
-      ctx.child_count.insert(ctx.child_count.begin(), cv.child_count);
-      ctx.node_path.insert(ctx.node_path.begin(), cv.node_id);
-      ctx.last_tail_len.insert(ctx.last_tail_len.begin(), cv.tail.length());
+      insert_arr(ctx.child_count, ctx.cur_idx, 0, cv.child_count);
+      insert_arr(ctx.node_path, ctx.cur_idx, 0, cv.node_id);
+      insert_arr(ctx.last_tail_len, ctx.cur_idx, 0, (uint16_t) cv.tail.length());
       ctx.cur_idx++;
     }
 
     void update_ctx(dict_iter_ctx& ctx, ctx_vars& cv) {
       ctx.child_count[ctx.cur_idx] = cv.child_count;
       ctx.node_path[ctx.cur_idx] = cv.node_id;
-      //ctx.ptr_bit_count[ctx.cur_idx] = cv.ptr_bit_count;
-      ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
+      ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
       ctx.last_tail_len[ctx.cur_idx] = cv.tail.length();
-      for (int i = 0; i < cv.tail.length(); i++)
-        ctx.key.push_back(cv.tail[i]);
+      memcpy(ctx.key + ctx.key_len, cv.tail.data(), cv.tail.length());
+      ctx.key_len += cv.tail.length();
     }
 
     void clear_last_tail(dict_iter_ctx& ctx) {
-      ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
+      ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
       ctx.last_tail_len[ctx.cur_idx] = 0;
     }
 
@@ -1114,11 +1092,10 @@ class static_dict {
           } else {
             trie_ptrs_data.tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
-            int key_len = ctx.key.size();
-            memcpy(key_buf, ctx.key.data(), key_len);
+            memcpy(key_buf, ctx.key, ctx.key_len);
             trie_ptrs_data.val_map.get_val(cv.node_id, val_buf_len, val_buf);
             ctx.to_skip_first_leaf = true;
-            return key_len;
+            return ctx.key_len;
           }
         }
         ctx.to_skip_first_leaf = false;
@@ -1134,6 +1111,10 @@ class static_dict {
         }
       } while (cv.node_id < node_count);
       return 0;
+    }
+
+    uint32_t get_max_level() {
+      return max_level;
     }
 
     uint32_t get_max_key_len() {
@@ -1189,7 +1170,7 @@ class static_dict {
       for (int i = key_str.length() - 1; i >= 0; i--) {
         ret_key[key_pos++] = key_str[i];
         if (ctx != NULL)
-          ctx->key.push_back(key_str[i]);
+          ctx->key[ctx->key_len++] = key_str[i];
       }
       *in_size_out_key_len = key_str.length();
       return true;
@@ -1199,7 +1180,7 @@ class static_dict {
       int cmp;
       uint32_t lkup_node_id;
       lookup(prefix, prefix_len, lkup_node_id, &cmp);
-      dict_iter_ctx ctx;
+      dict_iter_ctx ctx(max_key_len, max_level);
       uint8_t key_buf[max_key_len];
       int key_len;
       // TODO: set last_key_len
@@ -1208,7 +1189,7 @@ class static_dict {
       // for (int i = 0; i < ctx.key.size(); i++)
       //   printf("%c", ctx.key[i]);
       // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
-      ctx.key.resize(ctx.key.size() - ctx.last_tail_len[ctx.cur_idx]);
+      ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
       ctx.last_tail_len[ctx.cur_idx] = 0;
       ctx.to_skip_first_leaf = false;
       return ctx;

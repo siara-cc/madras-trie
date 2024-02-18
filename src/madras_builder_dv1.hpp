@@ -1295,7 +1295,6 @@ class tail_val_maps {
 class builder {
 
   private:
-    uint32_t max_level;
     uint32_t common_node_count;
     //dfox uniq_basix_map;
     //basix uniq_basix_map;
@@ -1342,7 +1341,6 @@ class builder {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL) : tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       common_node_count = 0;
-      max_level = 1;
       //art_tree_init(&at);
       if (out_file != NULL)
         set_out_file(out_file);
@@ -1579,7 +1577,8 @@ class builder {
       gen::write_uint32(memtrie.key_count, fp);
       gen::write_uint32(memtrie.max_key_len, fp);
       gen::write_uint32(memtrie.max_val_len, fp);
-      gen::write_uint32(memtrie.max_tail_len, fp);
+      gen::write_uint16(memtrie.max_tail_len, fp);
+      gen::write_uint16(memtrie.max_level, fp);
       gen::write_uint32(cache_count, fp);
       gen::write_uint32(sec_cache_count, fp);
       gen::write_uint32(cache_loc, fp);
