@@ -605,8 +605,7 @@ class bv_lookup_tbl {
       size_t pos = _tzcnt_u64(isolated_bit) + 1;
       // size_t pos = find_nth_set_bit(bm_term, i) + 1;
       if (pos == 65) {
-        std::cout << "WARNING: UNEXPECTED pos=65, node_id: " << node_id << " nc: " << node_count <<
-          " tc: " << block_count << " ttc: " << target_count << std::endl;
+        printf("WARNING: UNEXPECTED pos=65, node_id: %u, nc: %u, tc: %u, ttc: %u\n", node_id, node_count, block_count, target_count);
         return;
       }
       node_id += pos;
