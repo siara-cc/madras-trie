@@ -661,31 +661,30 @@ class dict_iter_ctx {
     uint32_t *child_count;
     uint16_t *last_tail_len;
     bool to_skip_first_leaf;
-    dict_iter_ctx(uint16_t max_key_len, uint16_t max_level) {
-      key = new uint8_t[max_key_len];
-      node_path = new uint32_t[max_level];
-      child_count = new uint32_t[max_level];
-      last_tail_len = new uint16_t[max_level];
+    bool is_allocated = false;
+    dict_iter_ctx() {
+    }
+    ~dict_iter_ctx() {
+      if (is_allocated) {
+        delete key;
+        delete node_path;
+        delete child_count;
+        delete last_tail_len;
+      }
+    }
+    void init(uint16_t max_key_len, uint16_t max_level) {
+      if (!is_allocated) {
+        key = new uint8_t[max_key_len];
+        node_path = new uint32_t[max_level];
+        child_count = new uint32_t[max_level];
+        last_tail_len = new uint16_t[max_level];
+      }
       memset(node_path, '\0', max_level * sizeof(uint32_t));
       memset(child_count, '\0', max_level * sizeof(uint32_t));
       memset(last_tail_len, '\0', max_level * sizeof(uint16_t));
-      init();
-    }
-    ~dict_iter_ctx() {
-      delete key;
-      delete node_path;
-      delete child_count;
-      delete last_tail_len;
-    }
-    void init() {
       cur_idx = key_len = 0;
       to_skip_first_leaf = false;
-      node_path[0] = 0;
-      child_count[0] = 0;
-      last_tail_len[0] = 0;
-    }
-    void reset() {
-      init();
+      is_allocated = true;
     }
 };
 
@@ -1179,7 +1178,8 @@ class static_dict {
       int cmp;
       uint32_t lkup_node_id;
       lookup(prefix, prefix_len, lkup_node_id, &cmp);
-      dict_iter_ctx ctx(max_key_len, max_level);
+      dict_iter_ctx ctx;
+      ctx.init(max_key_len, max_level);
       uint8_t key_buf[max_key_len];
       int key_len;
       // TODO: set last_key_len
