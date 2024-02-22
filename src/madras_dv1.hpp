@@ -876,6 +876,8 @@ class static_dict {
     }
 
     int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id, uint32_t& child_count) {
+      // child_count = UINT_MAX;
+      // return -1;
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = cache_count - 1;
       cache *cche0 = (cache *) cache_loc;
@@ -950,6 +952,12 @@ class static_dict {
           if ((node_id % nodes_per_bv_block3) == 0) {
             bm_mask = bm_init_mask;
             t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+          }
+          if ((bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
+            bm_mask <<= 1;
+            node_id++;
+            t++;
+            continue;
           }
           uint8_t node_byte = trie_byte = *t++;
           if (bm_mask & bm_ptr) {
