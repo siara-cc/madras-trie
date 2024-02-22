@@ -40,6 +40,13 @@ struct cache {
   uint8_t node_byte;
 };
 
+struct min_pos_stats {
+  uint8_t min_b;
+  uint8_t max_b;
+  uint8_t min_len;
+  uint8_t max_len;
+};
+
 class byte_str {
   int max_len;
   int len;
@@ -725,7 +732,7 @@ class static_dict {
 
   public:
     uint32_t last_exit_loc;
-    uint32_t sec_cache_count;
+    min_pos_stats min_stats;
     uint8_t *sec_cache_loc;
     trie_ptrs_data_handler trie_ptrs_data;
     static_dict() {
@@ -763,7 +770,7 @@ class static_dict {
       max_tail_len = cmn::read_uint16(dict_buf + 28) + 1;
       max_level = cmn::read_uint16(dict_buf + 30);
       cache_count = cmn::read_uint32(dict_buf + 32);
-      sec_cache_count = cmn::read_uint32(dict_buf + 36);
+      memcpy(&min_stats, dict_buf + 36, 4);
       cache_loc = dict_buf + cmn::read_uint32(dict_buf + 40);
       sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 44);
 
@@ -876,8 +883,6 @@ class static_dict {
     }
 
     int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id, uint32_t& child_count) {
-      // child_count = UINT_MAX;
-      // return -1;
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = cache_count - 1;
       cache *cche0 = (cache *) cache_loc;
@@ -954,9 +959,20 @@ class static_dict {
             t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
           }
           if ((bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
-            bm_mask <<= 1;
-            node_id++;
-            t++;
+            uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte] + 1;
+            uint32_t old_node_id = node_id;
+            node_id += min_offset;
+            if ((old_node_id / nodes_per_bv_block3) == (node_id / nodes_per_bv_block3)) {
+              t += min_offset;
+              bm_mask <<= min_offset;
+            } else {
+              t = trie_ptrs_data.trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
+              if (node_id % nodes_per_bv_block3) {
+                t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+                t += (node_id % nodes_per_bv_block3);
+              }
+              bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
+            }
             continue;
           }
           uint8_t node_byte = trie_byte = *t++;
@@ -991,7 +1007,7 @@ class static_dict {
               //result = DCT_INSERT_CHILD_LEAF;
               return false;
             }
-            find_child(node_id, child_count);
+            find_child(node_id, child_lt.rank(node_id) + 1);
             child_count = UINT32_MAX;
             continue;
           }

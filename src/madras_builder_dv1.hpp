@@ -1562,7 +1562,7 @@ class builder {
       for (int i = 1; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
         ns_hdr->node_id = node_id;
-        if (ns_hdr->last_node_idx > 4) {
+        if (ns_hdr->last_node_idx > 5) {
           node_id++;
           memtrie.node_count++;
           ns_hdr->flags |= NODE_SET_LEAP;
@@ -1673,7 +1673,10 @@ class builder {
         (int) stats.min_b, (int) stats.max_b, (int) stats.min_len, (int) stats.max_len, sec_cache_size);
       for (int i = stats.min_len; i <= stats.max_len; i++) {
         for (int j = 0; j <= 255; j++) {
-          fputc(min_pos[i][j], fp);
+          uint8_t min_len = min_pos[i][j];
+          if (min_len == 0xFF)
+            min_len = 0;
+          fputc(min_len, fp);
         }
       }
     }
@@ -1733,7 +1736,7 @@ class builder {
       gen::write_uint16(memtrie.max_tail_len, fp);
       gen::write_uint16(memtrie.max_level, fp);
       gen::write_uint32(cache_count, fp);
-      gen::write_uint32(sec_cache_count, fp);
+      fwrite(&min_stats, 4, 1, fp);
       gen::write_uint32(cache_loc, fp);
       gen::write_uint32(sec_cache_loc, fp);
 
