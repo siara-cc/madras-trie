@@ -1562,7 +1562,7 @@ class builder {
       for (int i = 1; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
         ns_hdr->node_id = node_id;
-        if (ns_hdr->last_node_idx > 5) {
+        if (ns_hdr->last_node_idx > 4) {
           node_id++;
           memtrie.node_count++;
           ns_hdr->flags |= NODE_SET_LEAP;
@@ -1669,13 +1669,12 @@ class builder {
     }
 
     void write_sec_cache(bldr_min_pos_stats& stats, uint32_t sec_cache_size, FILE *fp) {
-      printf("Min stats - mb: %d, xb: %d, ml: %d, xl: %d, sz: %u\n",
-        (int) stats.min_b, (int) stats.max_b, (int) stats.min_len, (int) stats.max_len, sec_cache_size);
       for (int i = stats.min_len; i <= stats.max_len; i++) {
         for (int j = 0; j <= 255; j++) {
           uint8_t min_len = min_pos[i][j];
           if (min_len == 0xFF)
             min_len = 0;
+          min_len++;
           fputc(min_len, fp);
         }
       }
@@ -1698,8 +1697,8 @@ class builder {
       uint32_t cache_count = build_cache();
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
-      uint32_t sec_cache_size = (min_stats.max_len - min_stats.min_len) * 256;
       uint32_t sec_cache_count = decide_min_stat_to_use(min_stats);
+      uint32_t sec_cache_size = (min_stats.max_len - min_stats.min_len + 1) * 256;
 
       uint32_t term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, 7);
       uint32_t child_bvlt_sz = term_bvlt_sz;
