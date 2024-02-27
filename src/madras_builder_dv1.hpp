@@ -776,7 +776,7 @@ class tail_val_maps {
       uint8_t node_idx;
     };
 
-    uint8_t *get_tail(leopard::byte_block& all_tails, leopard::node n, uint32_t& len) {
+    uint8_t *get_tail(leopard::byte_blocks& all_tails, leopard::node n, uint32_t& len) {
       uint8_t *v = all_tails[n.get_tail()];
       int8_t vlen;
       len = gen::read_vint32(v, &vlen);
@@ -1214,7 +1214,7 @@ class tail_val_maps {
       return ret + 15;
     }
 
-    uint8_t get_first_byte(leopard::byte_block& all_tails, leopard::node *n) {
+    uint8_t get_first_byte(leopard::byte_blocks& all_tails, leopard::node *n) {
       if (uniq_tails_rev.size() == 0) {
         uint32_t tail_len;
         uint8_t *tail = get_tail(all_tails, *n, tail_len);
@@ -1229,7 +1229,7 @@ class tail_val_maps {
       return *(tail.data() + ptr);
     }
 
-    std::string get_tail_str(leopard::byte_block& all_tails, leopard::node *n) {
+    std::string get_tail_str(leopard::byte_blocks& all_tails, leopard::node *n) {
       if (uniq_tails_rev.size() == 0) {
         uint32_t tail_len;
         uint8_t *v = get_tail(all_tails, *n, tail_len);
