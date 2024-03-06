@@ -1359,8 +1359,21 @@ class builder {
     byte_vec trie;
     uint32_t end_loc;
     tail_val_maps tail_vals;
+    uint32_t val_count;
+    char *col_names;
+    uint16_t *col_names_positions;
+    uint16_t col_names_len;
+    uint32_t *val_table;
+    uint32_t col_val_table_loc;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
-    builder(const char *out_file = NULL) : tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
+    builder(const char *out_file = NULL, const char *_col_names = "key,value", const int _value_count = 1,
+        const char *_value_compaction = "d", const char *_value_types = "t")
+        : memtrie(_value_count, _value_compaction, _value_types),
+          tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
+                      memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
+      val_count = _value_count;
+      val_table = new uint32_t[_value_count];
+      set_col_names(_col_names);
       common_node_count = 0;
       //art_tree_init(&at);
       if (out_file != NULL)
@@ -1369,6 +1382,28 @@ class builder {
     }
 
     ~builder() {
+      delete col_names;
+      delete val_table;
+      delete col_names_positions;
+    }
+
+    void set_col_names(const char *_col_names) {
+      col_names_len = strlen(_col_names) + 1;
+      col_names = new char[col_names_len];
+      col_names_positions = new uint16_t[val_count];
+      int col_idx = 0;
+      char name_str_pos = 0;
+      col_names_positions[0] = 0;
+      while (name_str_pos < col_names_len) {
+        if (col_names[name_str_pos] == ',') {
+          col_names[name_str_pos] = '\0';
+          col_idx++;
+          col_names_positions[col_idx] = name_str_pos + 1;
+        }
+        name_str_pos++;
+      }
+      name_str_pos--;
+      col_names[name_str_pos] = '\0';
     }
 
     void set_print_enabled(bool to_print_messages = true) {
@@ -1403,6 +1438,24 @@ class builder {
       return node_val;
     }
 
+    void build_col_val() {
+      if (memtrie.all_vals.size() > 0) {
+        leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
+        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len);
+        tail_vals.build_val_maps(tot_freq_count);
+        for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+          leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
+          leopard::node cur_node = cur_ns.first_node();
+          for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+            append_val_ptr(&cur_node);
+            cur_node.next();
+          }
+        }
+        freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
+        val_ptrs->build(memtrie.node_count);
+      }
+    }
+
     void append_val_ptr(leopard::node *cur_node) {
       if ((cur_node->get_flags() & NFLAG_LEAF) == 0)
         return;
@@ -1420,11 +1473,6 @@ class builder {
       leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails);
       uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len);
       tail_vals.build_tail_maps(tot_freq_count);
-      if (memtrie.all_vals.size() > 0) {
-        leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
-        tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len);
-        tail_vals.build_val_maps(tot_freq_count);
-      }
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);
@@ -1479,8 +1527,6 @@ class builder {
           k--;
           continue;
         }
-        if (get_uniq_val_count() > 0)
-          append_val_ptr(&cur_node);
         if (cur_node.get_flags() & NFLAG_TAIL) {
           leopard::uniq_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
           leopard::uniq_info *ti = (*uniq_tails_rev)[cur_node.get_tail()];
@@ -1510,23 +1556,20 @@ class builder {
       bldr_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
       tail_vals.get_tail_grp_ptrs()->build(node_count);
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
-      end_loc = 0;
-      if (get_uniq_val_count() > 0) {
-        freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
-        val_ptrs->build(node_count);
-        //fragment_end_loc += val_ptrs->get_total_size();
-      }
-      end_loc += (8 + tail_size + trie.size());
+      end_loc = (4 + tail_size + trie.size());
       return end_loc;
     }
-    uint32_t write_trie_ptrs_data(FILE *fp, FILE *fp_val, uint32_t val_fp_offset) {
+    uint32_t write_trie_tail_ptrs_data(FILE *fp) {
       bldr_printf("\nTrie size: %u\n", trie.size());
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       gen::write_uint32(tail_size, fp);
-      gen::write_uint32(get_uniq_val_count() > 0 ? val_fp_offset + 1 : 0, fp);
       bldr_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
+      return 0;
+    }
+    uint32_t write_val_ptrs_data(FILE *fp_val) {
+      uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0) {
         bldr_printf("Val stats - ");
         tail_vals.write_val_ptrs_data(memtrie.all_node_sets, fp_val);
@@ -1548,7 +1591,7 @@ class builder {
       return memtrie.get(key, key_len, in_size_out_value_len, val);
     }
 
-    bool put(const uint8_t *key, int key_len, const uint8_t *value, int value_len) {
+    bool put(const uint8_t *key, int key_len, const void *value, int value_len) {
       return memtrie.insert(key, key_len, value, value_len);
     }
 
@@ -1556,7 +1599,7 @@ class builder {
       return memtrie.insert(key, key_len, NULL, 0);
     }
 
-    bool insert(const uint8_t *key, int key_len, const uint8_t *val, int val_len) {
+    bool insert(const uint8_t *key, int key_len, const void *val, int val_len) {
       return memtrie.insert(key, key_len, val, val_len);
     }
 
@@ -1697,6 +1740,11 @@ class builder {
       memtrie.sort_node_sets();
       bldr_min_pos_stats min_stats = make_min_positions();
 
+      if (memtrie.all_vals.size() == 0) {
+        val_count = 0;
+        memtrie.value_count = 0;
+      }
+
       uint32_t cache_count = build_cache();
       uint32_t cache_size = cache_count * sizeof(bldr_cache);
 
@@ -1710,24 +1758,40 @@ class builder {
       uint32_t child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
       uint32_t leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
 
-      uint32_t dummy_loc = 4 + 18 * 4; // 76
+      uint32_t dummy_loc = 4 + 10 + 18 * 4; // 86
       uint32_t common_node_loc = dummy_loc + 0;
       uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
       uint32_t sec_cache_loc = cache_loc + cache_size;
       uint32_t term_select_lkup_loc = sec_cache_loc + sec_cache_size;
       uint32_t term_bv_loc = term_select_lkup_loc + term_select_lt_sz;
       uint32_t child_bv_loc = term_bv_loc + term_bvlt_sz;
-      uint32_t trie_ptrs_data_loc = child_bv_loc + child_bvlt_sz;
-      uint32_t trie_ptrs_data_sz = build_trie();
-      uint32_t leaf_select_lkup_loc = trie_ptrs_data_loc + trie_ptrs_data_sz;
+      uint32_t trie_tail_ptrs_data_loc = child_bv_loc + child_bvlt_sz;
+      uint32_t trie_tail_ptrs_data_sz = build_trie();
+      uint32_t leaf_select_lkup_loc = trie_tail_ptrs_data_loc + trie_tail_ptrs_data_sz;
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
       uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
+      uint32_t col_val_names_loc = child_select_lkup_loc + child_select_lt_sz;
+      col_val_table_loc = col_val_names_loc + val_count * sizeof(uint16_t) + col_names_len;
+      uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
-      FILE *fp = fopen(out_filename.c_str(), "wb+");
+      FILE *fp = fopen(out_filename.c_str(), "rb+");
+      if (fp == NULL) {
+        fp = fopen(out_filename.c_str(), "wb");
+        if (fp == NULL)
+          throw errno;
+        fclose(fp);
+        fp = fopen(out_filename.c_str(), "rb+");
+        if (fp == NULL)
+          throw errno;
+      }
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       fputc(0, fp); // reserved
       fputc(0, fp);
+
+      gen::write_uint16(memtrie.value_count, fp);
+      gen::write_uint32(col_val_names_loc, fp);
+      gen::write_uint32(col_val_table_loc, fp);
 
       gen::write_uint32(memtrie.node_count, fp);
       gen::write_uint32(dummy_loc, fp);
@@ -1748,7 +1812,7 @@ class builder {
       gen::write_uint32(child_bv_loc, fp);
       gen::write_uint32(leaf_select_lkup_loc, fp);
       gen::write_uint32(leaf_bv_loc, fp);
-      gen::write_uint32(trie_ptrs_data_loc, fp);
+      gen::write_uint32(trie_tail_ptrs_data_loc, fp);
 
       write_pri_cache(node_cache_vec, fp);
       write_sec_cache(min_stats, sec_cache_size, fp);
@@ -1756,23 +1820,28 @@ class builder {
       write_bv_rank_lt(BV_TERM, fp);
       write_bv_rank_lt(BV_CHILD, fp);
 
-      FILE *fp_val = fopen((out_filename + ".val").c_str(), "wb+");
-
       uint32_t total_idx_size = 4 + 18 * 4 + cache_size + sec_cache_size +
                 term_select_lt_sz + term_bvlt_sz + child_bvlt_sz +
                 leaf_select_lt_sz + child_select_lt_sz + leaf_bvlt_sz;
-      uint32_t val_fp_offset = 0;
-      val_fp_offset = write_trie_ptrs_data(fp, fp_val, val_fp_offset);
+      write_trie_tail_ptrs_data(fp);
+
       total_idx_size += trie_data_ptr_size();
       write_bv_select_lt(BV_LEAF, fp);
       write_bv_rank_lt(BV_LEAF, fp);
       write_bv_select_lt(BV_CHILD, fp);
 
-      uint32_t total_val_size = val_fp_offset;
-      uint32_t total_size = total_idx_size + total_val_size;
+      uint32_t val_size = 0;
+      if (memtrie.all_vals.size() > 0) {
+        val_table[0] = col_val_loc0;
+        write_col_val_names(fp);
+        write_col_val_table(fp);
+        build_col_val();
+        val_size = write_val_ptrs_data(fp);
+      }
+      
+      uint32_t total_size = total_idx_size + val_size;
 
       fclose(fp);
-      fclose(fp_val);
 
       bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
         "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
@@ -1785,10 +1854,21 @@ class builder {
       // fclose(fp);
 
       gen::print_time_taken(t, "Time taken for build(): ");
-      bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", total_idx_size, total_val_size, total_size);
+      bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", total_idx_size, val_size, total_size);
 
       return out_filename;
 
+    }
+
+    void write_col_val_names(FILE *fp) {
+      for (int i = 0; i < val_count; i++)
+        gen::write_uint16(col_names_positions[i], fp);
+      fwrite(col_names, col_names_len, 1, fp);
+    }
+
+    void write_col_val_table(FILE *fp) {
+      for (int i = 0; i < val_count; i++)
+        gen::write_uint32(val_table[i], fp);
     }
 
     // struct nodes_ptr_grp {

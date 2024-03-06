@@ -6,3 +6,5 @@ a.out*
 *.txt
 *.rst
 *.val
+test*
+/export_sqlite*

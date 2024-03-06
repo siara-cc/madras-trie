@@ -63,8 +63,8 @@ int main(int argc, char *argv[]) {
     if (prev_line_len != line_len || strncmp((const char *) line, (const char *) prev_line, prev_line_len) != 0) {
       // sb.append(line, line_len, line, line_len > 6 ? 7 : line_len);
       // sb.append(line, line_len);
-      sb.insert(line, line_len, line, line_len > 6 ? 7 : line_len);
-      // sb.insert(line, line_len);
+      // sb.insert(line, line_len, line, line_len > 6 ? 7 : line_len);
+      sb.insert(line, line_len);
       lines.push_back(line);
       prev_line = line;
       prev_line_len = line_len;
@@ -134,33 +134,33 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
-    if (key_len != line_len)
-      printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
-    else {
-      if (memcmp(line, key_buf, key_len) != 0)
-        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line_len, line, key_len, key_buf);
-      if (memcmp(line, val_buf, val_len) != 0)
-        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line_len > 6 ? 7 : line_len), line, val_len, val_buf);
-    }
+    // key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    // if (key_len != line_len)
+    //   printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
+    // else {
+    //   if (memcmp(line, key_buf, key_len) != 0)
+    //     printf("Key mismatch: [%.*s], [%.*s]\n", (int) line_len, line, key_len, key_buf);
+    //   if (memcmp(line, val_buf, val_len) != 0)
+    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line_len > 6 ? 7 : line_len), line, val_len, val_buf);
+    // }
 
     uint32_t node_id;
     bool is_found = dict_reader.lookup(line, line_len, node_id);
     if (!is_found)
       std::cout << line << std::endl;
-    uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
-    bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
-    key_buf[key_len] = 0;
-    if (strncmp((const char *) line, (const char *) key_buf, line_len) != 0)
-      printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line, key_len, key_buf);
+    // uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
+    // bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
+    // key_buf[key_len] = 0;
+    // if (strncmp((const char *) line, (const char *) key_buf, line_len) != 0)
+    //   printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line, key_len, key_buf);
 
-    success = dict_reader.get(line, line_len, &val_len, val_buf);
-    if (success) {
-      val_buf[val_len] = 0;
-      if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
-    } else
-      std::cout << line << std::endl;
+    // success = dict_reader.get(line, line_len, &val_len, val_buf);
+    // if (success) {
+    //   val_buf[val_len] = 0;
+    //   if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
+    //     printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
+    // } else
+    //   std::cout << line << std::endl;
 
     // success = sb.get(line, line_len, &val_len, val_buf);
     // if (success) {

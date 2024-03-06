@@ -683,6 +683,7 @@ class static_dict {
     bool is_mmapped;
 
     uint32_t node_count;
+    uint32_t val_count;
     uint32_t common_node_count;
     uint32_t key_count;
     uint32_t max_key_len;
@@ -700,6 +701,9 @@ class static_dict {
     uint8_t *child_select_lkup_loc;
     uint8_t *leaf_select_lkup_loc;
     uint8_t *trie_loc;
+    uint8_t *col_names_pos;
+    uint8_t *col_names_loc;
+    uint8_t *val_table_loc;
 
     bv_lookup_tbl term_lt;
     bv_lookup_tbl child_lt;
@@ -728,10 +732,6 @@ class static_dict {
         madvise(dict_buf, dict_size, MADV_NORMAL);
         free(dict_buf);
       }
-      if (val_buf != NULL) {
-        madvise(val_buf, val_size, MADV_NORMAL);
-        free(val_buf);
-      }
     }
 
     void set_print_enabled(bool to_print_messages = true) {
@@ -740,38 +740,44 @@ class static_dict {
 
     void load_into_vars() {
 
-      node_count = cmn::read_uint32(dict_buf + 4);
+      val_count = cmn::read_uint16(dict_buf + 4);
+      col_names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
+      col_names_loc = col_names_pos + val_count * sizeof(uint16_t);
+      val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
+      node_count = cmn::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
-      common_node_count = cmn::read_uint32(dict_buf + 12);
-      key_count = cmn::read_uint32(dict_buf + 16);
-      max_key_len = cmn::read_uint32(dict_buf + 20);
-      max_val_len = cmn::read_uint32(dict_buf + 24);
-      max_tail_len = cmn::read_uint16(dict_buf + 28) + 1;
-      max_level = cmn::read_uint16(dict_buf + 30);
-      cache_count = cmn::read_uint32(dict_buf + 32);
-      memcpy(&min_stats, dict_buf + 36, 4);
-      cache_loc = dict_buf + cmn::read_uint32(dict_buf + 40);
-      sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 44);
+      common_node_count = cmn::read_uint32(dict_buf + 22);
+      key_count = cmn::read_uint32(dict_buf + 26);
+      max_key_len = cmn::read_uint32(dict_buf + 30);
+      max_val_len = cmn::read_uint32(dict_buf + 34);
+      max_tail_len = cmn::read_uint16(dict_buf + 38) + 1;
+      max_level = cmn::read_uint16(dict_buf + 40);
+      cache_count = cmn::read_uint32(dict_buf + 42);
+      memcpy(&min_stats, dict_buf + 46, 4);
+      cache_loc = dict_buf + cmn::read_uint32(dict_buf + 50);
+      sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 54);
 
-      term_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 48);
-      term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 52);
-      child_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 56);
-      child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 60);
-      leaf_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 64);
-      leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 68);
+      term_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 58);
+      term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 62);
+      child_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 66);
+      child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 70);
+      leaf_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 74);
+      leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 78);
 
-      uint8_t *trie_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 72);
-      uint32_t tail_size = cmn::read_uint32(trie_ptrs_data_loc);
-      uint8_t *tails_loc = trie_ptrs_data_loc + 8;
+      uint8_t *trie_tail_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 82);
+      uint32_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
+      uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
       trie_loc = tails_loc + tail_size;
-      uint32_t val_fp_offset = cmn::read_uint32(trie_ptrs_data_loc + 4);
       tail_map.init(dict_buf, trie_loc, tails_loc, node_count);
-      if (val_fp_offset > 0) // todo: fix
-        val_map.init(val_buf, trie_loc, val_buf + val_fp_offset - 1, node_count);
 
       term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, trie_loc, 8);
       child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, trie_loc, 16);
       leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, trie_loc, 0);
+
+      if (val_count > 0) {
+        val_buf = dict_buf + cmn::read_uint32(val_table_loc);
+        val_map.init(val_buf, trie_loc, val_buf, node_count);
+      }
 
     }
 
@@ -799,10 +805,6 @@ class static_dict {
       int len_will_need = (dict_size >> 2);
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       mlock(dict_buf, len_will_need);
-      char val_file[strlen(filename) + 5];
-      strcpy(val_file, filename);
-      strcat(val_file, ".val");
-      val_buf = map_file(val_file, val_size);
       load_into_vars();
       is_mmapped = true;
     }
@@ -815,14 +817,6 @@ class static_dict {
         return;
       }
       dict_buf = NULL;
-      if (val_buf != NULL) {
-        err = munmap(val_buf, val_size);
-        if(err != 0){
-          printf("UnMapping val_buf Failed\n");
-          return;
-        }
-        val_buf = NULL;
-      }
       is_mmapped = false;
     }
 
@@ -842,20 +836,6 @@ class static_dict {
       mlock(dict_buf, len_will_need);
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
-
-      char val_file[strlen(filename) + 5];
-      strcpy(val_file, filename);
-      strcat(val_file, ".val");
-      memset(&file_stat, '\0', sizeof(file_stat));
-      stat(val_file, &file_stat);
-      uint32_t val_size = file_stat.st_size;
-      if (val_size > 0) { // todo: need flag to indicate val file present or not
-        val_buf = (uint8_t *) malloc(val_size);
-        fp = fopen(val_file, "rb");
-        fread(val_buf, val_size, 1, fp);
-	      //madvise(val_buf, val_size, MADV_RANDOM);
-        fclose(fp);
-      }
 
       load_into_vars();
 
