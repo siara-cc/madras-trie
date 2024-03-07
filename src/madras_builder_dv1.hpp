@@ -362,6 +362,13 @@ class freq_grp_ptrs_data {
     uint32_t tot_ptr_bit_count;
   public:
     freq_grp_ptrs_data() {
+      reset();
+    }
+    void reset() {
+      freq_grp_vec.resize(0);
+      grp_data.resize(0);
+      ptrs.resize(0);
+      idx2_ptrs_map.resize(0);
       next_idx = 0;
       idx_limit = 0;
       idx_ptr_size = 3;
@@ -868,8 +875,8 @@ class tail_val_maps {
         return (lhs->grp_no == rhs->grp_no) ? (lhs->arr_idx > rhs->arr_idx) : (lhs->grp_no < rhs->grp_no);
       });
       std::sort(uniq_freq_vec.begin() + cumu_freq_idx, uniq_freq_vec.end(), [this](const struct leopard::uniq_info *lhs, const struct leopard::uniq_info *rhs) -> bool {
-        uint32_t lhs_freq = lhs->freq_count / lhs->len;
-        uint32_t rhs_freq = rhs->freq_count / rhs->len;
+        uint32_t lhs_freq = lhs->freq_count / (lhs->len == 0 ? 1 : lhs->len);
+        uint32_t rhs_freq = rhs->freq_count / (rhs->len == 0 ? 1 : rhs->len);
         lhs_freq = ceil(log10(lhs_freq));
         rhs_freq = ceil(log10(rhs_freq));
         return (lhs_freq == rhs_freq) ? (lhs->arr_idx > rhs->arr_idx) : (lhs_freq > rhs_freq);
@@ -1126,6 +1133,7 @@ class tail_val_maps {
       uint8_t grp_no;
       leopard::uniq_info_vec uniq_vals_freq;
       uint32_t cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
+      val_ptrs.reset();
       val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
       uint32_t freq_pos = 0;
       uint32_t cur_limit = pow(2, start_bits);
@@ -1365,6 +1373,7 @@ class builder {
     uint16_t col_names_len;
     uint32_t *val_table;
     uint32_t col_val_table_loc;
+    FILE *fp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_col_names = "key,value", const int _value_count = 1,
         const char *_value_compaction = "d", const char *_value_types = "t")
@@ -1379,12 +1388,20 @@ class builder {
       if (out_file != NULL)
         set_out_file(out_file);
       memtrie.set_print_enabled(is_bldr_print_enabled);
+      fp = NULL;
     }
 
     ~builder() {
       delete col_names;
       delete val_table;
       delete col_names_positions;
+      close_file();
+    }
+
+    void close_file() {
+      if (fp != NULL)
+        fclose(fp);
+      fp = NULL;
     }
 
     void set_col_names(const char *_col_names) {
@@ -1440,6 +1457,24 @@ class builder {
 
     void build_col_val() {
       if (memtrie.all_vals.size() > 0) {
+  // if (memtrie.cur_val_idx > 0) {
+  //   for (int i = 0; i < memtrie.val_seq.size(); i++) {
+  //     leopard::node_set_handler cur_ns(memtrie.all_node_sets, memtrie.val_seq[i].node_set_id);
+  //     leopard::node n = cur_ns.first_node();
+  //     for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+  //       if (n.get_flags() & NFLAG_LEAF) {
+  //         uint32_t val_pos = n.get_col_val();
+  //         uint8_t *val = memtrie.all_vals[val_pos];
+  //         int8_t vlen;
+  //         int val_len = gen::read_vint32(val, &vlen);
+  //         val += vlen;
+  //         printf("%u, %d\n", val_pos, val_len);
+  //         //printf("[%.*s]\n", val_len, val);
+  //       }
+  //       n.next();
+  //     }
+  //   }
+  // }
         leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
         uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len);
         tail_vals.build_val_maps(tot_freq_count);
@@ -1451,6 +1486,7 @@ class builder {
             cur_node.next();
           }
         }
+        tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8); // read beyond protection
         freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
         val_ptrs->build(memtrie.node_count);
       }
@@ -1545,8 +1581,6 @@ class builder {
         cur_node.next();
        }
       }
-      if (get_uniq_val_count() > 0) // read beyond protection
-        tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8);
       // TODO: write on all cases?
       append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
       append_byte_vec(trie, byte_vec64);
@@ -1774,7 +1808,7 @@ class builder {
       col_val_table_loc = col_val_names_loc + val_count * sizeof(uint16_t) + col_names_len;
       uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
-      FILE *fp = fopen(out_filename.c_str(), "rb+");
+      fp = fopen(out_filename.c_str(), "rb+");
       if (fp == NULL) {
         fp = fopen(out_filename.c_str(), "wb");
         if (fp == NULL)
@@ -1784,6 +1818,7 @@ class builder {
         if (fp == NULL)
           throw errno;
       }
+
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       fputc(0, fp); // reserved
@@ -1836,12 +1871,10 @@ class builder {
         write_col_val_names(fp);
         write_col_val_table(fp);
         build_col_val();
-        val_size = write_val_ptrs_data(fp);
+        memtrie.prev_val_size = val_size = write_val_ptrs_data(fp);
       }
       
       uint32_t total_size = total_idx_size + val_size;
-
-      fclose(fp);
 
       bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
         "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
@@ -1869,6 +1902,19 @@ class builder {
     void write_col_val_table(FILE *fp) {
       for (int i = 0; i < val_count; i++)
         gen::write_uint32(val_table[i], fp);
+    }
+
+    void write_col_val() {
+      uint32_t val_size = write_val_ptrs_data(fp);
+      uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
+      val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
+      memtrie.prev_val_size = val_size;
+    }
+
+    void write_final_val_table() {
+      fseek(fp, col_val_table_loc, SEEK_SET);
+      fwrite(val_table, val_count * sizeof(uint32_t), 1, fp);
+      close_file();
     }
 
     // struct nodes_ptr_grp {

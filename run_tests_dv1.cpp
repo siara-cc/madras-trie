@@ -21,7 +21,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1]);
+  madras_dv1::builder sb(argv[1], "Key,Value,Len,chksum", 3, "dd", "t**");
   sb.set_print_enabled(true);
   vector<uint8_t *> lines;
 
@@ -58,13 +58,13 @@ int main(int argc, char *argv[]) {
       cr_pos--;
   }
   *cr_pos = 0;
-  size_t line_len = cr_pos - line;
+  int line_len = cr_pos - line;
   do {
     if (prev_line_len != line_len || strncmp((const char *) line, (const char *) prev_line, prev_line_len) != 0) {
       // sb.append(line, line_len, line, line_len > 6 ? 7 : line_len);
       // sb.append(line, line_len);
-      // sb.insert(line, line_len, line, line_len > 6 ? 7 : line_len);
-      sb.insert(line, line_len);
+      sb.insert(line, line_len, line, line_len > 6 ? 7 : line_len);
+      // sb.insert(line, line_len);
       lines.push_back(line);
       prev_line = line;
       prev_line_len = line_len;
@@ -84,11 +84,41 @@ int main(int argc, char *argv[]) {
     }
   } while (cr_pos != NULL);
   std::cout << std::endl;
-  t = print_time_taken(t, "Time taken for insert/append: ");
 
   std::string out_file = sb.build(std::string(argv[1]) + ".rst");
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
+
+  sb.memtrie.reset_for_next_col();
+  for (int i = 0; i < line_count; i++) {
+    line = lines[i];
+    line_len = strlen((const char *) line);
+    char val[30];
+    sprintf(val, "%d", line_len);
+    // printf("[%.*s]]\n", (int) strlen(val), val);
+    sb.memtrie.insert_col_val(val, strlen(val));
+  }
+  sb.build_col_val();
+  sb.write_col_val();
+
+  sb.memtrie.reset_for_next_col();
+  for (int i = 0; i < line_count; i++) {
+    line = lines[i];
+    int checksum = 0;
+    for (int i = 0; i < strlen((const char *) line); i++) {
+      checksum += line[i];
+    }
+    char val[30];
+    sprintf(val, "%d", checksum);
+    // printf("[%.*s]]\n", (int) strlen(val), val);
+    sb.memtrie.insert_col_val(val, strlen(val));
+  }
+  sb.build_col_val();
+  sb.write_col_val();
+
+  sb.write_final_val_table();
+
+  t = print_time_taken(t, "Time taken for insert/append: ");
 
   madras_dv1::static_dict dict_reader; //, &sb);
   dict_reader.set_print_enabled(true);
@@ -134,33 +164,51 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    // key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
-    // if (key_len != line_len)
-    //   printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
-    // else {
-    //   if (memcmp(line, key_buf, key_len) != 0)
-    //     printf("Key mismatch: [%.*s], [%.*s]\n", (int) line_len, line, key_len, key_buf);
-    //   if (memcmp(line, val_buf, val_len) != 0)
-    //     printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line_len > 6 ? 7 : line_len), line, val_len, val_buf);
-    // }
+    key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
+    if (key_len != line_len)
+      printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
+    else {
+      if (memcmp(line, key_buf, key_len) != 0)
+        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line_len, line, key_len, key_buf);
+      if (memcmp(line, val_buf, val_len) != 0)
+        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line_len > 6 ? 7 : line_len), line, val_len, val_buf);
+    }
 
     uint32_t node_id;
     bool is_found = dict_reader.lookup(line, line_len, node_id);
     if (!is_found)
       std::cout << line << std::endl;
-    // uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
-    // bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
-    // key_buf[key_len] = 0;
-    // if (strncmp((const char *) line, (const char *) key_buf, line_len) != 0)
-    //   printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line, key_len, key_buf);
+    uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
+    bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
+    key_buf[key_len] = 0;
+    if (strncmp((const char *) line, (const char *) key_buf, line_len) != 0)
+      printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line, key_len, key_buf);
 
-    // success = dict_reader.get(line, line_len, &val_len, val_buf);
-    // if (success) {
-    //   val_buf[val_len] = 0;
-    //   if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
-    //     printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
-    // } else
-    //   std::cout << line << std::endl;
+    success = dict_reader.get(line, line_len, &val_len, val_buf, node_id);
+    if (success) {
+      val_buf[val_len] = 0;
+      if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
+    } else
+      std::cout << line << std::endl;
+
+    dict_reader.get_col_val(node_id, 1, &val_len, val_buf);
+    val_buf[val_len] = 0;
+    if (atoi((const char *) val_buf) != line_len) {
+      std::cout << "Second val mismatch - expected: " << line_len << ", found: "
+           << (const char *) val_buf << ": " << line << std::endl;
+    }
+
+    dict_reader.get_col_val(node_id, 2, &val_len, val_buf);
+    val_buf[val_len] = 0;
+    int checksum = 0;
+    for (int i = 0; i < strlen((const char *) line); i++) {
+      checksum += line[i];
+    }
+    if (atoi((const char *) val_buf) != checksum) {
+      std::cout << "Second val mismatch - expected: " << line_len << ", found: "
+           << (const char *) val_buf << ": " << line << std::endl;
+    }
 
     // success = sb.get(line, line_len, &val_len, val_buf);
     // if (success) {

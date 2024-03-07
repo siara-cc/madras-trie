@@ -347,6 +347,7 @@ class grp_ptr_data_map {
     ~grp_ptr_data_map() {
       if (grp_data != NULL)
         delete grp_data;
+      grp_data = NULL;
     }
 
     bool exists() {
@@ -717,10 +718,11 @@ class static_dict {
     min_pos_stats min_stats;
     uint8_t *sec_cache_loc;
     grp_ptr_data_map tail_map;
-    grp_ptr_data_map val_map;
+    grp_ptr_data_map *val_map;
     static_dict() {
       dict_buf = NULL;
       val_buf = NULL;
+      val_map = NULL;
       is_mmapped = false;
       last_exit_loc = 0;
     }
@@ -731,6 +733,9 @@ class static_dict {
       if (dict_buf != NULL) {
         madvise(dict_buf, dict_size, MADV_NORMAL);
         free(dict_buf);
+      }
+      if (val_map != NULL) {
+        delete [] val_map;
       }
     }
 
@@ -757,11 +762,11 @@ class static_dict {
       cache_loc = dict_buf + cmn::read_uint32(dict_buf + 50);
       sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 54);
 
-      term_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 58);
+      term_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 58);
       term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 62);
-      child_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 66);
+      child_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 66);
       child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 70);
-      leaf_select_lkup_loc =  dict_buf + cmn::read_uint32(dict_buf + 74);
+      leaf_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 74);
       leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 78);
 
       uint8_t *trie_tail_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 82);
@@ -775,8 +780,11 @@ class static_dict {
       leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, trie_loc, 0);
 
       if (val_count > 0) {
-        val_buf = dict_buf + cmn::read_uint32(val_table_loc);
-        val_map.init(val_buf, trie_loc, val_buf, node_count);
+        val_map = new grp_ptr_data_map[val_count];
+        for (int i = 0; i < val_count; i++) {
+          val_buf = dict_buf + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
+          val_map[i].init(val_buf, trie_loc, val_buf, node_count);
+        }
       }
 
     }
@@ -973,12 +981,21 @@ class static_dict {
       return false;
     }
 
+    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, uint8_t *val) {
+      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val);
+      return true;
+    }
+
     bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val) {
-      int key_pos, cmp;
       uint32_t node_id;
+      return get(key, key_len, in_size_out_value_len, val, node_id);
+    }
+
+    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val, uint32_t& node_id) {
+      int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
       if (node_id >= 0 && val != NULL) {
-        val_map.get_val(node_id, in_size_out_value_len, val);
+        val_map[0].get_val(node_id, in_size_out_value_len, val);
         return true;
       }
       return false;
@@ -1063,7 +1080,7 @@ class static_dict {
             tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
             memcpy(key_buf, ctx.key, ctx.key_len);
-            val_map.get_val(cv.node_id, val_buf_len, val_buf);
+            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
           }
@@ -1118,8 +1135,8 @@ class static_dict {
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       cv.node_id = node_id;
-      if (ret_val != NULL && val_map.exists())
-        val_map.get_val(cv.node_id, in_size_out_value_len, ret_val);
+      if (ret_val != NULL && val_map[0].exists())
+        val_map[0].get_val(cv.node_id, in_size_out_value_len, ret_val);
       cv.node_id++;
       do {
         cv.node_id--;
