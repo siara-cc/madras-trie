@@ -1363,7 +1363,7 @@ class builder {
 
   public:
     leopard::trie memtrie;
-    std::string out_filename;
+    char *out_filename;
     byte_vec trie;
     uint32_t end_loc;
     tail_val_maps tail_vals;
@@ -1385,16 +1385,19 @@ class builder {
       set_col_names(_col_names);
       common_node_count = 0;
       //art_tree_init(&at);
-      if (out_file != NULL)
-        set_out_file(out_file);
       memtrie.set_print_enabled(is_bldr_print_enabled);
       fp = NULL;
+      out_filename = NULL;
+      if (out_file != NULL)
+        set_out_file(out_file);
     }
 
     ~builder() {
       delete col_names;
       delete val_table;
       delete col_names_positions;
+      if (out_filename != NULL)
+        delete out_filename;
       close_file();
     }
 
@@ -1429,7 +1432,13 @@ class builder {
     }
 
     void set_out_file(const char *out_file) {
-      out_filename = out_file;
+      if (out_file == NULL)
+        return;
+      int len = strlen(out_file);
+      if (out_filename != NULL)
+        delete out_filename;
+      out_filename = new char[len + 1];
+      strcpy(out_filename, out_file);
     }
 
     size_t size() {
@@ -1455,28 +1464,11 @@ class builder {
       return node_val;
     }
 
-    void build_col_val() {
+    void build_and_write_col_val() {
       if (memtrie.all_vals.size() > 0) {
-  // if (memtrie.cur_val_idx > 0) {
-  //   for (int i = 0; i < memtrie.val_seq.size(); i++) {
-  //     leopard::node_set_handler cur_ns(memtrie.all_node_sets, memtrie.val_seq[i].node_set_id);
-  //     leopard::node n = cur_ns.first_node();
-  //     for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
-  //       if (n.get_flags() & NFLAG_LEAF) {
-  //         uint32_t val_pos = n.get_col_val();
-  //         uint8_t *val = memtrie.all_vals[val_pos];
-  //         int8_t vlen;
-  //         int val_len = gen::read_vint32(val, &vlen);
-  //         val += vlen;
-  //         printf("%u, %d\n", val_pos, val_len);
-  //         //printf("[%.*s]\n", val_len, val);
-  //       }
-  //       n.next();
-  //     }
-  //   }
-  // }
         leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
-        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len);
+        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals,
+          memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, memtrie.value_types[memtrie.cur_val_idx]);
         tail_vals.build_val_maps(tot_freq_count);
         for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
           leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
@@ -1490,6 +1482,16 @@ class builder {
         freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
         val_ptrs->build(memtrie.node_count);
       }
+      write_col_val();
+    }
+
+    void reset_for_next_col() {
+      memtrie.reset_for_next_col();
+    }
+
+    bool insert_col_val(const void *val, const int val_len) {
+      memtrie.insert_col_val(val, val_len);
+      return true;
     }
 
     void append_val_ptr(leopard::node *cur_node) {
@@ -1507,7 +1509,8 @@ class builder {
 
     uint32_t build_trie() {
       leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails);
-      uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len);
+      uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_tails,
+          memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, memtrie.value_types[memtrie.cur_val_idx]);
       tail_vals.build_tail_maps(tot_freq_count);
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
@@ -1763,9 +1766,9 @@ class builder {
     #define BV_LEAF 1
     #define BV_CHILD 2
     #define BV_TERM 3
-    std::string build(std::string filename) {
+    void build(const char *filename = NULL) {
 
-      out_filename = filename;
+      set_out_file(filename);
 
       clock_t t = clock();
 
@@ -1808,16 +1811,11 @@ class builder {
       col_val_table_loc = col_val_names_loc + val_count * sizeof(uint16_t) + col_names_len;
       uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
-      fp = fopen(out_filename.c_str(), "rb+");
-      if (fp == NULL) {
-        fp = fopen(out_filename.c_str(), "wb");
-        if (fp == NULL)
-          throw errno;
-        fclose(fp);
-        fp = fopen(out_filename.c_str(), "rb+");
-        if (fp == NULL)
-          throw errno;
-      }
+      fp = fopen(out_filename, "wb+");
+      fclose(fp);
+      fp = fopen(out_filename, "rb+");
+      if (fp == NULL)
+        throw errno;
 
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
@@ -1870,8 +1868,7 @@ class builder {
         val_table[0] = col_val_loc0;
         write_col_val_names(fp);
         write_col_val_table(fp);
-        build_col_val();
-        memtrie.prev_val_size = val_size = write_val_ptrs_data(fp);
+        build_and_write_col_val();
       }
       
       uint32_t total_size = total_idx_size + val_size;
@@ -1889,8 +1886,6 @@ class builder {
       gen::print_time_taken(t, "Time taken for build(): ");
       bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", total_idx_size, val_size, total_size);
 
-      return out_filename;
-
     }
 
     void write_col_val_names(FILE *fp) {
@@ -1904,11 +1899,14 @@ class builder {
         gen::write_uint32(val_table[i], fp);
     }
 
-    void write_col_val() {
+    uint32_t write_col_val() {
       uint32_t val_size = write_val_ptrs_data(fp);
-      uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
-      val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
+      if (memtrie.cur_val_idx > 0) {
+        uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
+        val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
+      }
       memtrie.prev_val_size = val_size;
+      return val_size;
     }
 
     void write_final_val_table() {

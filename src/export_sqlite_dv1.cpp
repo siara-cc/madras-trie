@@ -12,8 +12,6 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     uint8_t *key;
     int key_len;
-    void *val;
-    int val_len = 8;
     if (key_col_idx == 0) {
       key = key_buf;
       int8_t vlen = leopard::gen::get_svint60_len(ins_seq_id);
@@ -23,18 +21,24 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
       key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
     }
-    if (exp_col_type == LPDT_S64_INT) {
+    const void *val;
+    int val_len = 8;
+    if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+      val = sqlite3_column_blob(stmt, sql_col_idx);
+      val_len = sqlite3_column_bytes(stmt, sql_col_idx);
+    } else if (exp_col_type == LPDT_S64_INT) {
       int64_t s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
       double dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
-    bool is_success = bldr.insert(key, key_len, val, val_len);
-    if (!is_success) {
-      std::cerr << "Error inserting into builder" << std::endl;
-      return;
+    if (key_len == 0) {
+      bldr.insert((const uint8_t *) "", 1, val, val_len);
+    } else {
+      bldr.insert(key, key_len, val, val_len);
     }
+    ins_seq_id++;
   }
 }
 
@@ -43,11 +47,13 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
   int rc;
   int64_t ins_seq_id = 0;
   uint8_t key_buf[10];
-  bldr.memtrie.reset_for_next_col(exp_col_idx);
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-    void *val;
+    const void *val;
     int val_len = 8;
-    if (exp_col_type == LPDT_S64_INT) {
+    if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+      val = sqlite3_column_blob(stmt, sql_col_idx);
+      val_len = sqlite3_column_bytes(stmt, sql_col_idx);
+    } else if (exp_col_type == LPDT_S64_INT) {
       int64_t s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
@@ -59,6 +65,7 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       std::cerr << "Error inserting into builder" << std::endl;
       return;
     }
+    ins_seq_id++;
   }
 }
 
@@ -112,6 +119,7 @@ int main(int argc, char* argv[]) {
     sqlite3_close(db);
     return 1;
   }
+  sqlite3_step(stmt_col_names);
 
   int columnCount = sqlite3_column_count(stmt_col_names);
   const char *storage_types = argv[4];
@@ -122,13 +130,23 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  int exp_col_count = 0;
+  int key_col_idx = atoi(argv[3]);
+  std::string column_names;
+  if (key_col_idx == 0)
+    column_names.append("key");
+  else
+    column_names.append(sqlite3_column_name(stmt_col_names, key_col_idx - 1));
+
   std::string value_types;
+  int exp_col_count = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || storage_types[i] == '^')
       continue;
-    exp_col_count++;
+    const char* column_name = sqlite3_column_name(stmt_col_names, i);
+    column_names.append(",");
+    column_names.append(column_name);
     value_types.append(1, storage_types[i]);
+    exp_col_count++;
   }
 
   if (exp_col_count == 0) {
@@ -137,13 +155,6 @@ int main(int argc, char* argv[]) {
     sqlite3_close(db);
     return 1;
   }
-
-  int key_col_idx = atoi(argv[3]);
-  std::string column_names;
-  if (key_col_idx == 0)
-    column_names.append("key,");
-  else
-    column_names.append(sqlite3_column_name(stmt, key_col_idx - 1));
 
   rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
   if (rc != SQLITE_OK) {
@@ -155,23 +166,25 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  madras_dv1::builder mb(out_file.c_str(), exp_col_count, "d", value_types.c_str());
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, "d", value_types.c_str());
+  mb.set_print_enabled();
 
   int exp_col_idx = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || storage_types[i] == '^')
       continue;
-    const char* column_name = sqlite3_column_name(stmt, i);
-    column_names.append(column_name);
     if (exp_col_idx == 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
-      mb.build_trie();
+      mb.build();
     } else {
+      mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
-      mb.build_column();
+      mb.build_and_write_col_val();
     }
     sqlite3_reset(stmt);
+    exp_col_idx++;
   }
+  mb.write_final_val_table();
 
   sqlite3_finalize(stmt_col_names);
   sqlite3_finalize(stmt);

@@ -89,19 +89,18 @@ int main(int argc, char *argv[]) {
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
 
-  sb.memtrie.reset_for_next_col();
+  sb.reset_for_next_col();
   for (int i = 0; i < line_count; i++) {
     line = lines[i];
     line_len = strlen((const char *) line);
     char val[30];
     sprintf(val, "%d", line_len);
     // printf("[%.*s]]\n", (int) strlen(val), val);
-    sb.memtrie.insert_col_val(val, strlen(val));
+    sb.insert_col_val(val, strlen(val));
   }
-  sb.build_col_val();
-  sb.write_col_val();
+  sb.build_and_write_col_val();
 
-  sb.memtrie.reset_for_next_col();
+  sb.reset_for_next_col();
   for (int i = 0; i < line_count; i++) {
     line = lines[i];
     int checksum = 0;
@@ -111,10 +110,9 @@ int main(int argc, char *argv[]) {
     char val[30];
     sprintf(val, "%d", checksum);
     // printf("[%.*s]]\n", (int) strlen(val), val);
-    sb.memtrie.insert_col_val(val, strlen(val));
+    sb.insert_col_val(val, strlen(val));
   }
-  sb.build_col_val();
-  sb.write_col_val();
+  sb.build_and_write_col_val();
 
   sb.write_final_val_table();
 
