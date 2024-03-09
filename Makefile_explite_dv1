@@ -1,5 +1,4 @@
 C = gcc
-CXXFLAGS = -pthread -march=native
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I./src
@@ -20,4 +19,4 @@ clean:
 	rm -rf export_sqlite.dSYM
 
 export_sqlite: src/export_sqlite_dv1.cpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ../leopard-trie/src/leopard.hpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++11 src/export_sqlite_dv1.cpp -o export_sqlite $(L_FLAGS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) src/export_sqlite_dv1.cpp -o export_sqlite $(L_FLAGS)

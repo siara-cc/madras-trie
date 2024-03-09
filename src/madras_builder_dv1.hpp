@@ -1912,6 +1912,7 @@ class builder {
     void write_final_val_table() {
       fseek(fp, col_val_table_loc, SEEK_SET);
       fwrite(val_table, val_count * sizeof(uint32_t), 1, fp);
+      bldr_printf("Total size: %u\n", val_table[memtrie.cur_val_idx] + memtrie.prev_val_size);
       close_file();
     }
 

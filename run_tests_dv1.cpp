@@ -85,7 +85,9 @@ int main(int argc, char *argv[]) {
   } while (cr_pos != NULL);
   std::cout << std::endl;
 
-  std::string out_file = sb.build(std::string(argv[1]) + ".rst");
+  std::string out_file = argv[1];
+  out_file += ".mdx";
+  sb.build(out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
 

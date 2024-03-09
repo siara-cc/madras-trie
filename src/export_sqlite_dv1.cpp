@@ -23,14 +23,16 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     }
     const void *val;
     int val_len = 8;
+    int64_t s64;
+    double dbl;
     if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
     } else if (exp_col_type == LPDT_S64_INT) {
-      int64_t s64 = sqlite3_column_int64(stmt, sql_col_idx);
+      s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
-      double dbl = sqlite3_column_double(stmt, sql_col_idx);
+      dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
     if (key_len == 0) {
@@ -50,14 +52,16 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     const void *val;
     int val_len = 8;
+    int64_t s64;
+    double dbl;
     if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
     } else if (exp_col_type == LPDT_S64_INT) {
-      int64_t s64 = sqlite3_column_int64(stmt, sql_col_idx);
+      s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
-      double dbl = sqlite3_column_double(stmt, sql_col_idx);
+      dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
     bool is_success = bldr.memtrie.insert_col_val(val, val_len);
