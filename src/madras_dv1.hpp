@@ -22,6 +22,21 @@ namespace madras_dv1 {
 #define DCT_INSERT_CONVERT -7
 #define DCT_INSERT_CHILD_LEAF -8
 
+#define DCT_BIN '*'
+#define DCT_TEXT 't'
+#define DCT_FLOAT 'f'
+#define DCT_DOUBLE 'd'
+#define DCT_S64_INT '0'
+#define DCT_S64_DEC1 '1'
+#define DCT_S64_DEC2 '2'
+#define DCT_S64_DEC3 '3'
+#define DCT_S64_DEC4 '4'
+#define DCT_S64_DEC5 '5'
+#define DCT_S64_DEC6 '6'
+#define DCT_S64_DEC7 '7'
+#define DCT_S64_DEC8 '8'
+#define DCT_S64_DEC9 '9'
+
 #define bm_init_mask 0x0000000000000001UL
 #define sel_divisor 512
 #define nodes_per_bv_block 256
@@ -157,6 +172,21 @@ class cmn {
         len--;
       } while ((*ptr++ >> 7) && len);
       *vlen = 5 - len;
+      return ret;
+    }
+    static int read_svint60_len(uint8_t *ptr) {
+      return 1 + ((*ptr >>4) & 0x07);
+    }
+    static int64_t read_svint60(uint8_t *ptr) {
+      int64_t ret = *ptr & 0x0F;
+      if ((*ptr & 0x80) == 0x00)
+        ret *= -1;
+      int len = (*ptr >> 4) & 0x07;
+      while (len--) {
+        ret <<= 8;
+        ptr++;
+        ret += *ptr;
+      }
       return ret;
     }
     static uint32_t min(uint32_t v1, uint32_t v2) {
@@ -338,6 +368,8 @@ class grp_ptr_data_map {
     }
 
   public:
+    char data_type;
+    uint32_t max_len;
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
@@ -365,19 +397,21 @@ class grp_ptr_data_map {
         ptr_lkup_tbl_mask = 0xFFFFFFFF;
       else
         ptr_lkup_tbl_mask = 0x00FFFFFF;
-      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 1);
-      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 5);
-      two_byte_data_count = cmn::read_uint32(data_loc + 9);
-      idx2_ptr_count = cmn::read_uint32(data_loc + 13);
+      data_type = data_loc[1];
+      max_len = cmn::read_uint32(data_loc + 2);
+      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 6);
+      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 10);
+      two_byte_data_count = cmn::read_uint32(data_loc + 14);
+      idx2_ptr_count = cmn::read_uint32(data_loc + 18);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
       idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 17);
-      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 21);
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 25);
+      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 22);
+      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 26);
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 30);
 
       last_grp_no = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
@@ -425,8 +459,12 @@ class grp_ptr_data_map {
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
       uint8_t *val_loc = grp_data[grp_no] + ptr;
-      int8_t len_of_len;
-      uint32_t val_len = cmn::read_vint32(val_loc, &len_of_len);
+      int8_t len_of_len = 0;
+      int val_len;
+      if (data_type == DCT_TEXT || data_type == DCT_BIN)
+        val_len = cmn::read_vint32(val_loc, &len_of_len);
+      else
+        val_len = cmn::read_svint60_len(val_loc);
       //val_len = cmn::min(*in_size_out_value_len, val_len);
       *in_size_out_value_len = val_len;
       memcpy(ret_val, val_loc + len_of_len, val_len);
@@ -463,7 +501,13 @@ class grp_ptr_data_map {
     uint8_t get_first_byte(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       uint8_t *tail = grp_data[grp_no];
-      return tail[tail_ptr];
+      tail += tail_ptr;
+      uint8_t first_byte = *tail;
+      if (first_byte >= 32)
+        return first_byte;
+      uint8_t len_len;
+      uint32_t bin_len = read_len(tail, len_len);
+      return tail[len_len];
     }
 
     uint8_t get_first_byte(uint32_t tail_ptr, uint8_t grp_no) {
@@ -476,6 +520,14 @@ class grp_ptr_data_map {
       uint8_t *tail = grp_data[grp_no];
       ret.clear();
       uint8_t *t = tail + tail_ptr;
+      if (*t < 32) {
+        uint8_t len_len;
+        uint32_t bin_len = read_len(t, len_len);
+        t += len_len;
+        while (bin_len--)
+          ret.append(*t++);
+        return;
+      }
       uint8_t byt = *t++;
       while (byt > 31) {
         ret.append(byt);
@@ -687,7 +739,6 @@ class static_dict {
     uint32_t val_count;
     uint32_t common_node_count;
     uint32_t key_count;
-    uint32_t max_key_len;
     uint32_t max_val_len;
     uint32_t cache_count;
     uint32_t bv_block_count;
@@ -719,6 +770,7 @@ class static_dict {
     uint8_t *sec_cache_loc;
     grp_ptr_data_map tail_map;
     grp_ptr_data_map *val_map;
+    uint32_t max_key_len;
     static_dict() {
       dict_buf = NULL;
       val_buf = NULL;
@@ -1181,6 +1233,17 @@ class static_dict {
       ctx.last_tail_len[ctx.cur_idx] = 0;
       ctx.to_skip_first_leaf = false;
       return ctx;
+    }
+
+    int64_t get_val_int60(uint8_t *val) {
+      return cmn::read_svint60(val);
+    }
+
+    double get_val_int60_dbl(uint8_t *val, char type) {
+      int64_t i64 = cmn::read_svint60(val);
+      double ret = i64;
+      i64 /= (type - DCT_S64_DEC1 + 1);
+      return ret;
     }
 
 };

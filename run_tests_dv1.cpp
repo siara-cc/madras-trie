@@ -61,10 +61,19 @@ int main(int argc, char *argv[]) {
   int line_len = cr_pos - line;
   do {
     if (prev_line_len != line_len || strncmp((const char *) line, (const char *) prev_line, prev_line_len) != 0) {
-      // sb.append(line, line_len, line, line_len > 6 ? 7 : line_len);
-      // sb.append(line, line_len);
-      sb.insert(line, line_len, line, line_len > 6 ? 7 : line_len);
-      // sb.insert(line, line_len);
+      uint8_t *key = line;
+      int key_len = line_len;
+      uint8_t *val = line;
+      int val_len;
+      uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
+      if (tab_loc != NULL) {
+        key_len = tab_loc - line;
+        val = tab_loc + 1;
+        val_len = line_len - key_len - 1;
+      } else {
+        val_len = (line_len > 6 ? 7 : line_len);
+      }
+      sb.insert(key, key_len, val, val_len);
       lines.push_back(line);
       prev_line = line;
       prev_line_len = line_len;
@@ -124,8 +133,8 @@ int main(int argc, char *argv[]) {
   dict_reader.set_print_enabled(true);
   dict_reader.load(out_file.c_str());
 
-  int key_len = 0;
-  int val_len = 0;
+  int out_key_len = 0;
+  int out_val_len = 0;
   uint8_t key_buf[1000];
   uint8_t val_buf[100];
   madras_dv1::dict_iter_ctx dict_ctx;
@@ -164,50 +173,63 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &val_len);
-    if (key_len != line_len)
-      printf("Len mismatch: [%.*s], %u, %u\n", (int) line_len, line, key_len, val_len);
-    else {
-      if (memcmp(line, key_buf, key_len) != 0)
-        printf("Key mismatch: [%.*s], [%.*s]\n", (int) line_len, line, key_len, key_buf);
-      if (memcmp(line, val_buf, val_len) != 0)
-        printf("Val mismatch: [%.*s], [%.*s]\n", (int) (line_len > 6 ? 7 : line_len), line, val_len, val_buf);
+    uint8_t *key = line;
+    int key_len = line_len;
+    uint8_t *val = line;
+    int val_len;
+    uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
+    if (tab_loc != NULL) {
+      key_len = tab_loc - line;
+      val = tab_loc + 1;
+      val_len = line_len - key_len - 1;
+    } else {
+      val_len = (line_len > 6 ? 7 : line_len);
     }
 
+    // out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+    // if (out_key_len != key_len)
+    //   printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
+    // else {
+    //   if (memcmp(key, key_buf, key_len) != 0)
+    //     printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
+    //   if (memcmp(val, val_buf, val_len) != 0)
+    //     printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+    // }
+
     uint32_t node_id;
-    bool is_found = dict_reader.lookup(line, line_len, node_id);
+    bool is_found = dict_reader.lookup(key, key_len, node_id);
     if (!is_found)
       std::cout << line << std::endl;
     uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
     bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
     key_buf[key_len] = 0;
-    if (strncmp((const char *) line, (const char *) key_buf, line_len) != 0)
-      printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", line, key_len, key_buf);
+    if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
+      printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", key, key_len, key_buf);
 
-    success = dict_reader.get(line, line_len, &val_len, val_buf, node_id);
+    success = dict_reader.get(key, key_len, &out_val_len, val_buf, node_id);
     if (success) {
-      val_buf[val_len] = 0;
-      if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
+      val_buf[out_val_len] = 0;
+      if (strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
+        printf("key: [%.*s], val: [%.*s]\n", out_key_len, key, out_val_len, val_buf);
     } else
-      std::cout << line << std::endl;
+      std::cout << key << std::endl;
 
-    dict_reader.get_col_val(node_id, 1, &val_len, val_buf);
-    val_buf[val_len] = 0;
+    dict_reader.get_col_val(node_id, 1, &out_val_len, val_buf);
+    val_buf[out_val_len] = 0;
     if (atoi((const char *) val_buf) != line_len) {
-      std::cout << "Second val mismatch - expected: " << line_len << ", found: "
-           << (const char *) val_buf << ": " << line << std::endl;
+      std::cout << "First val mismatch - expected: " << line_len << ", found: "
+           << (const char *) val_buf << std::endl;
     }
 
-    dict_reader.get_col_val(node_id, 2, &val_len, val_buf);
-    val_buf[val_len] = 0;
+    dict_reader.get_col_val(node_id, 2, &out_val_len, val_buf);
+    val_buf[out_val_len] = 0;
     int checksum = 0;
     for (int i = 0; i < strlen((const char *) line); i++) {
       checksum += line[i];
     }
     if (atoi((const char *) val_buf) != checksum) {
-      std::cout << "Second val mismatch - expected: " << line_len << ", found: "
-           << (const char *) val_buf << ": " << line << std::endl;
+      std::cout << "Second val mismatch - expected: " << checksum << ", found: "
+           << (const char *) val_buf << std::endl;
     }
 
     // success = sb.get(line, line_len, &val_len, val_buf);

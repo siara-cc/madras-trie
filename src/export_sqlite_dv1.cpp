@@ -1,8 +1,21 @@
 #include <iostream>
 #include <string>
 #include <sqlite3.h>
+#include <sys/stat.h>
 
+#include "madras_dv1.hpp"
 #include "madras_builder_dv1.hpp"
+
+double time_taken_in_secs(clock_t t) {
+  t = clock() - t;
+  return ((double)t)/CLOCKS_PER_SEC;
+}
+
+clock_t print_time_taken(clock_t t, const char *msg) {
+  double time_taken = time_taken_in_secs(t); // in seconds
+  std::cout << msg << time_taken << std::endl;
+  return clock();
+}
 
 void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     int sql_col_idx, int exp_col_idx, int exp_col_type, int key_col_idx) {
@@ -103,6 +116,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  time_t t = clock();
+
   rc = sqlite3_open(argv[1], &db);
   if (rc) {
     std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
@@ -190,9 +205,77 @@ int main(int argc, char* argv[]) {
   }
   mb.write_final_val_table();
 
+  t = print_time_taken(t, "Time taken for build: ");
+
+  madras_dv1::static_dict sd;
+  sd.load(out_file.c_str());
+
+  sqlite3_reset(stmt);
+  int64_t ins_seq_id = 0;
+  uint8_t *key = new uint8_t[sd.max_key_len];
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    uint32_t node_id = mb.get_node_id_from_sequence(ins_seq_id);
+    int col_val_idx = 0;
+    for (int i = 0; i < columnCount; i++) {
+      char exp_col_type = storage_types[i];
+      if (exp_col_type == '-')
+        continue;
+      if (exp_col_type == '^' && key_col_idx > 0) {
+        const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
+        int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
+        uint8_t *null_val = (uint8_t *) "";
+        if (sql_key == NULL) {
+          sql_key = null_val;
+          sql_key_len = 1;
+        }
+        int key_len;
+        bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
+        if (key_len != sql_key_len)
+          std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
+        else {
+          if (memcmp(key, sql_key, key_len) != 0)
+            std::cerr << "Key not matching" << node_id << ", " << ins_seq_id << std::endl;
+        }
+      }
+      if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+        const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
+        int sql_val_len = sqlite3_column_bytes(stmt, i);
+      } else if (exp_col_type == LPDT_S64_INT) {
+        int64_t sql_val = sqlite3_column_int64(stmt, i);
+        uint8_t val[16];
+        int val_len;
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
+        if (is_success) {
+          int64_t i64 = sd.get_val_int60(val);
+          if (i64 != sql_val)
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
+        } else
+          std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
+      } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
+        double dbl = sqlite3_column_double(stmt, i);
+        int64_t sql_val = dbl * (exp_col_type - LPDT_S64_DEC1 + 1);
+        uint8_t val[16];
+        int val_len;
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
+        if (is_success) {
+          int64_t i64 = sd.get_val_int60(val);
+          if (i64 != sql_val)
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
+        } else
+          std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
+      }
+      if (exp_col_type != '^')
+        col_val_idx++;
+    }
+    ins_seq_id++;
+  }
+  delete [] key;
+
   sqlite3_finalize(stmt_col_names);
   sqlite3_finalize(stmt);
   sqlite3_close(db);
+
+  t = print_time_taken(t, "Time taken for verification: ");
 
   return 0;
 
