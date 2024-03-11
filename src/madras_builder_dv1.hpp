@@ -569,8 +569,11 @@ class freq_grp_ptrs_data {
     }
     void write_grp_data(uint32_t offset, bool is_tail, FILE* fp) {
       int grp_count = grp_data.size();
-      fputc(grp_count - 1, fp);
-      fputc(freq_grp_vec[grp_count].grp_log2, fp);
+      fputc(grp_count, fp);
+      if (grp_count > 0)
+        fputc(freq_grp_vec[grp_count].grp_log2, fp);
+      else
+        fputc(0, fp);
       write_code_lookup_tbl(is_tail, fp);
       uint32_t total_data_size = 0;
       for (int i = 0; i < grp_count; i++) {
@@ -686,8 +689,8 @@ class freq_grp_ptrs_data {
       fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
       write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
       write_ptrs(fp);
-      bldr_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Uniq count: %u\n",
-        get_data_size(), get_ptrs_size(), ptr_lookup_tbl, idx2_ptrs_map->size(), info_vec.size());
+      bldr_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Uniq count: %u, Total size: %u\n\n",
+        get_data_size(), get_ptrs_size(), ptr_lookup_tbl, idx2_ptrs_map->size(), info_vec.size(), get_total_size());
     }
     void reset_freq_counts() {
       for (int i = 1; i < freq_grp_vec.size(); i++) {
@@ -1494,10 +1497,11 @@ class builder {
 
     uint32_t build_and_write_col_val() {
       if (memtrie.all_vals.size() > 0) {
+        char data_type = memtrie.value_types[memtrie.cur_val_idx];
         leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
         uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals,
-          memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, memtrie.value_types[memtrie.cur_val_idx]);
-        tail_vals.build_val_maps(tot_freq_count, memtrie.cur_val_idx);
+          memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
+        tail_vals.build_val_maps(tot_freq_count, data_type);
         for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
           leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
           leopard::node cur_node = cur_ns.first_node();
@@ -1539,7 +1543,8 @@ class builder {
       leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails);
       uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_tails,
           memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
-      tail_vals.build_tail_maps(tot_freq_count);
+      if (memtrie.uniq_tails_rev.size() > 0)
+        tail_vals.build_tail_maps(tot_freq_count);
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
       memset(flag_counts, '\0', sizeof(uint32_t) * 8);

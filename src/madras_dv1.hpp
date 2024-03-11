@@ -248,7 +248,7 @@ class grp_ptr_data_map {
     uint8_t start_bits;
     uint8_t idx_step_bits;
     int8_t grp_idx_limit;
-    uint8_t last_grp_no;
+    uint8_t group_count;
     uint8_t *grp_data_loc;
     uint32_t two_byte_data_count;
     uint32_t idx2_ptr_count;
@@ -413,11 +413,11 @@ class grp_ptr_data_map {
       two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 26);
       idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 30);
 
-      last_grp_no = *grp_data_loc;
+      group_count = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
       uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
-      grp_data = new uint8_t*[last_grp_no + 1];
-      for (int i = 0; i <= last_grp_no; i++)
+      grp_data = new uint8_t*[group_count];
+      for (int i = 0; i < group_count; i++)
         grp_data[i] = data_loc + cmn::read_uint32(grp_data_idx_start + i * 4);
       int _start_bits = start_bits;
       for (int i = 1; i <= grp_idx_limit; i++) {
