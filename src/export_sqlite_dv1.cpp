@@ -27,8 +27,8 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     int key_len;
     if (key_col_idx == 0) {
       key = key_buf;
-      int8_t vlen = leopard::gen::get_svint60_len(ins_seq_id);
-      leopard::gen::copy_svint60(ins_seq_id, key, vlen);
+      int8_t vlen = leopard::gen::get_svint61_len(ins_seq_id);
+      leopard::gen::copy_svint61(ins_seq_id, key, vlen);
       key_len = vlen;
     } else {
       key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
@@ -41,10 +41,11 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_S64_INT) {
+    } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
-    } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
+    } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
+               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
@@ -70,10 +71,11 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_S64_INT) {
+    } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
-    } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
+    } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
+               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
@@ -240,25 +242,27 @@ int main(int argc, char* argv[]) {
       if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         int sql_val_len = sqlite3_column_bytes(stmt, i);
-      } else if (exp_col_type == LPDT_S64_INT) {
+      } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
         int val_len;
         bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
         if (is_success) {
-          int64_t i64 = sd.get_val_int60(val);
+          int64_t i64 = exp_col_type == LPDT_S64_INT ? sd.get_val_int60(val) : (int64_t) sd.get_val_int61(val);
           if (i64 != sql_val)
             std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
-      } else if (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) {
+      } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
+                 (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
+        char base_type = (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ? LPDT_S64_DEC1 : LPDT_U64_DEC1;
         double dbl = sqlite3_column_double(stmt, i);
-        int64_t sql_val = dbl * (exp_col_type - LPDT_S64_DEC1 + 1);
+        int64_t sql_val = dbl * (exp_col_type - base_type + 1);
         uint8_t val[16];
         int val_len;
         bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
         if (is_success) {
-          int64_t i64 = sd.get_val_int60(val);
+          int64_t i64 = base_type == LPDT_S64_DEC1 ? sd.get_val_int60(val) : (int64_t) sd.get_val_int61(val);
           if (i64 != sql_val)
             std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
         } else

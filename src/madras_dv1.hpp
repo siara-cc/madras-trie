@@ -37,6 +37,16 @@ namespace madras_dv1 {
 #define DCT_S64_DEC7 '7'
 #define DCT_S64_DEC8 '8'
 #define DCT_S64_DEC9 '9'
+#define DCT_U64_INT 'i'
+#define DCT_U64_DEC1 'j'
+#define DCT_U64_DEC2 'k'
+#define DCT_U64_DEC3 'l'
+#define DCT_U64_DEC4 'm'
+#define DCT_U64_DEC5 'n'
+#define DCT_U64_DEC6 'o'
+#define DCT_U64_DEC7 'p'
+#define DCT_U64_DEC8 'q'
+#define DCT_U64_DEC9 'r'
 
 #define bm_init_mask 0x0000000000000001UL
 #define sel_divisor 512
@@ -176,17 +186,31 @@ class cmn {
       return ret;
     }
     static int read_svint60_len(uint8_t *ptr) {
-      return 1 + ((*ptr >>4) & 0x07);
+      return 1 + ((*ptr >> 4) & 0x07);
     }
     static int64_t read_svint60(uint8_t *ptr) {
       int64_t ret = *ptr & 0x0F;
-      if ((*ptr & 0x80) == 0x00)
-        ret *= -1;
+      bool is_neg = true;
+      if (*ptr & 0x80)
+        is_neg = false;
       int len = (*ptr >> 4) & 0x07;
       while (len--) {
         ret <<= 8;
         ptr++;
-        ret += *ptr;
+        ret |= *ptr;
+      }
+      return is_neg ? -ret : ret;
+    }
+    static int read_svint61_len(uint8_t *ptr) {
+      return 1 + (*ptr >> 5);
+    }
+    static uint64_t read_svint61(uint8_t *ptr) {
+      uint64_t ret = *ptr & 0x1F;
+      int len = (*ptr >> 5);
+      while (len--) {
+        ret <<= 8;
+        ptr++;
+        ret |= *ptr;
       }
       return ret;
     }
@@ -464,8 +488,10 @@ class grp_ptr_data_map {
       int val_len;
       if (data_type == DCT_TEXT || data_type == DCT_BIN)
         val_len = cmn::read_vint32(val_loc, &len_of_len);
-      else
+      else if (data_type == DCT_S64_INT || (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9))
         val_len = cmn::read_svint60_len(val_loc);
+      else // if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
+        val_len = cmn::read_svint61_len(val_loc);
       //val_len = cmn::min(*in_size_out_value_len, val_len);
       *in_size_out_value_len = val_len;
       memcpy(ret_val, val_loc + len_of_len, val_len);
@@ -1353,6 +1379,17 @@ class static_dict {
       int64_t i64 = cmn::read_svint60(val);
       double ret = i64;
       i64 /= (type - DCT_S64_DEC1 + 1);
+      return ret;
+    }
+
+    uint64_t get_val_int61(uint8_t *val) {
+      return cmn::read_svint61(val);
+    }
+
+    double get_val_int61_dbl(uint8_t *val, char type) {
+      uint64_t i64 = cmn::read_svint61(val);
+      double ret = i64;
+      i64 /= (type - DCT_U64_DEC1 + 1);
       return ret;
     }
 
