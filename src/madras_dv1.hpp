@@ -820,14 +820,19 @@ class dict_iter_ctx {
     bool to_skip_first_leaf;
     bool is_allocated = false;
     dict_iter_ctx() {
+      is_allocated = false;
     }
     ~dict_iter_ctx() {
+      close();
+    }
+    void close() {
       if (is_allocated) {
         delete key;
         delete node_path;
         delete child_count;
         delete last_tail_len;
       }
+      is_allocated = false;
     }
     void init(uint16_t max_key_len, uint16_t max_level) {
       if (!is_allocated) {
@@ -848,14 +853,12 @@ class dict_iter_ctx {
 class static_dict {
 
   private:
-    uint8_t *dict_buf;
     uint8_t *val_buf;
     size_t dict_size;
     size_t val_size;
     bool is_mmapped;
 
     uint32_t node_count;
-    uint32_t val_count;
     uint32_t common_node_count;
     uint32_t key_count;
     uint32_t max_val_len;
@@ -872,8 +875,6 @@ class static_dict {
     uint8_t *child_select_lkup_loc;
     uint8_t *leaf_select_lkup_loc;
     uint8_t *trie_loc;
-    uint8_t *col_names_pos;
-    uint8_t *col_names_loc;
     uint8_t *val_table_loc;
 
     bv_lookup_tbl term_lt;
@@ -884,6 +885,10 @@ class static_dict {
     static_dict& operator=(static_dict const&);
 
   public:
+    uint8_t *dict_buf;
+    uint32_t val_count;
+    uint8_t *names_pos;
+    char *names_loc;
     uint32_t last_exit_loc;
     min_pos_stats min_stats;
     uint8_t *sec_cache_loc;
@@ -891,6 +896,10 @@ class static_dict {
     grp_ptr_data_map *val_map;
     uint32_t max_key_len;
     static_dict() {
+      init_vars();
+    }
+
+    void init_vars() {
       dict_buf = NULL;
       val_buf = NULL;
       val_map = NULL;
@@ -919,8 +928,8 @@ class static_dict {
     void load_into_vars() {
 
       val_count = cmn::read_uint16(dict_buf + 4);
-      col_names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
-      col_names_loc = col_names_pos + val_count * sizeof(uint16_t);
+      names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
+      names_loc = (char *) names_pos + (val_count + 1) * sizeof(uint16_t);
       val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
       node_count = cmn::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
@@ -1012,6 +1021,7 @@ class static_dict {
 
     void load(const char* filename) {
 
+      init_vars();
       struct stat file_stat;
       memset(&file_stat, '\0', sizeof(file_stat));
       stat(filename, &file_stat);
@@ -1347,24 +1357,23 @@ class static_dict {
       return true;
     }
 
-    dict_iter_ctx find_first(const uint8_t *prefix, int prefix_len) {
+    bool find_first(const uint8_t *prefix, int prefix_len, dict_iter_ctx& ctx) {
       int cmp;
       uint32_t lkup_node_id;
       lookup(prefix, prefix_len, lkup_node_id, &cmp);
-      dict_iter_ctx ctx;
-      ctx.init(max_key_len, max_level);
       uint8_t key_buf[max_key_len];
       int key_len;
       // TODO: set last_key_len
-      ctx.cur_idx = -1;
+      ctx.cur_idx = 0;
       reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, NULL, NULL, &ctx);
-      // for (int i = 0; i < ctx.key.size(); i++)
+      ctx.cur_idx--;
+      // for (int i = 0; i < ctx.key_len; i++)
       //   printf("%c", ctx.key[i]);
       // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
       ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
       ctx.last_tail_len[ctx.cur_idx] = 0;
       ctx.to_skip_first_leaf = false;
-      return ctx;
+      return true;
     }
 
     uint8_t *get_trie_loc() {

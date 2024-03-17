@@ -126,12 +126,14 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  const char *table_name = "vtab";
   std::string sql;
   if (sqlite3_strnicmp(argv[2], "select ", 7) == 0) {
     sql = argv[2];
   } else {
     sql = "SELECT * FROM ";
     sql += argv[2];
+    table_name = argv[2];
   }
 
   rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_col_names, NULL);
@@ -152,11 +154,13 @@ int main(int argc, char* argv[]) {
   }
 
   int key_col_idx = atoi(argv[3]);
-  std::string column_names;
+  std::string column_names = table_name;
   if (key_col_idx == 0)
-    column_names.append("key");
-  else
+    column_names.append(",key");
+  else {
+    column_names.append(",");
     column_names.append(sqlite3_column_name(stmt_col_names, key_col_idx - 1));
+  }
 
   std::string value_types;
   int exp_col_count = 0;
@@ -169,6 +173,7 @@ int main(int argc, char* argv[]) {
     value_types.append(1, storage_types[i]);
     exp_col_count++;
   }
+  printf("Count: %d, Table/Key/Column names: %s\n", exp_col_count, column_names.c_str());
 
   if (exp_col_count == 0) {
     std::cerr << "At least 1 column to be specified for export" << std::endl;

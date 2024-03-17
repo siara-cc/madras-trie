@@ -21,7 +21,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1], "Key,Value,Len,chksum", 3, "dd", "t**");
+  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "dd", "t**");
   sb.set_print_enabled(true);
   vector<uint8_t *> lines;
 
@@ -186,15 +186,15 @@ int main(int argc, char *argv[]) {
       val_len = (line_len > 6 ? 7 : line_len);
     }
 
-    // out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
-    // if (out_key_len != key_len)
-    //   printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
-    // else {
-    //   if (memcmp(key, key_buf, key_len) != 0)
-    //     printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
-    //   if (memcmp(val, val_buf, val_len) != 0)
-    //     printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
-    // }
+    out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+    if (out_key_len != key_len)
+      printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
+    else {
+      if (memcmp(key, key_buf, key_len) != 0)
+        printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
+      if (memcmp(val, val_buf, val_len) != 0)
+        printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+    }
 
     uint32_t node_id;
     bool is_found = dict_reader.lookup(key, key_len, node_id);

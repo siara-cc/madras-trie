@@ -1399,21 +1399,21 @@ class builder {
     uint32_t end_loc;
     tail_val_maps tail_vals;
     uint32_t val_count;
-    char *col_names;
-    uint16_t *col_names_positions;
-    uint16_t col_names_len;
+    char *names;
+    uint16_t *names_positions;
+    uint16_t names_len;
     uint32_t *val_table;
     uint32_t col_val_table_loc;
     FILE *fp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
-    builder(const char *out_file = NULL, const char *_col_names = "key,value", const int _value_count = 1,
+    builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
         const char *_value_compaction = "d", const char *_value_types = "t")
         : memtrie(_value_count, _value_compaction, _value_types),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       val_count = _value_count;
       val_table = new uint32_t[_value_count];
-      set_col_names(_col_names);
+      set_names(_names);
       common_node_count = 0;
       //art_tree_init(&at);
       memtrie.set_print_enabled(is_bldr_print_enabled);
@@ -1424,9 +1424,9 @@ class builder {
     }
 
     ~builder() {
-      delete col_names;
+      delete names;
       delete val_table;
-      delete col_names_positions;
+      delete names_positions;
       if (out_filename != NULL)
         delete out_filename;
       close_file();
@@ -1438,23 +1438,23 @@ class builder {
       fp = NULL;
     }
 
-    void set_col_names(const char *_col_names) {
-      col_names_len = strlen(_col_names) + 1;
-      col_names = new char[col_names_len];
-      col_names_positions = new uint16_t[val_count];
-      int col_idx = 0;
+    void set_names(const char *_names) {
+      names_len = strlen(_names);
+      names = new char[names_len];
+      memcpy(names, _names, names_len);
+      names_len++;
+      names_positions = new uint16_t[val_count + 1];
+      int idx = 0;
       char name_str_pos = 0;
-      col_names_positions[0] = 0;
-      while (name_str_pos < col_names_len) {
-        if (col_names[name_str_pos] == ',') {
-          col_names[name_str_pos] = '\0';
-          col_idx++;
-          col_names_positions[col_idx] = name_str_pos + 1;
+      while (name_str_pos < names_len) {
+        if (names[name_str_pos] == ',') {
+          names[name_str_pos] = '\0';
+          names_positions[idx++] = name_str_pos + 1;
         }
         name_str_pos++;
       }
       name_str_pos--;
-      col_names[name_str_pos] = '\0';
+      names[name_str_pos] = '\0';
     }
 
     void set_print_enabled(bool to_print_messages = true) {
@@ -1840,8 +1840,8 @@ class builder {
       uint32_t leaf_select_lkup_loc = trie_tail_ptrs_data_loc + trie_tail_ptrs_data_sz;
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
       uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
-      uint32_t col_val_names_loc = child_select_lkup_loc + child_select_lt_sz;
-      col_val_table_loc = col_val_names_loc + val_count * sizeof(uint16_t) + col_names_len;
+      uint32_t names_loc = child_select_lkup_loc + child_select_lt_sz;
+      col_val_table_loc = names_loc + (val_count + 1) * sizeof(uint16_t) + names_len;
       uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
       fp = fopen(out_filename, "wb+");
@@ -1856,7 +1856,7 @@ class builder {
       fputc(0, fp);
 
       gen::write_uint16(memtrie.value_count, fp);
-      gen::write_uint32(col_val_names_loc, fp);
+      gen::write_uint32(names_loc, fp);
       gen::write_uint32(col_val_table_loc, fp);
 
       gen::write_uint32(memtrie.node_count, fp);
@@ -1899,7 +1899,7 @@ class builder {
       uint32_t val_size = 0;
       if (memtrie.all_vals.size() > 0) {
         val_table[0] = col_val_loc0;
-        write_col_val_names(fp);
+        write_names(fp);
         write_col_val_table(fp);
         val_size = build_and_write_col_val();
       }
@@ -1921,10 +1921,11 @@ class builder {
 
     }
 
-    void write_col_val_names(FILE *fp) {
-      for (int i = 0; i < val_count; i++)
-        gen::write_uint16(col_names_positions[i], fp);
-      fwrite(col_names, col_names_len, 1, fp);
+    void write_names(FILE *fp) {
+      int name_count = val_count + 1;
+      for (int i = 0; i < name_count; i++)
+        gen::write_uint16(names_positions[i], fp);
+      fwrite(names, names_len, 1, fp);
     }
 
     void write_col_val_table(FILE *fp) {
