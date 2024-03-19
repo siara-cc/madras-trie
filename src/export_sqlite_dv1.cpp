@@ -246,7 +246,7 @@ int main(int argc, char* argv[]) {
       }
     }
     for (int i = 0; i < columnCount; i++) {
-      char exp_col_type = col_types[i];
+      char exp_col_type = storage_types[i];
       if (exp_col_type == '-')
         continue;
       if (i == (key_col_idx - 1))
@@ -254,6 +254,18 @@ int main(int argc, char* argv[]) {
       if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         int sql_val_len = sqlite3_column_bytes(stmt, i);
+        uint8_t val_buf[sql_val_len + 1]; // todo: allocate max_len
+        int val_len;
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf);
+        if (is_success) {
+          val_buf[val_len] = '\0';
+          if (val_len != sql_val_len)
+            std::cout << "Val len mismatch: " << node_id << ", " << val_len << ": " << sql_val_len << std::endl;
+          else {
+            if (memcmp(sql_val, val_buf, val_len) != 0)
+              std::cout << "Val not maching: " << node_id << ", " << sql_val << ": " << val_buf << std::endl;
+          }
+        }
       } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
@@ -280,19 +292,13 @@ int main(int argc, char* argv[]) {
           int int_val = 0;
           switch (base_type) {
             case LPDT_S64_DEC1 ... LPDT_S64_DEC9:
-              int_val = sd.get_val_int60(val);
-              dbl_val = int_val;
-              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_S64_DEC1 + 1);
+              dbl_val = sd.get_val_int60_dbl(val, exp_col_type);
               break;
             case LPDT_U64_DEC1 ... LPDT_U64_DEC9:
-              int_val = sd.get_val_int61(val);
-              dbl_val = int_val;
-              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_U64_DEC1 + 1);
+              dbl_val = sd.get_val_int61_dbl(val, exp_col_type);
               break;
             case LPDT_U15_DEC1 ... LPDT_U15_DEC2:
-              int_val = sd.get_val_int15(val);
-              dbl_val = int_val;
-              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_U15_DEC1 + 1);
+              dbl_val = sd.get_val_int15_dbl(val, exp_col_type);
               break;
           }
           if (dbl_val != sql_val)
