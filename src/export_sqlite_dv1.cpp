@@ -45,7 +45,8 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
+               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
+               (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
@@ -75,7 +76,8 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
     } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
+               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
+               (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
@@ -154,7 +156,9 @@ int main(int argc, char* argv[]) {
   }
 
   int key_col_idx = atoi(argv[3]);
-  std::string column_names = table_name;
+  std::string column_names = storage_types;
+  column_names += ",";
+  column_names += table_name;
   if (key_col_idx == 0)
     column_names.append(",key");
   else {
@@ -162,18 +166,19 @@ int main(int argc, char* argv[]) {
     column_names.append(sqlite3_column_name(stmt_col_names, key_col_idx - 1));
   }
 
-  std::string value_types;
+  std::string col_types;
+  col_types.append(1, key_col_idx == 0 ? 'i' : storage_types[key_col_idx - 1]);
   int exp_col_count = 0;
   for (int i = 0; i < columnCount; i++) {
-    if (storage_types[i] == '-' || storage_types[i] == '^')
+    if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
     const char* column_name = sqlite3_column_name(stmt_col_names, i);
     column_names.append(",");
     column_names.append(column_name);
-    value_types.append(1, storage_types[i]);
+    col_types.append(1, storage_types[i]);
     exp_col_count++;
   }
-  printf("Count: %d, Table/Key/Column names: %s\n", exp_col_count, column_names.c_str());
+  printf("Count: %d, Table/Key/Column names: %s, types: %s\n", exp_col_count, column_names.c_str(), col_types.c_str());
 
   if (exp_col_count == 0) {
     std::cerr << "At least 1 column to be specified for export" << std::endl;
@@ -192,12 +197,12 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, "d", value_types.c_str());
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, "d", col_types.c_str());
   mb.set_print_enabled();
 
   int exp_col_idx = 0;
   for (int i = 0; i < columnCount; i++) {
-    if (storage_types[i] == '-' || storage_types[i] == '^')
+    if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
     if (exp_col_idx == 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
@@ -223,27 +228,29 @@ int main(int argc, char* argv[]) {
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     uint32_t node_id = mb.get_node_id_from_sequence(ins_seq_id);
     int col_val_idx = 0;
+    if (key_col_idx > 0) {
+      const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
+      int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
+      uint8_t *null_val = (uint8_t *) "";
+      if (sql_key == NULL) {
+        sql_key = null_val;
+        sql_key_len = 1;
+      }
+      int key_len;
+      bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
+      if (key_len != sql_key_len)
+        std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
+      else {
+        if (memcmp(key, sql_key, key_len) != 0)
+          std::cerr << "Key not matching" << node_id << ", " << ins_seq_id << std::endl;
+      }
+    }
     for (int i = 0; i < columnCount; i++) {
-      char exp_col_type = storage_types[i];
+      char exp_col_type = col_types[i];
       if (exp_col_type == '-')
         continue;
-      if (exp_col_type == '^' && key_col_idx > 0) {
-        const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
-        int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
-        uint8_t *null_val = (uint8_t *) "";
-        if (sql_key == NULL) {
-          sql_key = null_val;
-          sql_key_len = 1;
-        }
-        int key_len;
-        bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
-        if (key_len != sql_key_len)
-          std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
-        else {
-          if (memcmp(key, sql_key, key_len) != 0)
-            std::cerr << "Key not matching" << node_id << ", " << ins_seq_id << std::endl;
-        }
-      }
+      if (i == (key_col_idx - 1))
+        continue;
       if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         int sql_val_len = sqlite3_column_bytes(stmt, i);
@@ -255,26 +262,45 @@ int main(int argc, char* argv[]) {
         if (is_success) {
           int64_t i64 = exp_col_type == LPDT_S64_INT ? sd.get_val_int60(val) : (int64_t) sd.get_val_int61(val);
           if (i64 != sql_val)
-            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << ", " << sql_val << ":" << i64 << std::endl;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
       } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-                 (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9)) {
+                 (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
+                 (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
         char base_type = (exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ? LPDT_S64_DEC1 : LPDT_U64_DEC1;
-        double dbl = sqlite3_column_double(stmt, i);
-        int64_t sql_val = dbl * (exp_col_type - base_type + 1);
+        if (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)
+          base_type = LPDT_U15_DEC1;
+        double sql_val = sqlite3_column_double(stmt, i);
         uint8_t val[16];
         int val_len;
         bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
         if (is_success) {
-          int64_t i64 = base_type == LPDT_S64_DEC1 ? sd.get_val_int60(val) : (int64_t) sd.get_val_int61(val);
-          if (i64 != sql_val)
-            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << sql_val << ":" << i64 << std::endl;
+          double dbl_val = 0;
+          int int_val = 0;
+          switch (base_type) {
+            case LPDT_S64_DEC1 ... LPDT_S64_DEC9:
+              int_val = sd.get_val_int60(val);
+              dbl_val = int_val;
+              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_S64_DEC1 + 1);
+              break;
+            case LPDT_U64_DEC1 ... LPDT_U64_DEC9:
+              int_val = sd.get_val_int61(val);
+              dbl_val = int_val;
+              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_U64_DEC1 + 1);
+              break;
+            case LPDT_U15_DEC1 ... LPDT_U15_DEC2:
+              int_val = sd.get_val_int15(val);
+              dbl_val = int_val;
+              dbl_val /= madras_dv1::cmn::pow10(exp_col_type - DCT_U15_DEC1 + 1);
+              break;
+          }
+          if (dbl_val != sql_val)
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << ", " << sql_val << ":" << dbl_val << ":" << int_val << std::endl;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
       }
-      if (exp_col_type != '^')
-        col_val_idx++;
+      col_val_idx++;
     }
     ins_seq_id++;
   }

@@ -1,6 +1,7 @@
 #ifndef STATIC_DICT_H
 #define STATIC_DICT_H
 
+#include <math.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -47,6 +48,8 @@ namespace madras_dv1 {
 #define DCT_U64_DEC7 'p'
 #define DCT_U64_DEC8 'q'
 #define DCT_U64_DEC9 'r'
+#define DCT_U15_DEC1 'X'
+#define DCT_U15_DEC2 'Z'
 
 #define bm_init_mask 0x0000000000000001UL
 #define sel_divisor 512
@@ -124,6 +127,7 @@ static void dict_printf(const char* format, ...) {
   va_end(args);
 }
 
+constexpr double dbl_div[] = {1.0000000000001, 10.0000000000001, 100.0000000000001, 1000.0000000000001, 10000.0000000000001, 100000.0000000000001, 1000000.0000000000001, 10000000.0000000000001, 100000000.0000000000001, 1000000000.0000000000001};
 class cmn {
   public:
     static int compare(const uint8_t *v1, int len1, const uint8_t *v2,
@@ -213,6 +217,22 @@ class cmn {
         ret |= *ptr;
       }
       return ret;
+    }
+    static int read_svint15_len(uint8_t *ptr) {
+      return 1 + (*ptr >> 7);
+    }
+    static uint64_t read_svint15(uint8_t *ptr) {
+      uint64_t ret = *ptr & 0x7F;
+      int len = (*ptr >> 7);
+      while (len--) {
+        ret <<= 8;
+        ptr++;
+        ret |= *ptr;
+      }
+      return ret;
+    }
+    static size_t pow10(int p) {
+      return dbl_div[p];
     }
     static uint32_t min(uint32_t v1, uint32_t v2) {
       return v1 < v2 ? v1 : v2;
@@ -485,13 +505,15 @@ class grp_ptr_data_map {
         ptr = read_ptr_from_idx(grp_no, ptr);
       uint8_t *val_loc = grp_data[grp_no] + ptr;
       int8_t len_of_len = 0;
-      int val_len;
+      int val_len = 0;
       if (data_type == DCT_TEXT || data_type == DCT_BIN)
         val_len = cmn::read_vint32(val_loc, &len_of_len);
       else if (data_type == DCT_S64_INT || (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9))
         val_len = cmn::read_svint60_len(val_loc);
-      else // if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
+      else if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
         val_len = cmn::read_svint61_len(val_loc);
+      else if (data_type >= DCT_U15_DEC1 && data_type <= DCT_U15_DEC2)
+        val_len = cmn::read_svint15_len(val_loc);
       //val_len = cmn::min(*in_size_out_value_len, val_len);
       *in_size_out_value_len = val_len;
       memcpy(ret_val, val_loc + len_of_len, val_len);
@@ -929,7 +951,7 @@ class static_dict {
 
       val_count = cmn::read_uint16(dict_buf + 4);
       names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
-      names_loc = (char *) names_pos + (val_count + 1) * sizeof(uint16_t);
+      names_loc = (char *) names_pos + (val_count + 2) * sizeof(uint16_t);
       val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
       node_count = cmn::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
@@ -1386,8 +1408,8 @@ class static_dict {
 
     double get_val_int60_dbl(uint8_t *val, char type) {
       int64_t i64 = cmn::read_svint60(val);
-      double ret = i64;
-      i64 /= (type - DCT_S64_DEC1 + 1);
+      double ret = static_cast<double>(i64);
+      ret /= cmn::pow10(type - DCT_S64_DEC1 + 1);
       return ret;
     }
 
@@ -1397,8 +1419,19 @@ class static_dict {
 
     double get_val_int61_dbl(uint8_t *val, char type) {
       uint64_t i64 = cmn::read_svint61(val);
-      double ret = i64;
-      i64 /= (type - DCT_U64_DEC1 + 1);
+      double ret = static_cast<double>(i64);
+      ret /= cmn::pow10(type - DCT_U64_DEC1 + 1);
+      return ret;
+    }
+
+    uint64_t get_val_int15(uint8_t *val) {
+      return cmn::read_svint15(val);
+    }
+
+    double get_val_int15_dbl(uint8_t *val, char type) {
+      uint64_t i64 = cmn::read_svint15(val);
+      double ret = static_cast<double>(i64);
+      ret /= cmn::pow10(type - DCT_U15_DEC1 + 1);
       return ret;
     }
 

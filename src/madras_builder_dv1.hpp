@@ -87,6 +87,9 @@ class gen {
     static size_t max(size_t v1, size_t v2) {
       return v1 > v2 ? v1 : v2;
     }
+    static size_t min(size_t v1, size_t v2) {
+      return v1 < v2 ? v1 : v2;
+    }
     static int8_t get_vlen_of_uint32(uint32_t vint) {
       return vint < (1 << 7) ? 1 : (vint < (1 << 14) ? 2 : (vint < (1 << 21) ? 3 :
               (vint < (1 << 28) ? 4 : 5)));
@@ -717,11 +720,11 @@ class freq_grp_ptrs_data {
       return &ptrs;
     }
     void show_freq_codes() {
-      bldr_printf("bits\tcd\tct_t\tfct_t\tlen_t\tcdln\tmxsz\n");
+      bldr_printf("bits\tcd\tct_t\tfct_t\tlen_t\tcdln\tmxsz\tbyts\n");
       for (int i = 1; i < freq_grp_vec.size(); i++) {
         freq_grp *fg = &freq_grp_vec[i];
-        bldr_printf("%u\t%2x\t%u\t%u\t%u\t%u\t%u\n", fg->grp_log2, fg->code,
-              fg->count, fg->freq_count, fg->grp_size, fg->code_len, fg->grp_limit);
+        bldr_printf("%u\t%2x\t%u\t%u\t%u\t%u\t%u\t%u\n", fg->grp_log2, fg->code,
+              fg->count, fg->freq_count, fg->grp_size, fg->code_len, fg->grp_limit, (fg->grp_log2 * fg->freq_count) >> 3);
       }
       bldr_printf("Idx limit; %d\n", idx_limit);
     }
@@ -1413,7 +1416,7 @@ class builder {
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       val_count = _value_count;
       val_table = new uint32_t[_value_count];
-      set_names(_names);
+      set_names(_names, _value_types);
       common_node_count = 0;
       //art_tree_init(&at);
       memtrie.set_print_enabled(is_bldr_print_enabled);
@@ -1438,14 +1441,18 @@ class builder {
       fp = NULL;
     }
 
-    void set_names(const char *_names) {
-      names_len = strlen(_names);
+    void set_names(const char *_names, const char *_value_types) {
+      int col_count = val_count + 1;
+      names_len = strlen(_names) + col_count + 1;
       names = new char[names_len];
-      memcpy(names, _names, names_len);
+      memset(names, '*', col_count);
+      memcpy(names, _value_types, gen::min(strlen(_value_types), col_count));
+      names[col_count] = '\0';
+      memcpy(names + col_count + 1, _names, names_len);
       names_len++;
-      names_positions = new uint16_t[val_count + 1];
+      names_positions = new uint16_t[col_count + 1];
       int idx = 0;
-      char name_str_pos = 0;
+      int name_str_pos = col_count + 1;
       while (name_str_pos < names_len) {
         if (names[name_str_pos] == ',') {
           names[name_str_pos] = '\0';
@@ -1497,7 +1504,8 @@ class builder {
 
     uint32_t build_and_write_col_val() {
       if (memtrie.all_vals.size() > 0) {
-        char data_type = memtrie.value_types[memtrie.cur_val_idx];
+        bldr_printf("Col: %s ", names + names_positions[memtrie.cur_val_idx + 2]);
+        char data_type = memtrie.value_types[memtrie.cur_val_idx + 1];
         leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
         uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals,
           memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
@@ -1641,7 +1649,7 @@ class builder {
     uint32_t write_val_ptrs_data(char data_type, FILE *fp_val) {
       uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0) {
-        bldr_printf("Val stats - ");
+        bldr_printf("Stats - ");
         tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, fp_val);
         val_fp_offset += tail_vals.get_val_grp_ptrs()->get_total_size();
       }
@@ -1841,7 +1849,7 @@ class builder {
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
       uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
       uint32_t names_loc = child_select_lkup_loc + child_select_lt_sz;
-      col_val_table_loc = names_loc + (val_count + 1) * sizeof(uint16_t) + names_len;
+      col_val_table_loc = names_loc + (val_count + 2) * sizeof(uint16_t) + names_len;
       uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
       fp = fopen(out_filename, "wb+");
@@ -1922,7 +1930,7 @@ class builder {
     }
 
     void write_names(FILE *fp) {
-      int name_count = val_count + 1;
+      int name_count = val_count + 2;
       for (int i = 0; i < name_count; i++)
         gen::write_uint16(names_positions[i], fp);
       fwrite(names, names_len, 1, fp);
@@ -1934,7 +1942,7 @@ class builder {
     }
 
     uint32_t write_col_val() {
-      uint32_t val_size = write_val_ptrs_data(memtrie.value_types[memtrie.cur_val_idx], fp);
+      uint32_t val_size = write_val_ptrs_data(memtrie.value_types[memtrie.cur_val_idx + 1], fp);
       if (memtrie.cur_val_idx > 0) {
         uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
         val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
@@ -2122,5 +2130,15 @@ class builder {
 // 1 xxxx 1xxxxxxx 1xxxxxxx 1xxxxxxx 01xxxxxx - dictionary reference 2gb
 
 // dictionary
+
+// no need to refer data if ptr bits > data size
+// RLE within grouped pointers
+// ijklmnopqrs - triple bit overhead double
+// pPqQrRsS - double bit overhead double
+// xXyY - single bit overhead double
+// zZ - 0 bit overhead double
+// sub-byte width delta coding
+// inverted delta coding ??
+// 
 
 #endif
