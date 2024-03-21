@@ -156,9 +156,7 @@ int main(int argc, char* argv[]) {
   }
 
   int key_col_idx = atoi(argv[3]);
-  std::string column_names = storage_types;
-  column_names += ",";
-  column_names += table_name;
+  std::string column_names = table_name;
   if (key_col_idx == 0)
     column_names.append(",key");
   else {

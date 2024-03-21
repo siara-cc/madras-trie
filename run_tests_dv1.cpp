@@ -21,7 +21,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "dd", "t**");
+  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "dd", "tt**");
   sb.set_print_enabled(true);
   vector<uint8_t *> lines;
 
@@ -47,7 +47,8 @@ int main(int argc, char *argv[]) {
   fclose(fp);
 
   int line_count = 0;
-  uint8_t *prev_line = {0};
+  bool is_sorted = true;
+  const uint8_t *prev_line = (const uint8_t *) "";
   size_t prev_line_len = 0;
   uint8_t *line = file_buf;
   uint8_t *cr_pos = (uint8_t *) memchr(line, '\n', file_stat.st_size);
@@ -73,6 +74,8 @@ int main(int argc, char *argv[]) {
       } else {
         val_len = (line_len > 6 ? 7 : line_len);
       }
+      if (madras_dv1::gen::compare(key, key_len, prev_line, madras_dv1::gen::min(prev_line_len, key_len)) < 0)
+        is_sorted = false;
       sb.insert(key, key_len, val, val_len);
       lines.push_back(line);
       prev_line = line;
@@ -99,6 +102,7 @@ int main(int argc, char *argv[]) {
   sb.build(out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
+  std::cout << "Sorted? : " << is_sorted << std::endl;
 
   sb.reset_for_next_col();
   for (int i = 0; i < line_count; i++) {
@@ -186,14 +190,16 @@ int main(int argc, char *argv[]) {
       val_len = (line_len > 6 ? 7 : line_len);
     }
 
-    out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
-    if (out_key_len != key_len)
-      printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
-    else {
-      if (memcmp(key, key_buf, key_len) != 0)
-        printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
-      if (memcmp(val, val_buf, val_len) != 0)
-        printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+    if (is_sorted) {
+      out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+      if (out_key_len != key_len)
+        printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
+      else {
+        if (memcmp(key, key_buf, key_len) != 0)
+          printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
+        if (memcmp(val, val_buf, val_len) != 0)
+          printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+      }
     }
 
     uint32_t node_id;

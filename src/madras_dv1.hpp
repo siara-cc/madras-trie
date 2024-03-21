@@ -1296,7 +1296,8 @@ class static_dict {
             tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
             memcpy(key_buf, ctx.key, ctx.key_len);
-            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+            if (val_buf != NULL && val_buf_len != NULL)
+              val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
           }

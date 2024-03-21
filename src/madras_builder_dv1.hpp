@@ -1447,12 +1447,13 @@ class builder {
       names = new char[names_len];
       memset(names, '*', col_count);
       memcpy(names, _value_types, gen::min(strlen(_value_types), col_count));
-      names[col_count] = '\0';
+      names[col_count] = ',';
       memcpy(names + col_count + 1, _names, names_len);
       names_len++;
+      // std::cout << names << std::endl;
       names_positions = new uint16_t[col_count + 1];
       int idx = 0;
-      int name_str_pos = col_count + 1;
+      int name_str_pos = col_count;
       while (name_str_pos < names_len) {
         if (names[name_str_pos] == ',') {
           names[name_str_pos] = '\0';
@@ -1461,6 +1462,7 @@ class builder {
         name_str_pos++;
       }
       name_str_pos--;
+      names[col_count] = '\0';
       names[name_str_pos] = '\0';
     }
 
