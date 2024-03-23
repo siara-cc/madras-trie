@@ -189,6 +189,19 @@ class cmn {
       *vlen = 5 - len;
       return ret;
     }
+    static int8_t get_svint60_len(int64_t vint) {
+      vint = abs(vint);
+      return vint < (1 << 4) ? 1 : (vint < (1 << 12) ? 2 : (vint < (1 << 20) ? 3 :
+              (vint < (1 << 28) ? 4 : (vint < (1LL << 36) ? 5 : (vint < (1LL << 44) ? 6 :
+              (vint < (1LL << 52) ? 7 : 8))))));
+    }
+    static void copy_svint60(int64_t input, uint8_t *out, int8_t vlen) {
+      vlen--;
+      long lng = abs(input);
+      *out++ = ((lng >> (vlen * 8)) & 0x0F) + (vlen << 4) + (input < 0 ? 0x00 : 0x80);
+      while (vlen--)
+        *out++ = ((lng >> (vlen * 8)) & 0xFF);
+    }
     static int read_svint60_len(uint8_t *ptr) {
       return 1 + ((*ptr >> 4) & 0x07);
     }
@@ -414,6 +427,7 @@ class grp_ptr_data_map {
 
   public:
     char data_type;
+    char encoding_type;
     uint32_t max_len;
 
     grp_ptr_data_map() {
@@ -443,20 +457,21 @@ class grp_ptr_data_map {
       else
         ptr_lkup_tbl_mask = 0x00FFFFFF;
       data_type = data_loc[1];
-      max_len = cmn::read_uint32(data_loc + 2);
-      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 6);
-      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 10);
-      two_byte_data_count = cmn::read_uint32(data_loc + 14);
-      idx2_ptr_count = cmn::read_uint32(data_loc + 18);
+      encoding_type = data_loc[2];
+      max_len = cmn::read_uint32(data_loc + 3);
+      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 7);
+      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 11);
+      two_byte_data_count = cmn::read_uint32(data_loc + 15);
+      idx2_ptr_count = cmn::read_uint32(data_loc + 19);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
       idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 22);
-      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 26);
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 30);
+      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 23);
+      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 27);
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 31);
 
       group_count = *grp_data_loc;
       code_lookup_tbl = grp_data_loc + 2;
@@ -488,7 +503,7 @@ class grp_ptr_data_map {
       return false;
     }
 
-    void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val, uint32_t *p_ptr_bit_count = NULL) {
+    uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = NULL) {
       uint32_t ptr_bit_count = UINT32_MAX;
       if (p_ptr_bit_count == NULL)
         p_ptr_bit_count = &ptr_bit_count;
@@ -503,20 +518,53 @@ class grp_ptr_data_map {
       uint32_t ptr = read_extra_ptr(node_id, *p_ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
-      uint8_t *val_loc = grp_data[grp_no] + ptr;
-      int8_t len_of_len = 0;
+      return grp_data[grp_no] + ptr;
+    }
+
+    void get_delta_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
+      uint8_t *val_loc;
+      uint32_t ptr_bit_count = UINT32_MAX;
+      uint32_t delta_node_id = node_id / nodes_per_bv_block3;
+      delta_node_id *= nodes_per_bv_block3;
+      uint8_t *t = trie_loc + (delta_node_id / nodes_per_ptr_block3) * bytes_per_ptr_block3;
+      uint64_t bm_mask = bm_init_mask;
+      uint64_t bm_leaf;
+      cmn::read_uint64(t, bm_leaf);
+      int64_t col_val = 0;
+      do {
+        if (bm_mask & bm_leaf) {
+          val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
+          col_val += cmn::read_svint60(val_loc);
+        }
+        bm_mask <<= 1;
+      } while (delta_node_id++ < node_id);
+      int8_t vlen = cmn::get_svint60_len(col_val);
+      cmn::copy_svint60(col_val, ret_val, vlen);
+      *in_size_out_value_len = vlen;
+    }
+
+    void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val, uint32_t *p_ptr_bit_count = NULL) {
+      uint8_t *val_loc;
       int val_len = 0;
-      if (data_type == DCT_TEXT || data_type == DCT_BIN)
-        val_len = cmn::read_vint32(val_loc, &len_of_len);
-      else if (data_type == DCT_S64_INT || (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9))
-        val_len = cmn::read_svint60_len(val_loc);
-      else if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
-        val_len = cmn::read_svint61_len(val_loc);
-      else if (data_type >= DCT_U15_DEC1 && data_type <= DCT_U15_DEC2)
-        val_len = cmn::read_svint15_len(val_loc);
-      //val_len = cmn::min(*in_size_out_value_len, val_len);
-      *in_size_out_value_len = val_len;
-      memcpy(ret_val, val_loc + len_of_len, val_len);
+      int8_t len_of_len = 0;
+      switch (encoding_type) {
+        case 'u':
+          val_loc = get_val_loc(node_id, p_ptr_bit_count);
+          if (data_type == DCT_TEXT || data_type == DCT_BIN)
+            val_len = cmn::read_vint32(val_loc, &len_of_len);
+          else if (data_type == DCT_S64_INT || (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9))
+            val_len = cmn::read_svint60_len(val_loc);
+          else if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
+            val_len = cmn::read_svint61_len(val_loc);
+          else if (data_type >= DCT_U15_DEC1 && data_type <= DCT_U15_DEC2)
+            val_len = cmn::read_svint15_len(val_loc);
+          //val_len = cmn::min(*in_size_out_value_len, val_len);
+          *in_size_out_value_len = val_len;
+          memcpy(ret_val, val_loc + len_of_len, val_len);
+          break;
+        case 'd':
+          return get_delta_val(node_id, in_size_out_value_len, ret_val);
+      }
     }
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
@@ -911,6 +959,7 @@ class static_dict {
     uint32_t val_count;
     uint8_t *names_pos;
     char *names_loc;
+    const char *column_encoding;
     uint32_t last_exit_loc;
     min_pos_stats min_stats;
     uint8_t *sec_cache_loc;
@@ -951,7 +1000,8 @@ class static_dict {
 
       val_count = cmn::read_uint16(dict_buf + 4);
       names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
-      names_loc = (char *) names_pos + (val_count + 2) * sizeof(uint16_t);
+      names_loc = (char *) names_pos + (val_count + 3) * sizeof(uint16_t);
+      column_encoding = names_loc + madras_dv1::cmn::read_uint16(names_pos);
       val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
       node_count = cmn::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
@@ -1399,6 +1449,26 @@ class static_dict {
       return true;
     }
 
+    const char *get_table_name() {
+      return names_loc + madras_dv1::cmn::read_uint16(names_pos + 2);
+    }
+
+    const char *get_column_name(int i) {
+      return names_loc + madras_dv1::cmn::read_uint16(names_pos + (i + 2) * 2);
+    }
+
+    const char get_column_type(int i) {
+      return names_loc[i];
+    }
+
+    const char get_column_encoding(int i) {
+      return column_encoding[i];
+    }
+
+    const char get_column_count() {
+      return val_count + 1;
+    }
+
     uint8_t *get_trie_loc() {
       return trie_loc;
     }
@@ -1435,6 +1505,7 @@ class static_dict {
       ret /= cmn::pow10(type - DCT_U15_DEC1 + 1);
       return ret;
     }
+
 
 };
 

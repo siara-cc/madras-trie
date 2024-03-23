@@ -530,7 +530,7 @@ class freq_grp_ptrs_data {
       return ptrs.size();
     }
     uint32_t get_total_size() {
-      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 8 * 4 + 2;
+      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 8 * 4 + 3;
     }
     #define nodes_per_ptr_block 256
     #define nodes_per_ptr_block3 64
@@ -538,7 +538,7 @@ class freq_grp_ptrs_data {
       ptr_lkup_tbl_ptr_width = 9;
       if (tot_ptr_bit_count >= (1 << 24))
         ptr_lkup_tbl_ptr_width = 10;
-      ptr_lookup_tbl_loc = 8 * 4 + 2;
+      ptr_lookup_tbl_loc = 8 * 4 + 3;
       ptr_lookup_tbl = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
       two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
       two_byte_data_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
@@ -675,9 +675,10 @@ class freq_grp_ptrs_data {
       }
     }
     void write_ptrs_data(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
-          std::vector<leopard::uniq_info *>& info_vec, char data_type, FILE *fp) {
+          std::vector<leopard::uniq_info *>& info_vec, char data_type, char encoding_type, FILE *fp) {
       fputc(ptr_lkup_tbl_ptr_width, fp);
       fputc(data_type, fp);
+      fputc(encoding_type, fp);
       gen::write_uint32(max_len, fp);
       gen::write_uint32(ptr_lookup_tbl_loc, fp);
       gen::write_uint32(grp_data_loc, fp);
@@ -1222,12 +1223,12 @@ class tail_val_maps {
 
     void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp) {
       tail_ptrs.write_ptrs_data(all_node_sets, tail_ptrs.get_tails_info_fn, true,
-            (std::vector<leopard::uniq_info *>&) uniq_tails_rev, LPDT_BIN, fp);
+            (std::vector<leopard::uniq_info *>&) uniq_tails_rev, LPDT_BIN, 'u', fp);
     }
 
-    void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, FILE *fp) {
+    void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, FILE *fp) {
       val_ptrs.write_ptrs_data(all_node_sets, tail_ptrs.get_vals_info_fn, false,
-            (std::vector<leopard::uniq_info *>&) uniq_vals_fwd, data_type, fp);
+            (std::vector<leopard::uniq_info *>&) uniq_vals_fwd, data_type, encoding_type, fp);
     }
 
     uint32_t get_tail_ptr(uint32_t grp_no, leopard::uniq_info *ti) {
@@ -1403,6 +1404,7 @@ class builder {
     tail_val_maps tail_vals;
     uint32_t val_count;
     char *names;
+    char *value_encoding;
     uint16_t *names_positions;
     uint16_t names_len;
     uint32_t *val_table;
@@ -1416,7 +1418,11 @@ class builder {
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       val_count = _value_count;
       val_table = new uint32_t[_value_count];
-      set_names(_names, _value_types);
+      value_encoding = new char[_value_count + 1];
+      memset(value_encoding, 'u', _value_count + 1);
+      *value_encoding = 't'; // first letter is for key
+      memcpy(value_encoding, _value_compaction, gen::min(strlen(_value_compaction), _value_count + 1));
+      set_names(_names, _value_types, value_encoding);
       common_node_count = 0;
       //art_tree_init(&at);
       memtrie.set_print_enabled(is_bldr_print_enabled);
@@ -1430,6 +1436,7 @@ class builder {
       delete names;
       delete val_table;
       delete names_positions;
+      delete value_encoding;
       if (out_filename != NULL)
         delete out_filename;
       close_file();
@@ -1441,17 +1448,18 @@ class builder {
       fp = NULL;
     }
 
-    void set_names(const char *_names, const char *_value_types) {
+    void set_names(const char *_names, const char *_value_types, const char *_value_encoding) {
       int col_count = val_count + 1;
-      names_len = strlen(_names) + col_count + 1;
+      names_len = strlen(_names) + col_count * 2 + 3;
       names = new char[names_len];
       memset(names, '*', col_count);
       memcpy(names, _value_types, gen::min(strlen(_value_types), col_count));
       names[col_count] = ',';
-      memcpy(names + col_count + 1, _names, names_len);
-      names_len++;
+      memcpy(names + col_count + 1, _value_encoding, col_count);
+      names[col_count * 2 + 1] = ',';
+      memcpy(names + col_count * 2 + 2, _names, strlen(_names));
       // std::cout << names << std::endl;
-      names_positions = new uint16_t[col_count + 1];
+      names_positions = new uint16_t[col_count + 2];
       int idx = 0;
       int name_str_pos = col_count;
       while (name_str_pos < names_len) {
@@ -1463,6 +1471,7 @@ class builder {
       }
       name_str_pos--;
       names[col_count] = '\0';
+      names[col_count * 2 + 1] = '\0';
       names[name_str_pos] = '\0';
     }
 
@@ -1504,12 +1513,53 @@ class builder {
       return node_val;
     }
 
+    void make_delta_values() {
+      leopard::byte_blocks *delta_vals = new leopard::byte_blocks();
+      int64_t prev_val = 0;
+      uint32_t node_id = 0;
+      for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+        leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
+        leopard::node cur_node = cur_ns.first_node();
+        leopard::node_set_header *ns_hdr = cur_ns.get_ns_hdr();
+        node_id = ns_hdr->node_id;
+        if (ns_hdr->flags & NODE_SET_LEAP)
+          node_id++;
+        if ((node_id % nodes_per_bv_block3) == 0)
+          prev_val = 0;
+        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+          if (cur_node.get_flags() & NFLAG_LEAF) {
+            uint32_t val_pos = cur_node.get_col_val();
+            int64_t col_val = leopard::gen::read_svint60((*memtrie.all_vals)[val_pos]);
+            int64_t delta_val = col_val;
+            // std::cout << node_id << ", " << val_pos << ", ";
+            if (node_id % nodes_per_bv_block3)
+              delta_val -= prev_val;
+            prev_val = col_val;
+            // std::cout << col_val << ": " << delta_val << std::endl;
+            val_pos = delta_vals->append_svint60(delta_val);
+            cur_node.set_col_val(val_pos);
+          }
+          node_id++;
+          if ((node_id % nodes_per_bv_block3) == 0)
+            prev_val = 0;
+          cur_node.next();
+        }
+      }
+      std::cout << "All vals len: " << delta_vals->size() << std::endl;
+      delete memtrie.all_vals;
+      memtrie.all_vals = delta_vals;
+    }
+
     uint32_t build_and_write_col_val() {
-      if (memtrie.all_vals.size() > 0) {
-        bldr_printf("Col: %s ", names + names_positions[memtrie.cur_val_idx + 2]);
+      if (memtrie.all_vals->size() > 0) {
+        bldr_printf("Col: %s, ", names + names_positions[memtrie.cur_val_idx + 3]);
         char data_type = memtrie.value_types[memtrie.cur_val_idx + 1];
-        leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, memtrie.all_vals, memtrie.uniq_vals);
-        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_vals,
+        char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
+        bldr_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
+        if (encoding_type == 'd')
+          make_delta_values();
+        leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
+        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
           memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
         tail_vals.build_val_maps(tot_freq_count, data_type);
         for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
@@ -1648,11 +1698,11 @@ class builder {
       fwrite(trie.data(), trie.size(), 1, fp);
       return 0;
     }
-    uint32_t write_val_ptrs_data(char data_type, FILE *fp_val) {
+    uint32_t write_val_ptrs_data(char data_type, char encoding_type, FILE *fp_val) {
       uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0) {
         bldr_printf("Stats - ");
-        tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, fp_val);
+        tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, encoding_type, fp_val);
         val_fp_offset += tail_vals.get_val_grp_ptrs()->get_total_size();
       }
       return val_fp_offset;
@@ -1820,7 +1870,7 @@ class builder {
       memtrie.sort_node_sets();
       bldr_min_pos_stats min_stats = make_min_positions();
 
-      if (memtrie.all_vals.size() == 0) {
+      if (memtrie.all_vals->size() == 0) {
         val_count = 0;
         memtrie.value_count = 0;
       }
@@ -1851,7 +1901,7 @@ class builder {
       uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
       uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
       uint32_t names_loc = child_select_lkup_loc + child_select_lt_sz;
-      col_val_table_loc = names_loc + (val_count + 2) * sizeof(uint16_t) + names_len;
+      col_val_table_loc = names_loc + (val_count + 3) * sizeof(uint16_t) + names_len;
       uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
 
       fp = fopen(out_filename, "wb+");
@@ -1907,7 +1957,7 @@ class builder {
       write_bv_select_lt(BV_CHILD, fp);
 
       uint32_t val_size = 0;
-      if (memtrie.all_vals.size() > 0) {
+      if (memtrie.all_vals->size() > 0) {
         val_table[0] = col_val_loc0;
         write_names(fp);
         write_col_val_table(fp);
@@ -1932,7 +1982,7 @@ class builder {
     }
 
     void write_names(FILE *fp) {
-      int name_count = val_count + 2;
+      int name_count = val_count + 3;
       for (int i = 0; i < name_count; i++)
         gen::write_uint16(names_positions[i], fp);
       fwrite(names, names_len, 1, fp);
@@ -1944,7 +1994,8 @@ class builder {
     }
 
     uint32_t write_col_val() {
-      uint32_t val_size = write_val_ptrs_data(memtrie.value_types[memtrie.cur_val_idx + 1], fp);
+      uint32_t val_size = write_val_ptrs_data(memtrie.value_types[memtrie.cur_val_idx + 1],
+          value_encoding[memtrie.cur_val_idx + 1], fp);
       if (memtrie.cur_val_idx > 0) {
         uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
         val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
@@ -2141,6 +2192,5 @@ class builder {
 // zZ - 0 bit overhead double
 // sub-byte width delta coding
 // inverted delta coding ??
-// 
 
 #endif

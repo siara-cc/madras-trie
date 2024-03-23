@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
   sqlite3_stmt *stmt;
   sqlite3_stmt *stmt_col_names;
   int rc;
-  if (argc < 5) {
+  if (argc < 6) {
     std::cout << std::endl;
     std::cout << "Usage: export_sqlite <db_file> <table_or_select> <key_col_idx> <storage_types>" << std::endl;
     std::cout << std::endl;
@@ -116,6 +116,10 @@ int main(int argc, char* argv[]) {
     std::cout << "                      - : ignore column" << std::endl;
     std::cout << "                      ^ : key column (to match key_col_idx above)" << std::endl;
     std::cout << "                          In this version only 1 key column can be specified" << std::endl;
+    std::cout << "  <encoding_types>  - String having encoding type letter for each column." << std::endl;
+    std::cout << "                      Following types are supported:" << std::endl;
+    std::cout << "                      u : Make unique values (remove duplicates before storing)" << std::endl;
+    std::cout << "                      d : Make unique values and apply delta coding (only for numeric columns)" << std::endl;
     std::cout << std::endl;
     return 1;
   }
@@ -154,6 +158,7 @@ int main(int argc, char* argv[]) {
     sqlite3_close(db);
     return 1;
   }
+  const char *encoding_types = argv[5];
 
   int key_col_idx = atoi(argv[3]);
   std::string column_names = table_name;
@@ -165,7 +170,9 @@ int main(int argc, char* argv[]) {
   }
 
   std::string col_types;
+  std::string col_encodings;
   col_types.append(1, key_col_idx == 0 ? 'i' : storage_types[key_col_idx - 1]);
+  col_encodings.append(1, key_col_idx == 0 ? 'u' : encoding_types[key_col_idx - 1]);
   int exp_col_count = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
@@ -174,9 +181,11 @@ int main(int argc, char* argv[]) {
     column_names.append(",");
     column_names.append(column_name);
     col_types.append(1, storage_types[i]);
+    col_encodings.append(1, encoding_types[i]);
     exp_col_count++;
   }
-  printf("Count: %d, Table/Key/Column names: %s, types: %s\n", exp_col_count, column_names.c_str(), col_types.c_str());
+  printf("Count: %d, Table/Key/Column names: %s, types: %s, encodings: %s\n",
+    exp_col_count, column_names.c_str(), col_types.c_str(), col_encodings.c_str());
 
   if (exp_col_count == 0) {
     std::cerr << "At least 1 column to be specified for export" << std::endl;
@@ -195,7 +204,7 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, "d", col_types.c_str());
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, col_encodings.c_str(), col_types.c_str());
   mb.set_print_enabled();
 
   int exp_col_idx = 0;

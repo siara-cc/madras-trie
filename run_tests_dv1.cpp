@@ -21,7 +21,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "dd", "tt**");
+  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "tuuu", "tttt");
   sb.set_print_enabled(true);
   vector<uint8_t *> lines;
 
