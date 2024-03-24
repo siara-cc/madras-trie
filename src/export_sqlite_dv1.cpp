@@ -62,6 +62,7 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
 void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     int sql_col_idx, int exp_col_idx, int exp_col_type) {
   int rc;
+  const char *null_val = "";
   int64_t ins_seq_id = 0;
   uint8_t key_buf[10];
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -81,7 +82,11 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
-    bool is_success = bldr.memtrie.insert_col_val(val, val_len);
+    if (val == NULL) {
+      val = null_val;
+      val_len = 1;
+    }
+    bool is_success = bldr.insert_col_val(val, val_len);
     if (!is_success) {
       std::cerr << "Error inserting into builder" << std::endl;
       return;

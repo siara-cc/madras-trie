@@ -1405,23 +1405,29 @@ class builder {
     uint32_t val_count;
     char *names;
     char *value_encoding;
+    char *value_types;
     uint16_t *names_positions;
     uint16_t names_len;
     uint32_t *val_table;
     uint32_t col_val_table_loc;
+    builder *col_trie_builder;
     FILE *fp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
-        const char *_value_compaction = "d", const char *_value_types = "t")
-        : memtrie(_value_count, _value_compaction, _value_types),
+        const char *_value_encoding = "uu", const char *_value_types = "tt")
+        : memtrie(_value_count, _value_encoding, _value_types),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
+      col_trie_builder = NULL;
       val_count = _value_count;
       val_table = new uint32_t[_value_count];
       value_encoding = new char[_value_count + 1];
       memset(value_encoding, 'u', _value_count + 1);
       *value_encoding = 't'; // first letter is for key
-      memcpy(value_encoding, _value_compaction, gen::min(strlen(_value_compaction), _value_count + 1));
+      memcpy(value_encoding, _value_encoding, gen::min(strlen(_value_encoding), _value_count + 1));
+      value_types = new char[_value_count + 1];
+      memset(value_types, '*', _value_count + 1);
+      memcpy(value_types, _value_encoding, gen::min(strlen(_value_encoding), _value_count + 1));
       set_names(_names, _value_types, value_encoding);
       common_node_count = 0;
       //art_tree_init(&at);
@@ -1439,6 +1445,8 @@ class builder {
       delete value_encoding;
       if (out_filename != NULL)
         delete out_filename;
+      if (col_trie_builder != NULL)
+        delete col_trie_builder;
       close_file();
     }
 
@@ -1550,14 +1558,39 @@ class builder {
       memtrie.all_vals = delta_vals;
     }
 
+    void build_col_trie() {
+      col_trie_builder->build("col_trie.mdx");
+      std::vector<leopard::val_sequence>& col_trie_val_seq = col_trie_builder->memtrie.val_seq;
+      for (int seq_idx = 0; seq_idx < col_trie_val_seq.size(); seq_idx++) {
+        leopard::val_sequence& val_seq_obj = col_trie_val_seq[seq_idx];
+        if (val_seq_obj.val_pos == UINT_MAX)
+          continue;
+        leopard::node_set_handler col_trie_ns(col_trie_builder->memtrie.all_node_sets, val_seq_obj.node_set_id);
+        leopard::node_set_header *col_trie_ns_hdr = col_trie_ns.get_ns_hdr();
+        int64_t col_trie_node_id = col_trie_ns_hdr->node_id + val_seq_obj.node_idx;
+        if (col_trie_ns_hdr->flags & NODE_SET_LEAP)
+          col_trie_node_id++;
+        uint32_t node_id_val_pos = memtrie.append_val(&col_trie_node_id, 8, '0');
+        leopard::val_sequence& this_val_seq = memtrie.val_seq[seq_idx];
+        leopard::node_set_handler cur_ns(memtrie.all_node_sets, this_val_seq.node_set_id);
+        leopard::node cur_node = cur_ns[this_val_seq.node_idx];
+        cur_node.set_col_val(node_id_val_pos);
+      }
+    }
+
     uint32_t build_and_write_col_val() {
-      if (memtrie.all_vals->size() > 0) {
+        char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
+      if (memtrie.all_vals->size() > 0 || encoding_type == 't') {
         bldr_printf("Col: %s, ", names + names_positions[memtrie.cur_val_idx + 3]);
         char data_type = memtrie.value_types[memtrie.cur_val_idx + 1];
-        char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
         bldr_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
-        if (encoding_type == 'd')
+        if (encoding_type == 't') {
+          build_col_trie();
+        }
+        if (encoding_type == 'd' || encoding_type == 't')
           make_delta_values();
+        if (encoding_type == 't')
+          data_type = '0';
         leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
         uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
           memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
@@ -1578,7 +1611,14 @@ class builder {
     }
 
     void reset_for_next_col() {
-      memtrie.reset_for_next_col();
+      char encoding_type = value_encoding[memtrie.cur_val_idx + 2];
+      if (encoding_type == 't') {
+        if (col_trie_builder != NULL)
+          delete col_trie_builder;
+        col_trie_builder = new builder(NULL, "col_trie,key,val", 1, "*u", "*0");
+        return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
+      }
+      return memtrie.reset_for_next_col();
     }
 
     bool insert_col_val(const void *val, const int val_len) {
@@ -1600,8 +1640,8 @@ class builder {
     }
 
     uint32_t build_trie() {
-      leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, memtrie.all_tails, memtrie.uniq_tails);
-      uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, memtrie.all_tails,
+      leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, *memtrie.all_tails, memtrie.uniq_tails);
+      uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_tails,
           memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
       if (memtrie.uniq_tails_rev.size() > 0)
         tail_vals.build_tail_maps(tot_freq_count);
@@ -2192,5 +2232,6 @@ class builder {
 // zZ - 0 bit overhead double
 // sub-byte width delta coding
 // inverted delta coding ??
+// 
 
 #endif
