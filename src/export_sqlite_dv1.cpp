@@ -218,12 +218,12 @@ int main(int argc, char* argv[]) {
       continue;
     if (exp_col_idx == 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
-      mb.build();
+      mb.write_trie();
     } else {
       mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
-      mb.build_and_write_col_val();
     }
+      mb.build_and_write_col_val();
     sqlite3_reset(stmt);
     exp_col_idx++;
   }

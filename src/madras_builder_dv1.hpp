@@ -61,6 +61,47 @@ static void bldr_printf(const char* format, ...) {
   va_end(args);
 }
 
+struct bldr_min_pos_stats {
+  uint8_t min_b;
+  uint8_t max_b;
+  uint8_t min_len;
+  uint8_t max_len;
+  bldr_min_pos_stats() {
+    max_b = max_len = 0;
+    min_b = min_len = 0xFF;
+  }
+};
+
+struct trie_parts {
+  uint32_t cache_count;
+  uint32_t cache_size;
+  uint32_t sec_cache_count;
+  uint32_t sec_cache_size;
+  uint32_t term_bvlt_sz;
+  uint32_t child_bvlt_sz;
+  uint32_t leaf_bvlt_sz;
+  uint32_t term_select_lt_sz;
+  uint32_t child_select_lt_sz;
+  uint32_t leaf_select_lt_sz;
+  uint32_t dummy_loc;
+  uint32_t common_node_loc;
+  uint32_t cache_loc;
+  uint32_t sec_cache_loc;
+  uint32_t term_select_lkup_loc;
+  uint32_t term_bv_loc;
+  uint32_t child_bv_loc;
+  uint32_t trie_tail_ptrs_data_loc;
+  uint32_t trie_tail_ptrs_data_sz;
+  uint32_t leaf_select_lkup_loc;
+  uint32_t leaf_bv_loc;
+  uint32_t child_select_lkup_loc;
+  uint32_t names_loc;
+  uint32_t col_val_table_loc;
+  uint32_t col_val_loc0;
+  uint32_t total_idx_size;
+  bldr_min_pos_stats min_stats;
+};
+
 class gen {
   public:
     static uint32_t log4(uint32_t val) {
@@ -248,6 +289,40 @@ class gen {
     }
     static uint32_t get_lkup_tbl_size2(uint32_t count, int block_size, int entry_size) {
       return get_lkup_tbl_size(count, block_size, entry_size) + entry_size;
+    }
+};
+
+class int_bit_vector {
+  private:
+    byte_vec *int_ptrs;
+    int bit_len;
+    int count;
+    int last_idx;
+    uint8_t last_byte_bits;
+  public:
+    int_bit_vector(byte_vec *_ptrs, int _bit_len, int _count)
+        : int_ptrs (_ptrs), bit_len (_bit_len), count (_count) {
+      int_ptrs->clear();
+      int_ptrs->reserve(bit_len * count / 8 + 1);
+      int_ptrs->push_back(0);
+      last_byte_bits = 8;
+      last_idx = 0;
+    }
+    void append(uint32_t ptr) {
+      int bits_to_append = bit_len;
+      while (bits_to_append > 0) {
+        if (bits_to_append < last_byte_bits) {
+          last_byte_bits -= bits_to_append;
+          (*int_ptrs)[last_idx] |= (ptr << last_byte_bits);
+          bits_to_append = 0;
+        } else {
+          bits_to_append -= last_byte_bits;
+          (*int_ptrs)[last_idx] |= (ptr >> bits_to_append);
+          int_ptrs->push_back(0);
+          last_byte_bits = 8;
+          last_idx++;
+        }
+      }
     }
 };
 
@@ -530,23 +605,29 @@ class freq_grp_ptrs_data {
       return ptrs.size();
     }
     uint32_t get_total_size() {
-      return get_hdr_size() + get_data_size() + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 8 * 4 + 3;
+      return grp_data_size + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 8 * 4 + 3;
     }
     #define nodes_per_ptr_block 256
     #define nodes_per_ptr_block3 64
-    void build(uint32_t node_count) {
+    void build(uint32_t node_count, char encoding_type = 'u', int col_trie_size = 0) {
       ptr_lkup_tbl_ptr_width = 9;
       if (tot_ptr_bit_count >= (1 << 24))
         ptr_lkup_tbl_ptr_width = 10;
       ptr_lookup_tbl_loc = 8 * 4 + 3;
       ptr_lookup_tbl = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
-      two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
-      two_byte_data_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
-      idx2_ptr_count = get_idx2_ptrs_count();
-      idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
-      grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
-      grp_data_size = get_hdr_size() + get_data_size();
-      grp_ptrs_loc = grp_data_loc + grp_data_size;
+      grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
+      if (encoding_type == 't') {
+        two_byte_count = two_byte_data_loc = idx2_ptr_count = idx2_ptrs_map_loc = 0;
+        grp_data_loc = grp_ptrs_loc + ptrs.size();
+        grp_data_size = col_trie_size;
+      } else {
+        two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
+        two_byte_data_loc = grp_ptrs_loc + ptrs.size();
+        idx2_ptr_count = get_idx2_ptrs_count();
+        idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
+        grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
+        grp_data_size = get_hdr_size() + get_data_size();
+      }
     }
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -598,7 +679,7 @@ class freq_grp_ptrs_data {
       return (leopard::uniq_info *) info_vec[cur_node->get_col_val()];
     }
     void write_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
-          std::vector<leopard::uniq_info *>& info_vec, FILE* fp) {
+          std::vector<leopard::uniq_info *>& info_vec, char encoding_type, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
       uint32_t bit_count3 = 0;
@@ -638,19 +719,24 @@ class freq_grp_ptrs_data {
             pos3++;
           }
         }
-        if (is_tail) {
-          if (cur_node_flags & NFLAG_TAIL) {
-            leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
-            freq_grp& fg = freq_grp_vec[vi->grp_no];
-            bit_count += fg.grp_log2;
-            bit_count3 += fg.grp_log2;
-          }
+        if (encoding_type == 't') {
+          bit_count += 18;
+          bit_count3 += 18;
         } else {
-          if (cur_node_flags & NFLAG_LEAF) {
-            leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
-            freq_grp& fg = freq_grp_vec[vi->grp_no];
-            bit_count += fg.grp_log2;
-            bit_count3 += fg.grp_log2;
+          if (is_tail) {
+            if (cur_node_flags & NFLAG_TAIL) {
+              leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
+              freq_grp& fg = freq_grp_vec[vi->grp_no];
+              bit_count += fg.grp_log2;
+              bit_count3 += fg.grp_log2;
+            }
+          } else {
+            if (cur_node_flags & NFLAG_LEAF) {
+              leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
+              freq_grp& fg = freq_grp_vec[vi->grp_no];
+              bit_count += fg.grp_log2;
+              bit_count3 += fg.grp_log2;
+            }
           }
         }
         node_id++;
@@ -687,14 +773,16 @@ class freq_grp_ptrs_data {
       gen::write_uint32(grp_ptrs_loc, fp);
       gen::write_uint32(two_byte_data_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
-      write_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, fp);
-      fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
-      byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
-      fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
-      write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
+      write_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type, fp);
       write_ptrs(fp);
+      if (encoding_type != 't') {
+        fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
+        byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
+        fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
+        write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
+      }
       bldr_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Uniq count: %u, Total size: %u\n\n",
-        get_data_size(), get_ptrs_size(), ptr_lookup_tbl, idx2_ptrs_map->size(), info_vec.size(), get_total_size());
+        get_data_size(), get_ptrs_size(), ptr_lookup_tbl, get_idx2_ptrs_map()->size(), info_vec.size(), get_total_size());
     }
     void reset_freq_counts() {
       for (int i = 1; i < freq_grp_vec.size(); i++) {
@@ -1409,15 +1497,16 @@ class builder {
     uint16_t *names_positions;
     uint16_t names_len;
     uint32_t *val_table;
-    uint32_t col_val_table_loc;
     builder *col_trie_builder;
     FILE *fp;
+    trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
         const char *_value_encoding = "uu", const char *_value_types = "tt")
         : memtrie(_value_count, _value_encoding, _value_types),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
+      memset(&tp, '\0', sizeof(tp));
       col_trie_builder = NULL;
       val_count = _value_count;
       val_table = new uint32_t[_value_count];
@@ -1558,9 +1647,10 @@ class builder {
       memtrie.all_vals = delta_vals;
     }
 
-    void build_col_trie() {
-      col_trie_builder->build("col_trie.mdx");
+    uint32_t build_col_trie() {
+      uint32_t col_trie_size = col_trie_builder->build();
       std::vector<leopard::val_sequence>& col_trie_val_seq = col_trie_builder->memtrie.val_seq;
+      uint32_t max_node_id = 0;
       for (int seq_idx = 0; seq_idx < col_trie_val_seq.size(); seq_idx++) {
         leopard::val_sequence& val_seq_obj = col_trie_val_seq[seq_idx];
         if (val_seq_obj.val_pos == UINT_MAX)
@@ -1570,44 +1660,69 @@ class builder {
         int64_t col_trie_node_id = col_trie_ns_hdr->node_id + val_seq_obj.node_idx;
         if (col_trie_ns_hdr->flags & NODE_SET_LEAP)
           col_trie_node_id++;
-        uint32_t node_id_val_pos = memtrie.append_val(&col_trie_node_id, 8, '0');
+        if (max_node_id < col_trie_node_id)
+          max_node_id = col_trie_node_id;
         leopard::val_sequence& this_val_seq = memtrie.val_seq[seq_idx];
         leopard::node_set_handler cur_ns(memtrie.all_node_sets, this_val_seq.node_set_id);
         leopard::node cur_node = cur_ns[this_val_seq.node_idx];
-        cur_node.set_col_val(node_id_val_pos);
+        cur_node.set_col_val(col_trie_node_id);
       }
+      byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
+      int bit_len = ceil(log2(max_node_id));
+      bldr_printf("Col trie bit_len: %d\n", bit_len);
+      int_bit_vector int_bv(val_ptrs, bit_len, memtrie.node_count);
+      int counter = 0;
+      for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+        leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
+        leopard::node cur_node = cur_ns.first_node();
+        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+          if (cur_node.get_flags() & NFLAG_LEAF) {
+            int_bv.append(cur_node.get_col_val());
+            counter++;
+          }
+          cur_node.next();
+        }
+      }
+      bldr_printf("Col trie ptr count: %d\n", counter);
+      return col_trie_size;
     }
 
     uint32_t build_and_write_col_val() {
-        char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
+      char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
       if (memtrie.all_vals->size() > 0 || encoding_type == 't') {
         bldr_printf("Col: %s, ", names + names_positions[memtrie.cur_val_idx + 3]);
         char data_type = memtrie.value_types[memtrie.cur_val_idx + 1];
         bldr_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
-        if (encoding_type == 't') {
-          build_col_trie();
-        }
-        if (encoding_type == 'd' || encoding_type == 't')
+        if (encoding_type == 'd')
           make_delta_values();
-        if (encoding_type == 't')
-          data_type = '0';
-        leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
-        uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
-          memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
-        tail_vals.build_val_maps(tot_freq_count, data_type);
-        for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
-          leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
-          leopard::node cur_node = cur_ns.first_node();
-          for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
-            append_val_ptr(&cur_node);
-            cur_node.next();
+        if (encoding_type == 't') {
+          uint32_t col_trie_size = build_col_trie();
+          freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
+          val_ptrs->build(memtrie.node_count, encoding_type, col_trie_size);
+        } else {
+          leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
+          uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
+            memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
+          tail_vals.build_val_maps(tot_freq_count, data_type);
+          for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+            leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
+            leopard::node cur_node = cur_ns.first_node();
+            for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+              append_val_ptr(&cur_node);
+              cur_node.next();
+            }
           }
+          tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8); // read beyond protection
+          freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
+          val_ptrs->build(memtrie.node_count);
         }
-        tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8); // read beyond protection
-        freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
-        val_ptrs->build(memtrie.node_count);
       }
-      return write_col_val();
+      uint32_t val_size = write_col_val();
+      bldr_printf("Val Size: %u\n", val_size);
+      if (encoding_type == 't') {
+        col_trie_builder->write_trie(NULL);
+      }
+      return val_size;
     }
 
     void reset_for_next_col() {
@@ -1615,7 +1730,8 @@ class builder {
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
-        col_trie_builder = new builder(NULL, "col_trie,key,val", 1, "*u", "*0");
+        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*");
+        col_trie_builder->fp = fp;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
       return memtrie.reset_for_next_col();
@@ -1740,7 +1856,7 @@ class builder {
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, FILE *fp_val) {
       uint32_t val_fp_offset = 0;
-      if (get_uniq_val_count() > 0) {
+      if (get_uniq_val_count() > 0 || encoding_type == 't') {
         bldr_printf("Stats - ");
         tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, encoding_type, fp_val);
         val_fp_offset += tail_vals.get_val_grp_ptrs()->get_total_size();
@@ -1832,17 +1948,6 @@ class builder {
       return freq_count;
     }
 
-    struct bldr_min_pos_stats {
-      uint8_t min_b;
-      uint8_t max_b;
-      uint8_t min_len;
-      uint8_t max_len;
-      bldr_min_pos_stats() {
-        max_b = max_len = 0;
-        min_b = min_len = 0xFF;
-      }
-    };
-
     uint8_t min_pos[256][256];
     bldr_min_pos_stats make_min_positions() {
       bldr_min_pos_stats stats;
@@ -1899,56 +2004,82 @@ class builder {
     #define BV_LEAF 1
     #define BV_CHILD 2
     #define BV_TERM 3
-    void build(const char *filename = NULL) {
-
-      set_out_file(filename);
+    uint32_t build() {
 
       clock_t t = clock();
 
       printf("Key count: %u\n", memtrie.key_count);
 
       memtrie.sort_node_sets();
-      bldr_min_pos_stats min_stats = make_min_positions();
+      tp.min_stats = make_min_positions();
 
-      if (memtrie.all_vals->size() == 0) {
-        val_count = 0;
-        memtrie.value_count = 0;
-      }
+      // if (memtrie.all_vals->size() == 0) {
+      //   val_count = 0;
+      //   memtrie.value_count = 0;
+      // }
 
-      uint32_t cache_count = build_cache();
-      uint32_t cache_size = cache_count * sizeof(bldr_cache);
+      tp.cache_count = build_cache();
+      tp.cache_size = tp.cache_count * sizeof(bldr_cache);
+      tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
+      tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256;
+      tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, 7);
+      tp.child_bvlt_sz = tp.term_bvlt_sz;
+      tp.leaf_bvlt_sz = tp.term_bvlt_sz;
+      tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
+      tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
+      tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
+      tp.dummy_loc = 4 + 10 + 18 * 4; // 86
+      tp.common_node_loc = tp.dummy_loc + 0;
+      tp.cache_loc = tp.common_node_loc + ceil(common_node_count * 1.5);
+      tp.sec_cache_loc = tp.cache_loc + tp.cache_size;
+      tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
+      tp.term_bv_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
+      tp.child_bv_loc = tp.term_bv_loc + tp.term_bvlt_sz;
+      tp.trie_tail_ptrs_data_loc = tp.child_bv_loc + tp.child_bvlt_sz;
+      tp.trie_tail_ptrs_data_sz = build_trie();
+      tp.leaf_select_lkup_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
+      tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
+      tp.child_select_lkup_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
+      tp.names_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
+      tp.col_val_table_loc = tp.names_loc + (val_count + 3) * sizeof(uint16_t) + names_len;
+      tp.col_val_loc0 = tp.col_val_table_loc + val_count * sizeof(uint32_t);
+      tp.total_idx_size = 4 + 18 * 4 + tp.cache_size + tp.sec_cache_size +
+                tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
+                tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz;
+      tp.total_idx_size += trie_data_ptr_size();
 
-      uint32_t sec_cache_count = decide_min_stat_to_use(min_stats);
-      uint32_t sec_cache_size = (min_stats.max_len - min_stats.min_len + 1) * 256;
+      gen::print_time_taken(t, "Time taken for build(): ");
 
-      uint32_t term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, 7);
-      uint32_t child_bvlt_sz = term_bvlt_sz;
-      uint32_t leaf_bvlt_sz = term_bvlt_sz;
-      uint32_t term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
-      uint32_t child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
-      uint32_t leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
+      return tp.total_idx_size;
 
-      uint32_t dummy_loc = 4 + 10 + 18 * 4; // 86
-      uint32_t common_node_loc = dummy_loc + 0;
-      uint32_t cache_loc = common_node_loc + ceil(common_node_count * 1.5);
-      uint32_t sec_cache_loc = cache_loc + cache_size;
-      uint32_t term_select_lkup_loc = sec_cache_loc + sec_cache_size;
-      uint32_t term_bv_loc = term_select_lkup_loc + term_select_lt_sz;
-      uint32_t child_bv_loc = term_bv_loc + term_bvlt_sz;
-      uint32_t trie_tail_ptrs_data_loc = child_bv_loc + child_bvlt_sz;
-      uint32_t trie_tail_ptrs_data_sz = build_trie();
-      uint32_t leaf_select_lkup_loc = trie_tail_ptrs_data_loc + trie_tail_ptrs_data_sz;
-      uint32_t leaf_bv_loc = leaf_select_lkup_loc + leaf_select_lt_sz;
-      uint32_t child_select_lkup_loc = leaf_bv_loc + leaf_bvlt_sz;
-      uint32_t names_loc = child_select_lkup_loc + child_select_lt_sz;
-      col_val_table_loc = names_loc + (val_count + 3) * sizeof(uint16_t) + names_len;
-      uint32_t col_val_loc0 = col_val_table_loc + val_count * sizeof(uint32_t);
+    }
 
+    void open_file() {
+      if (fp != NULL)
+        fclose(fp);
       fp = fopen(out_filename, "wb+");
       fclose(fp);
       fp = fopen(out_filename, "rb+");
       if (fp == NULL)
         throw errno;
+    }
+
+    void write_trie(const char *filename = NULL) {
+
+      if (tp.names_loc == 0)
+        build();
+
+      clock_t t = clock();
+      if (filename != NULL) {
+        set_out_file(filename);
+        if (fp != NULL) {
+          close_file();
+          fp = NULL;
+        }
+      }
+
+      if (fp == NULL)
+        open_file();
 
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
@@ -1956,68 +2087,64 @@ class builder {
       fputc(0, fp);
 
       gen::write_uint16(memtrie.value_count, fp);
-      gen::write_uint32(names_loc, fp);
-      gen::write_uint32(col_val_table_loc, fp);
+      gen::write_uint32(tp.names_loc, fp);
+      gen::write_uint32(tp.col_val_table_loc, fp);
 
       gen::write_uint32(memtrie.node_count, fp);
-      gen::write_uint32(dummy_loc, fp);
+      gen::write_uint32(tp.dummy_loc, fp);
       gen::write_uint32(common_node_count, fp);
       gen::write_uint32(memtrie.key_count, fp);
       gen::write_uint32(memtrie.max_key_len, fp);
       gen::write_uint32(memtrie.max_val_len, fp);
       gen::write_uint16(memtrie.max_tail_len, fp);
       gen::write_uint16(memtrie.max_level, fp);
-      gen::write_uint32(cache_count, fp);
-      fwrite(&min_stats, 4, 1, fp);
-      gen::write_uint32(cache_loc, fp);
-      gen::write_uint32(sec_cache_loc, fp);
+      gen::write_uint32(tp.cache_count, fp);
+      fwrite(&tp.min_stats, 4, 1, fp);
+      gen::write_uint32(tp.cache_loc, fp);
+      gen::write_uint32(tp.sec_cache_loc, fp);
 
-      gen::write_uint32(term_select_lkup_loc, fp);
-      gen::write_uint32(term_bv_loc, fp);
-      gen::write_uint32(child_select_lkup_loc, fp);
-      gen::write_uint32(child_bv_loc, fp);
-      gen::write_uint32(leaf_select_lkup_loc, fp);
-      gen::write_uint32(leaf_bv_loc, fp);
-      gen::write_uint32(trie_tail_ptrs_data_loc, fp);
+      gen::write_uint32(tp.term_select_lkup_loc, fp);
+      gen::write_uint32(tp.term_bv_loc, fp);
+      gen::write_uint32(tp.child_select_lkup_loc, fp);
+      gen::write_uint32(tp.child_bv_loc, fp);
+      gen::write_uint32(tp.leaf_select_lkup_loc, fp);
+      gen::write_uint32(tp.leaf_bv_loc, fp);
+      gen::write_uint32(tp.trie_tail_ptrs_data_loc, fp);
 
       write_pri_cache(node_cache_vec, fp);
-      write_sec_cache(min_stats, sec_cache_size, fp);
+      write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
       write_bv_select_lt(BV_TERM, fp);
       write_bv_rank_lt(BV_TERM, fp);
       write_bv_rank_lt(BV_CHILD, fp);
 
-      uint32_t total_idx_size = 4 + 18 * 4 + cache_size + sec_cache_size +
-                term_select_lt_sz + term_bvlt_sz + child_bvlt_sz +
-                leaf_select_lt_sz + child_select_lt_sz + leaf_bvlt_sz;
       write_trie_tail_ptrs_data(fp);
 
-      total_idx_size += trie_data_ptr_size();
       write_bv_select_lt(BV_LEAF, fp);
       write_bv_rank_lt(BV_LEAF, fp);
       write_bv_select_lt(BV_CHILD, fp);
 
       uint32_t val_size = 0;
       if (memtrie.all_vals->size() > 0) {
-        val_table[0] = col_val_loc0;
+        val_table[0] = tp.col_val_loc0;
         write_names(fp);
         write_col_val_table(fp);
         val_size = build_and_write_col_val();
       }
       
-      uint32_t total_size = total_idx_size + val_size;
+      uint32_t total_size = tp.total_idx_size + val_size;
 
       bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
         "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
-            memtrie.node_count, term_bvlt_sz * 2, leaf_bvlt_sz, term_select_lt_sz, child_select_lt_sz, leaf_select_lt_sz,
-            cache_size, sizeof(bldr_cache), sec_cache_size, sizeof(leopard::node), memtrie.max_tail_len);
+            memtrie.node_count, tp.term_bvlt_sz * 2, tp.leaf_bvlt_sz, tp.term_select_lt_sz, tp.child_select_lt_sz, tp.leaf_select_lt_sz,
+            tp.cache_size, sizeof(bldr_cache), tp.sec_cache_size, sizeof(leopard::node), memtrie.max_tail_len);
 
       // fp = fopen("nodes.txt", "wb+");
       // // dump_nodes(first_node, fp);
       // find_rpt_nodes(fp);
       // fclose(fp);
 
-      gen::print_time_taken(t, "Time taken for build(): ");
-      bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", total_idx_size, val_size, total_size);
+      gen::print_time_taken(t, "Time taken for write_trie(): ");
+      bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", tp.total_idx_size, val_size, total_size);
 
     }
 
@@ -2045,7 +2172,7 @@ class builder {
     }
 
     void write_final_val_table() {
-      fseek(fp, col_val_table_loc, SEEK_SET);
+      fseek(fp, tp.col_val_table_loc, SEEK_SET);
       fwrite(val_table, val_count * sizeof(uint32_t), 1, fp);
       bldr_printf("Total size: %u\n", val_table[memtrie.cur_val_idx] + memtrie.prev_val_size);
       close_file();
