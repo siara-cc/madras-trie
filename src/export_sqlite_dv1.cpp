@@ -50,11 +50,7 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
-    if (key_len == 0) {
-      bldr.insert((const uint8_t *) "", 1, val, val_len);
-    } else {
-      bldr.insert(key, key_len, val, val_len);
-    }
+    bldr.insert(key, key_len, val, val_len);
     ins_seq_id++;
   }
 }
@@ -222,8 +218,8 @@ int main(int argc, char* argv[]) {
     } else {
       mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
-    }
       mb.build_and_write_col_val();
+    }
     sqlite3_reset(stmt);
     exp_col_idx++;
   }
@@ -272,10 +268,10 @@ int main(int argc, char* argv[]) {
         if (is_success) {
           val_buf[val_len] = '\0';
           if (val_len != sql_val_len)
-            std::cout << "Val len mismatch: " << node_id << ", " << val_len << ": " << sql_val_len << std::endl;
+            std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << val_buf << ": " << val_len << ": " << sql_val_len << std::endl;
           else {
             if (memcmp(sql_val, val_buf, val_len) != 0)
-              std::cout << "Val not maching: " << node_id << ", " << sql_val << ": " << val_buf << std::endl;
+              std::cout << "Val not maching: " << node_id << ", " << col_val_idx << " - " << sql_val << ": " << val_buf << std::endl;
           }
         }
       } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
@@ -286,7 +282,7 @@ int main(int argc, char* argv[]) {
         if (is_success) {
           int64_t i64 = exp_col_type == LPDT_S64_INT ? sd.get_val_int60(val) : (int64_t) sd.get_val_int61(val);
           if (i64 != sql_val)
-            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << ", " << sql_val << ":" << i64 << std::endl;
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " - " << sql_val << ":" << i64 << std::endl;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
       } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
@@ -314,9 +310,9 @@ int main(int argc, char* argv[]) {
               break;
           }
           if (dbl_val != sql_val)
-            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << ", " << sql_val << ":" << dbl_val << ":" << int_val << std::endl;
+            std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " - " << sql_val << ":" << dbl_val << ":" << int_val << std::endl;
         } else
-          std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
+          std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " = " << sql_val << std::endl;
       }
       col_val_idx++;
     }

@@ -418,6 +418,7 @@ class freq_grp_ptrs_data {
     int last_byte_bits;
     int idx_limit;
     int start_bits;
+    char enc_type;
     uint8_t idx_ptr_size;
     uint8_t ptr_lkup_tbl_ptr_width;
     uint32_t next_idx;
@@ -605,16 +606,27 @@ class freq_grp_ptrs_data {
       return ptrs.size();
     }
     uint32_t get_total_size() {
+      if (enc_type == 't')
+        return grp_data_size + get_ptrs_size() + ptr_lookup_tbl + 8 * 4 + 3;
       return grp_data_size + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl + 8 * 4 + 3;
+    }
+    void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
+      ptr_lkup_tbl_ptr_width = width;
     }
     #define nodes_per_ptr_block 256
     #define nodes_per_ptr_block3 64
     void build(uint32_t node_count, char encoding_type = 'u', int col_trie_size = 0) {
-      ptr_lkup_tbl_ptr_width = 9;
-      if (tot_ptr_bit_count >= (1 << 24))
-        ptr_lkup_tbl_ptr_width = 10;
+      enc_type = encoding_type;
+      if (encoding_type != 't') {
+        ptr_lkup_tbl_ptr_width = 9;
+        if (tot_ptr_bit_count >= (1 << 24))
+          ptr_lkup_tbl_ptr_width = 10;
+      }
       ptr_lookup_tbl_loc = 8 * 4 + 3;
-      ptr_lookup_tbl = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
+      if (encoding_type == 't')
+        ptr_lookup_tbl = 0;
+      else
+        ptr_lookup_tbl = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl;
       if (encoding_type == 't') {
         two_byte_count = two_byte_data_loc = idx2_ptr_count = idx2_ptrs_map_loc = 0;
@@ -679,7 +691,7 @@ class freq_grp_ptrs_data {
       return (leopard::uniq_info *) info_vec[cur_node->get_col_val()];
     }
     void write_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
-          std::vector<leopard::uniq_info *>& info_vec, char encoding_type, FILE* fp) {
+          std::vector<leopard::uniq_info *>& info_vec, FILE* fp) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
       uint32_t bit_count3 = 0;
@@ -719,24 +731,19 @@ class freq_grp_ptrs_data {
             pos3++;
           }
         }
-        if (encoding_type == 't') {
-          bit_count += 18;
-          bit_count3 += 18;
+        if (is_tail) {
+          if (cur_node_flags & NFLAG_TAIL) {
+            leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
+            freq_grp& fg = freq_grp_vec[vi->grp_no];
+            bit_count += fg.grp_log2;
+            bit_count3 += fg.grp_log2;
+          }
         } else {
-          if (is_tail) {
-            if (cur_node_flags & NFLAG_TAIL) {
-              leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
-              freq_grp& fg = freq_grp_vec[vi->grp_no];
-              bit_count += fg.grp_log2;
-              bit_count3 += fg.grp_log2;
-            }
-          } else {
-            if (cur_node_flags & NFLAG_LEAF) {
-              leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
-              freq_grp& fg = freq_grp_vec[vi->grp_no];
-              bit_count += fg.grp_log2;
-              bit_count3 += fg.grp_log2;
-            }
+          if (cur_node_flags & NFLAG_LEAF) {
+            leopard::uniq_info *vi = get_info_func(&cur_node, info_vec);
+            freq_grp& fg = freq_grp_vec[vi->grp_no];
+            bit_count += fg.grp_log2;
+            bit_count3 += fg.grp_log2;
           }
         }
         node_id++;
@@ -773,9 +780,11 @@ class freq_grp_ptrs_data {
       gen::write_uint32(grp_ptrs_loc, fp);
       gen::write_uint32(two_byte_data_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
-      write_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type, fp);
-      write_ptrs(fp);
-      if (encoding_type != 't') {
+      if (encoding_type == 't') {
+        write_ptrs(fp);
+      } else {
+        write_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, fp);
+        write_ptrs(fp);
         fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
         fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
@@ -1536,7 +1545,7 @@ class builder {
         delete out_filename;
       if (col_trie_builder != NULL)
         delete col_trie_builder;
-      close_file();
+      //close_file(); // TODO: Close for nested tries?
     }
 
     void close_file() {
@@ -1648,13 +1657,15 @@ class builder {
     }
 
     uint32_t build_col_trie() {
+      if (col_trie_builder == NULL) {
+        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*");
+        col_trie_builder->fp = fp;
+      }
       uint32_t col_trie_size = col_trie_builder->build();
       std::vector<leopard::val_sequence>& col_trie_val_seq = col_trie_builder->memtrie.val_seq;
       uint32_t max_node_id = 0;
       for (int seq_idx = 0; seq_idx < col_trie_val_seq.size(); seq_idx++) {
         leopard::val_sequence& val_seq_obj = col_trie_val_seq[seq_idx];
-        if (val_seq_obj.val_pos == UINT_MAX)
-          continue;
         leopard::node_set_handler col_trie_ns(col_trie_builder->memtrie.all_node_sets, val_seq_obj.node_set_id);
         leopard::node_set_header *col_trie_ns_hdr = col_trie_ns.get_ns_hdr();
         int64_t col_trie_node_id = col_trie_ns_hdr->node_id + val_seq_obj.node_idx;
@@ -1669,6 +1680,7 @@ class builder {
       }
       byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
       int bit_len = ceil(log2(max_node_id));
+      tail_vals.get_val_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       bldr_printf("Col trie bit_len: %d\n", bit_len);
       int_bit_vector int_bv(val_ptrs, bit_len, memtrie.node_count);
       int counter = 0;
@@ -1689,7 +1701,7 @@ class builder {
 
     uint32_t build_and_write_col_val() {
       char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
-      if (memtrie.all_vals->size() > 0 || encoding_type == 't') {
+      if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
         bldr_printf("Col: %s, ", names + names_positions[memtrie.cur_val_idx + 3]);
         char data_type = memtrie.value_types[memtrie.cur_val_idx + 1];
         bldr_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
@@ -1720,7 +1732,9 @@ class builder {
       uint32_t val_size = write_col_val();
       bldr_printf("Val Size: %u\n", val_size);
       if (encoding_type == 't') {
+        size_t start = ftell(fp);
         col_trie_builder->write_trie(NULL);
+        bldr_printf("FTELL TRIE_SIZE: %u\n", ftell(fp) - start);
       }
       return val_size;
     }
@@ -1864,7 +1878,7 @@ class builder {
       return val_fp_offset;
     }
     size_t trie_data_ptr_size() {
-      size_t ret = 8 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
+      size_t ret = 4 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
       //if (get_uniq_val_count() > 0)
       //  ret += tail_vals.get_val_grp_ptrs()->get_total_size();
       return ret;
@@ -2043,7 +2057,7 @@ class builder {
       tp.names_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
       tp.col_val_table_loc = tp.names_loc + (val_count + 3) * sizeof(uint16_t) + names_len;
       tp.col_val_loc0 = tp.col_val_table_loc + val_count * sizeof(uint32_t);
-      tp.total_idx_size = 4 + 18 * 4 + tp.cache_size + tp.sec_cache_size +
+      tp.total_idx_size = 4 + 10 + 18 * 4 + tp.cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
                 tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz;
       tp.total_idx_size += trie_data_ptr_size();
@@ -2124,7 +2138,7 @@ class builder {
       write_bv_select_lt(BV_CHILD, fp);
 
       uint32_t val_size = 0;
-      if (memtrie.all_vals->size() > 0) {
+      if (memtrie.all_vals->size() > 2) {
         val_table[0] = tp.col_val_loc0;
         write_names(fp);
         write_col_val_table(fp);

@@ -16,6 +16,84 @@
 
 namespace madras_dv1 {
 
+class dict_iter_ctx {
+  public:
+    int32_t cur_idx;
+    uint16_t key_len;
+    uint8_t *key;
+    uint32_t *node_path;
+    uint32_t *child_count;
+    uint16_t *last_tail_len;
+    bool to_skip_first_leaf;
+    bool is_allocated = false;
+    dict_iter_ctx() {
+      is_allocated = false;
+    }
+    ~dict_iter_ctx() {
+      close();
+    }
+    void close() {
+      if (is_allocated) {
+        delete key;
+        delete node_path;
+        delete child_count;
+        delete last_tail_len;
+      }
+      is_allocated = false;
+    }
+    void init(uint16_t max_key_len, uint16_t max_level) {
+      if (!is_allocated) {
+        key = new uint8_t[max_key_len];
+        node_path = new uint32_t[max_level];
+        child_count = new uint32_t[max_level];
+        last_tail_len = new uint16_t[max_level];
+      }
+      memset(node_path, '\0', max_level * sizeof(uint32_t));
+      memset(child_count, '\0', max_level * sizeof(uint32_t));
+      memset(last_tail_len, '\0', max_level * sizeof(uint16_t));
+      cur_idx = key_len = 0;
+      to_skip_first_leaf = false;
+      is_allocated = true;
+    }
+};
+
+class int_bv_reader {
+  private:
+    uint8_t *int_bv;
+    int bit_len;
+  public:
+    int_bv_reader() {
+    }
+    void init(uint8_t *_int_bv, int _bit_len) {
+      int_bv = _int_bv;
+      bit_len = _bit_len;
+    }
+    uint32_t operator[](int pos) {
+      uint32_t bit_pos = pos * bit_len;
+      uint32_t byte_pos = bit_pos / 8;
+      uint8_t bits_occu = (bit_pos % 8);
+      const uint8_t *loc = int_bv + byte_pos;
+      uint32_t ret = *loc++ & (0xFF >> bits_occu);
+      int bits_left = bit_len + (bits_occu - 8);
+      while (bits_left > 0) {
+        ret = (ret << 8) | *loc++;
+        bits_left -= 8;
+      }
+      ret >>= (bits_left * -1);
+      return ret;
+    }
+};
+
+class static_dict_fwd {
+  public:
+    virtual ~static_dict_fwd() {
+    }
+    virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
+    virtual void map_from_memory(uint8_t *mem) = 0;
+    virtual uint32_t leaf_rank(uint32_t node_id) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, uint8_t *ret_val = NULL, dict_iter_ctx *ctx = NULL) = 0;
+};
+
 #define DCT_INSERT_AFTER -2
 #define DCT_INSERT_BEFORE -3
 #define DCT_INSERT_LEAF -4
@@ -429,6 +507,9 @@ class grp_ptr_data_map {
     char data_type;
     char encoding_type;
     uint32_t max_len;
+    static_dict_fwd *dict_obj;
+    static_dict_fwd *col_trie;
+    int_bv_reader col_trie_int_bv;
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
@@ -438,16 +519,18 @@ class grp_ptr_data_map {
     ~grp_ptr_data_map() {
       if (grp_data != NULL)
         delete grp_data;
-      grp_data = NULL;
+      if (col_trie != NULL)
+        delete col_trie;
     }
 
     bool exists() {
       return dict_buf != NULL;
     }
 
-    void init(uint8_t *_dict_buf, uint8_t *_trie_loc, uint8_t *data_loc, uint32_t _node_count) {
+    void init(uint8_t *_dict_buf, static_dict_fwd *_dict_obj, uint8_t *_trie_loc, uint8_t *data_loc, uint32_t _node_count, bool is_tail) {
 
       dict_buf = _dict_buf;
+      dict_obj = _dict_obj;
       trie_loc = _trie_loc;
       node_count = _node_count;
 
@@ -473,16 +556,22 @@ class grp_ptr_data_map {
       two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 27);
       idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 31);
 
-      group_count = *grp_data_loc;
-      code_lookup_tbl = grp_data_loc + 2;
-      uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
-      grp_data = new uint8_t*[group_count];
-      for (int i = 0; i < group_count; i++)
-        grp_data[i] = data_loc + cmn::read_uint32(grp_data_idx_start + i * 4);
-      int _start_bits = start_bits;
-      for (int i = 1; i <= grp_idx_limit; i++) {
-        idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
-        _start_bits += idx_step_bits;
+      col_trie = NULL;
+      if (encoding_type == 't' && !is_tail) {
+        col_trie = dict_obj->new_instance(grp_data_loc);
+        col_trie_int_bv.init(ptrs_loc, ptr_lkup_tbl_ptr_width);
+      } else {
+        group_count = *grp_data_loc;
+        code_lookup_tbl = grp_data_loc + 2;
+        uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
+        grp_data = new uint8_t*[group_count];
+        for (int i = 0; i < group_count; i++)
+          grp_data[i] = data_loc + cmn::read_uint32(grp_data_idx_start + i * 4);
+        int _start_bits = start_bits;
+        for (int i = 1; i <= grp_idx_limit; i++) {
+          idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
+          _start_bits += idx_step_bits;
+        }
       }
     }
 
@@ -543,6 +632,12 @@ class grp_ptr_data_map {
       *in_size_out_value_len = vlen;
     }
 
+    void get_col_trie_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
+      uint32_t ptr_pos = dict_obj->leaf_rank(node_id);
+      uint32_t col_trie_node_id = col_trie_int_bv[ptr_pos];
+      col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, ret_val);
+    }
+
     void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val, uint32_t *p_ptr_bit_count = NULL) {
       uint8_t *val_loc;
       int val_len = 0;
@@ -562,6 +657,8 @@ class grp_ptr_data_map {
           *in_size_out_value_len = val_len;
           memcpy(ret_val, val_loc + len_of_len, val_len);
           break;
+        case 't':
+          return get_col_trie_val(node_id, in_size_out_value_len, ret_val);
         case 'd':
           return get_delta_val(node_id, in_size_out_value_len, ret_val);
       }
@@ -879,48 +976,7 @@ class bv_lookup_tbl {
 
 };
 
-class dict_iter_ctx {
-  public:
-    int32_t cur_idx;
-    uint16_t key_len;
-    uint8_t *key;
-    uint32_t *node_path;
-    uint32_t *child_count;
-    uint16_t *last_tail_len;
-    bool to_skip_first_leaf;
-    bool is_allocated = false;
-    dict_iter_ctx() {
-      is_allocated = false;
-    }
-    ~dict_iter_ctx() {
-      close();
-    }
-    void close() {
-      if (is_allocated) {
-        delete key;
-        delete node_path;
-        delete child_count;
-        delete last_tail_len;
-      }
-      is_allocated = false;
-    }
-    void init(uint16_t max_key_len, uint16_t max_level) {
-      if (!is_allocated) {
-        key = new uint8_t[max_key_len];
-        node_path = new uint32_t[max_level];
-        child_count = new uint32_t[max_level];
-        last_tail_len = new uint16_t[max_level];
-      }
-      memset(node_path, '\0', max_level * sizeof(uint32_t));
-      memset(child_count, '\0', max_level * sizeof(uint32_t));
-      memset(last_tail_len, '\0', max_level * sizeof(uint16_t));
-      cur_idx = key_len = 0;
-      to_skip_first_leaf = false;
-      is_allocated = true;
-    }
-};
-
-class static_dict {
+class static_dict : public static_dict_fwd {
 
   private:
     uint8_t *val_buf;
@@ -947,10 +1003,6 @@ class static_dict {
     uint8_t *trie_loc;
     uint8_t *val_table_loc;
 
-    bv_lookup_tbl term_lt;
-    bv_lookup_tbl child_lt;
-    bv_lookup_tbl leaf_lt;
-
     static_dict(static_dict const&);
     static_dict& operator=(static_dict const&);
 
@@ -965,6 +1017,9 @@ class static_dict {
     uint8_t *sec_cache_loc;
     grp_ptr_data_map tail_map;
     grp_ptr_data_map *val_map;
+    bv_lookup_tbl term_lt;
+    bv_lookup_tbl child_lt;
+    bv_lookup_tbl leaf_lt;
     uint32_t max_key_len;
     static_dict() {
       init_vars();
@@ -978,7 +1033,7 @@ class static_dict {
       last_exit_loc = 0;
     }
 
-    ~static_dict() {
+    virtual ~static_dict() {
       if (is_mmapped)
         map_unmap();
       if (dict_buf != NULL) {
@@ -1027,7 +1082,7 @@ class static_dict {
       uint32_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
       uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
       trie_loc = tails_loc + tail_size;
-      tail_map.init(dict_buf, trie_loc, tails_loc, node_count);
+      tail_map.init(dict_buf, this, trie_loc, tails_loc, node_count, true);
 
       term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, trie_loc, 8);
       child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, trie_loc, 16);
@@ -1037,7 +1092,7 @@ class static_dict {
         val_map = new grp_ptr_data_map[val_count];
         for (int i = 0; i < val_count; i++) {
           val_buf = dict_buf + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
-          val_map[i].init(val_buf, trie_loc, val_buf, node_count);
+          val_map[i].init(val_buf, this, trie_loc, val_buf, node_count, false);
         }
       }
 
@@ -1506,6 +1561,21 @@ class static_dict {
       return ret;
     }
 
+    void map_from_memory(uint8_t *mem) {
+      dict_buf = mem;
+      load_into_vars();
+    }
+
+    uint32_t leaf_rank(uint32_t node_id) {
+      return leaf_lt.rank(node_id);
+    }
+
+    static_dict_fwd *new_instance(uint8_t *mem) {
+      static_dict *dict = new static_dict();
+      dict->dict_buf = mem;
+      dict->load_into_vars();
+      return dict;
+    }
 
 };
 
