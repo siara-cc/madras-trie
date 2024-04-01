@@ -1512,7 +1512,7 @@ class builder {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
         const char *_value_encoding = "uu", const char *_value_types = "tt")
-        : memtrie(_value_count, _value_encoding, _value_types),
+        : memtrie(_value_count, _value_encoding, _value_types, _value_count > 1 ? true : false),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       memset(&tp, '\0', sizeof(tp));
@@ -1731,11 +1731,8 @@ class builder {
       }
       uint32_t val_size = write_col_val();
       bldr_printf("Val Size: %u\n", val_size);
-      if (encoding_type == 't') {
-        size_t start = ftell(fp);
+      if (encoding_type == 't')
         col_trie_builder->write_trie(NULL);
-        bldr_printf("FTELL TRIE_SIZE: %u\n", ftell(fp) - start);
-      }
       return val_size;
     }
 

@@ -1386,7 +1386,7 @@ class static_dict : public static_dict_fwd {
             if ((cv.bm_mask & cv.bm_child) == 0) {
               while (cv.bm_mask & cv.bm_term) {
                 if (ctx.cur_idx == 0)
-                  return 0;
+                  return -1;
                 pop_from_ctx(ctx, cv);
                 cv.read_flags_block_begin();
               }
@@ -1575,6 +1575,10 @@ class static_dict : public static_dict_fwd {
       dict->dict_buf = mem;
       dict->load_into_vars();
       return dict;
+    }
+
+    uint32_t get_last_exit_loc() {
+      return last_exit_loc;
     }
 
 };
