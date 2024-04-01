@@ -1003,6 +1003,8 @@ class static_dict : public static_dict_fwd {
     uint8_t *trie_loc;
     uint8_t *val_table_loc;
 
+    bool to_release_dict_buf;
+
     static_dict(static_dict const&);
     static_dict& operator=(static_dict const&);
 
@@ -1031,6 +1033,7 @@ class static_dict : public static_dict_fwd {
       val_map = NULL;
       is_mmapped = false;
       last_exit_loc = 0;
+      to_release_dict_buf = true;
     }
 
     virtual ~static_dict() {
@@ -1040,7 +1043,8 @@ class static_dict : public static_dict_fwd {
 #ifndef _WIN32
         madvise(dict_buf, dict_size, MADV_NORMAL);
 #endif
-        free(dict_buf);
+        if (to_release_dict_buf)
+          free(dict_buf);
       }
       if (val_map != NULL) {
         delete [] val_map;
@@ -1144,6 +1148,12 @@ class static_dict : public static_dict_fwd {
 #endif
       dict_buf = NULL;
       is_mmapped = false;
+    }
+
+    void load_from_mem(uint8_t *mem) {
+      dict_buf = mem;
+      to_release_dict_buf = false;
+      load_into_vars();
     }
 
     void load(const char* filename) {
@@ -1572,8 +1582,7 @@ class static_dict : public static_dict_fwd {
 
     static_dict_fwd *new_instance(uint8_t *mem) {
       static_dict *dict = new static_dict();
-      dict->dict_buf = mem;
-      dict->load_into_vars();
+      dict->load_from_mem(mem);
       return dict;
     }
 

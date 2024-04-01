@@ -1511,8 +1511,8 @@ class builder {
     trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
-        const char *_value_encoding = "uu", const char *_value_types = "tt")
-        : memtrie(_value_count, _value_encoding, _value_types, _value_count > 1 ? true : false),
+        const char *_value_encoding = "uu", const char *_value_types = "tt", bool _maintain_seq = true)
+        : memtrie(_value_count, _value_encoding, _value_types, _maintain_seq),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       memset(&tp, '\0', sizeof(tp));
@@ -1541,6 +1541,7 @@ class builder {
       delete val_table;
       delete names_positions;
       delete value_encoding;
+      delete value_types;
       if (out_filename != NULL)
         delete out_filename;
       if (col_trie_builder != NULL)
@@ -1658,7 +1659,7 @@ class builder {
 
     uint32_t build_col_trie() {
       if (col_trie_builder == NULL) {
-        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*");
+        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*", true);
         col_trie_builder->fp = fp;
       }
       uint32_t col_trie_size = col_trie_builder->build();
