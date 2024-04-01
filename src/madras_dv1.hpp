@@ -1315,7 +1315,7 @@ class static_dict : public static_dict_fwd {
     bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val, uint32_t& node_id) {
       int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
-      if (node_id >= 0 && val != NULL) {
+      if (is_found && node_id >= 0 && val != NULL) {
         val_map[0].get_val(node_id, in_size_out_value_len, val);
         return true;
       }
