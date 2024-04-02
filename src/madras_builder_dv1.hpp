@@ -1885,7 +1885,7 @@ class builder {
       return tail_vals.get_uniq_vals_fwd()->size();
     }
 
-    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val) {
+    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val) {
       return memtrie.get(key, key_len, in_size_out_value_len, val);
     }
 

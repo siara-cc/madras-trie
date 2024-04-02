@@ -91,7 +91,7 @@ class static_dict_fwd {
     virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
     virtual void map_from_memory(uint8_t *mem) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, uint8_t *ret_val = NULL, dict_iter_ctx *ctx = NULL) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, dict_iter_ctx *ctx = NULL) = 0;
 };
 
 #define DCT_INSERT_AFTER -2
@@ -610,7 +610,7 @@ class grp_ptr_data_map {
       return grp_data[grp_no] + ptr;
     }
 
-    void get_delta_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
+    void get_delta_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val) {
       uint8_t *val_loc;
       uint32_t ptr_bit_count = UINT32_MAX;
       uint32_t delta_node_id = node_id / nodes_per_bv_block3;
@@ -628,17 +628,17 @@ class grp_ptr_data_map {
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
       int8_t vlen = cmn::get_svint60_len(col_val);
-      cmn::copy_svint60(col_val, ret_val, vlen);
+      cmn::copy_svint60(col_val, (uint8_t *) ret_val, vlen);
       *in_size_out_value_len = vlen;
     }
 
-    void get_col_trie_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val) {
+    void get_col_trie_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val) {
       uint32_t ptr_pos = dict_obj->leaf_rank(node_id);
       uint32_t col_trie_node_id = col_trie_int_bv[ptr_pos];
-      col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, ret_val);
+      col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val);
     }
 
-    void get_val(uint32_t node_id, int *in_size_out_value_len, uint8_t *ret_val, uint32_t *p_ptr_bit_count = NULL) {
+    void get_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = NULL) {
       uint8_t *val_loc;
       int val_len = 0;
       int8_t len_of_len = 0;
@@ -1312,17 +1312,17 @@ class static_dict : public static_dict_fwd {
       return false;
     }
 
-    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, uint8_t *val) {
+    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val) {
       val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val);
       return true;
     }
 
-    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val) {
+    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val) {
       uint32_t node_id;
       return get(key, key_len, in_size_out_value_len, val, node_id);
     }
 
-    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, uint8_t *val, uint32_t& node_id) {
+    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val, uint32_t& node_id) {
       int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
       if (is_found && node_id >= 0 && val != NULL) {
@@ -1452,7 +1452,7 @@ class static_dict : public static_dict_fwd {
       return leaf_lt.rank(node_id);
     }
 
-    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, uint8_t *ret_val = NULL) {
+    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL) {
       leaf_id++;
       uint32_t node_id;
       leaf_lt.select(node_id, leaf_id);
@@ -1460,7 +1460,7 @@ class static_dict : public static_dict_fwd {
       return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, in_size_out_value_len, ret_val);
     }
 
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, uint8_t *ret_val = NULL, dict_iter_ctx *ctx = NULL) {
+    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, dict_iter_ctx *ctx = NULL) {
       ctx_vars cv;
       uint8_t key_str_buf[max_key_len];
       byte_str key_str(key_str_buf, max_key_len);
