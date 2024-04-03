@@ -1254,10 +1254,12 @@ class tail_val_maps {
 
       tail_ptrs.build_freq_codes();
       tail_ptrs.show_freq_codes();
+      gen::print_time_taken(t, "Time taken for build_tail_maps(): ");
 
     }
 
     void build_val_maps(uint32_t tot_freq_count, char data_type) {
+      clock_t t = clock();
       uint32_t last_data_len;
       uint8_t start_bits = 1;
       uint8_t grp_no;
@@ -1288,6 +1290,7 @@ class tail_val_maps {
       }
       val_ptrs.build_freq_codes(true);
       val_ptrs.show_freq_codes();
+      t = gen::print_time_taken(t, "Time taken for build_val_maps(): ");
     }
 
     // uint32_t get_pfx_len(uint32_t sz) {
@@ -1701,6 +1704,7 @@ class builder {
     }
 
     uint32_t build_and_write_col_val() {
+      clock_t t = clock();
       char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
       if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
         bldr_printf("Col: %s, ", names + names_positions[memtrie.cur_val_idx + 3]);
@@ -1734,6 +1738,7 @@ class builder {
       bldr_printf("Val Size: %u\n", val_size);
       if (encoding_type == 't')
         col_trie_builder->write_trie(NULL);
+      t = gen::print_time_taken(t, "Time taken for build_and_write_col_val: ");
       return val_size;
     }
 
@@ -1768,6 +1773,7 @@ class builder {
     }
 
     uint32_t build_trie() {
+      clock_t t = clock();
       leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, *memtrie.all_tails, memtrie.uniq_tails);
       uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_tails,
           memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
@@ -1855,6 +1861,7 @@ class builder {
       tail_vals.get_tail_grp_ptrs()->build(node_count);
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       end_loc = (4 + tail_size + trie.size());
+      gen::print_time_taken(t, "Time taken for build_trie(): ");
       return end_loc;
     }
     uint32_t write_trie_tail_ptrs_data(FILE *fp) {
@@ -1917,6 +1924,7 @@ class builder {
     }
 
     uint32_t build_cache() {
+      clock_t t = clock();
       set_node_id();
       uint32_t cache_count = 256;
       while (cache_count < memtrie.key_count / 512)
@@ -1925,6 +1933,7 @@ class builder {
       node_cache_vec.resize(cache_count);
       memset(node_cache_vec.data(), '\0', cache_count * sizeof(node_cache));
       build_cache(1, cache_count, 1);
+      gen::print_time_taken(t, "Time taken for build_cache(): ");
       return cache_count;
     }
 
@@ -1962,6 +1971,7 @@ class builder {
 
     uint8_t min_pos[256][256];
     bldr_min_pos_stats make_min_positions() {
+      clock_t t = clock();
       bldr_min_pos_stats stats;
       memset(min_pos, 0xFF, 65536);
       for (int i = 1; i < memtrie.all_node_sets.size(); i++) {
@@ -1983,10 +1993,12 @@ class builder {
           cur_node.next();
         }
       }
+      gen::print_time_taken(t, "Time taken for make_min_positions(): ");
       return stats;
     }
 
     uint32_t decide_min_stat_to_use(bldr_min_pos_stats& stats) {
+      clock_t t = clock();
       for (int i = stats.min_len; i <= stats.max_len; i++) {
         int good_b_count = 0;
         for (int j = stats.min_b; j <= stats.max_b; j++) {
@@ -1998,6 +2010,7 @@ class builder {
           break;
         }
       }
+      gen::print_time_taken(t, "Time taken for decide_min_stat_to_use(): ");
       return 0; //todo
     }
 
@@ -2020,7 +2033,7 @@ class builder {
 
       clock_t t = clock();
 
-      printf("Key count: %u\n", memtrie.key_count);
+      bldr_printf("Key count: %u\n", memtrie.key_count);
 
       memtrie.sort_node_sets();
       tp.min_stats = make_min_positions();
