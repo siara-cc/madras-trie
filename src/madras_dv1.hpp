@@ -986,7 +986,6 @@ class static_dict : public static_dict_fwd {
 
     uint32_t node_count;
     uint32_t common_node_count;
-    uint32_t key_count;
     uint32_t max_val_len;
     uint32_t cache_count;
     uint32_t bv_block_count;
@@ -1010,6 +1009,7 @@ class static_dict : public static_dict_fwd {
 
   public:
     uint8_t *dict_buf;
+    uint32_t key_count;
     uint32_t val_count;
     uint8_t *names_pos;
     char *names_loc;
@@ -1383,7 +1383,7 @@ class static_dict : public static_dict_fwd {
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       read_from_ctx(ctx, cv);
-      do {
+      while (cv.node_id < node_count) {
         cv.read_flags_block_begin();
         if ((cv.bm_mask & cv.bm_child) == 0 && (cv.bm_mask & cv.bm_leaf) == 0) {
           cv.t++;
@@ -1428,8 +1428,8 @@ class static_dict : public static_dict_fwd {
           cv.ptr_bit_count = UINT32_MAX;
           push_to_ctx(ctx, cv);
         }
-      } while (cv.node_id < node_count);
-      return 0;
+      }
+      return -1;
     }
 
     uint32_t get_max_level() {
