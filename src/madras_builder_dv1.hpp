@@ -1949,7 +1949,7 @@ class builder {
       for (int i = 0; i <= ns_hdr->last_node_idx; i++) {
         uint32_t node_freq = build_cache(n.get_child(), cache_count, level + 1);
         freq_count += node_freq;
-        if ((n.get_flags() & NFLAG_TAIL) == 0) {
+        if ((n.get_flags() & NFLAG_TAIL) == 0 && n.get_child() > 0) {
           uint8_t node_byte = n.get_byte();
           uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << 5) ^ node_byte) & (cache_count - 1);
           node_cache& nc = node_cache_vec[cache_loc];

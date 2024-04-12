@@ -2,6 +2,7 @@
 #define STATIC_DICT_H
 
 #include <math.h>
+#include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -26,8 +27,12 @@ class dict_iter_ctx {
     uint16_t *last_tail_len;
     bool to_skip_first_leaf;
     bool is_allocated = false;
+    bool last_leaf_set = false;
+    uint32_t last_leaf_node_id;
+    uint16_t last_leaf_len_offset;
     dict_iter_ctx() {
       is_allocated = false;
+      last_leaf_set = false;
     }
     ~dict_iter_ctx() {
       close();
@@ -42,6 +47,8 @@ class dict_iter_ctx {
       is_allocated = false;
     }
     void init(uint16_t max_key_len, uint16_t max_level) {
+      max_level++;
+      max_key_len++;
       if (!is_allocated) {
         key = new uint8_t[max_key_len];
         node_path = new uint32_t[max_level];
@@ -54,6 +61,26 @@ class dict_iter_ctx {
       cur_idx = key_len = 0;
       to_skip_first_leaf = false;
       is_allocated = true;
+      last_leaf_set = false;
+      last_leaf_node_id = -1;
+      last_leaf_len_offset = 0;
+    }
+};
+
+class dict_lookup_ctx {
+  public:
+    uint32_t last_leaf_node_id;
+    uint32_t last_node_id;
+    uint16_t last_leaf_key_len;
+    uint16_t last_key_len;
+    uint16_t last_cmp;
+    uint8_t *key;
+    dict_lookup_ctx(int _max_key_len) {
+      memset(this, '\0', sizeof(*this));
+      key = new uint8_t[_max_key_len];
+    }
+    ~dict_lookup_ctx() {
+      delete key;
     }
 };
 
@@ -91,7 +118,7 @@ class static_dict_fwd {
     virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
     virtual void map_from_memory(uint8_t *mem) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, dict_iter_ctx *ctx = NULL) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) = 0;
 };
 
 #define DCT_INSERT_AFTER -2
@@ -219,11 +246,11 @@ class cmn {
           return 0;
         return ++k;
     }
-    static uint32_t read_uintx(uint8_t *ptr, uint32_t mask) {
+    static uint32_t read_uintx(const uint8_t *ptr, uint32_t mask) {
       uint32_t ret = *((uint32_t *) ptr);
       return ret & mask; // faster endian dependent
     }
-    static uint32_t read_uint32(uint8_t *ptr) {
+    static uint32_t read_uint32(const uint8_t *ptr) {
       return *((uint32_t *) ptr); // faster endian dependent
       // uint32_t ret = 0;
       // int i = 4;
@@ -233,14 +260,14 @@ class cmn {
       // }
       // return ret;
     }
-    static uint32_t read_uint24(uint8_t *ptr) {
+    static uint32_t read_uint24(const uint8_t *ptr) {
       return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
       // uint32_t ret = *ptr++;
       // ret |= (*ptr++ << 8);
       // ret |= (*ptr << 16);
       // return ret;
     }
-    static uint32_t read_uint16(uint8_t *ptr) {
+    static uint32_t read_uint16(const uint8_t *ptr) {
       return *((uint16_t *) ptr); // faster endian dependent
       // uint32_t ret = *ptr++;
       // ret |= (*ptr << 8);
@@ -280,10 +307,10 @@ class cmn {
       while (vlen--)
         *out++ = ((lng >> (vlen * 8)) & 0xFF);
     }
-    static int read_svint60_len(uint8_t *ptr) {
+    static int read_svint60_len(const uint8_t *ptr) {
       return 1 + ((*ptr >> 4) & 0x07);
     }
-    static int64_t read_svint60(uint8_t *ptr) {
+    static int64_t read_svint60(const uint8_t *ptr) {
       int64_t ret = *ptr & 0x0F;
       bool is_neg = true;
       if (*ptr & 0x80)
@@ -296,10 +323,10 @@ class cmn {
       }
       return is_neg ? -ret : ret;
     }
-    static int read_svint61_len(uint8_t *ptr) {
+    static int read_svint61_len(const uint8_t *ptr) {
       return 1 + (*ptr >> 5);
     }
-    static uint64_t read_svint61(uint8_t *ptr) {
+    static uint64_t read_svint61(const uint8_t *ptr) {
       uint64_t ret = *ptr & 0x1F;
       int len = (*ptr >> 5);
       while (len--) {
@@ -309,10 +336,10 @@ class cmn {
       }
       return ret;
     }
-    static int read_svint15_len(uint8_t *ptr) {
+    static int read_svint15_len(const uint8_t *ptr) {
       return 1 + (*ptr >> 7);
     }
-    static uint64_t read_svint15(uint8_t *ptr) {
+    static uint64_t read_svint15(const uint8_t *ptr) {
       uint64_t ret = *ptr & 0x7F;
       int len = (*ptr >> 7);
       while (len--) {
@@ -1040,9 +1067,6 @@ class static_dict : public static_dict_fwd {
       if (is_mmapped)
         map_unmap();
       if (dict_buf != NULL) {
-#ifndef _WIN32
-        madvise(dict_buf, dict_size, MADV_NORMAL);
-#endif
         if (to_release_dict_buf)
           free(dict_buf);
       }
@@ -1246,9 +1270,12 @@ class static_dict : public static_dict_fwd {
       uint8_t *t = trie_loc;
       uint8_t key_byte = key[key_pos];
       do {
+        *pcmp = 1;
         int ret = find_in_cache(key, key_len, key_pos, node_id);
-        if (ret == 0)
+        if (ret == 0) {
+          *pcmp = 0;
           return true;
+        }
         key_byte = key[key_pos];
         t = get_t(node_id, bm_leaf, bm_term, bm_child, bm_ptr, bm_mask);
         ptr_bit_count = UINT32_MAX;
@@ -1338,8 +1365,13 @@ class static_dict : public static_dict_fwd {
       update_ctx(ctx, cv);
     }
 
-    template<typename INS_ARR_T>
-    void insert_arr(INS_ARR_T *arr, int arr_len, int pos, INS_ARR_T val) {
+    void insert_arr(uint32_t *arr, int arr_len, int pos, uint32_t val) {
+      for (int i = arr_len - 1; i >= pos; i--)
+        arr[i + 1] = arr[i];
+      arr[pos] = val;
+    }
+
+    void insert_arr(uint16_t *arr, int arr_len, int pos, uint16_t val) {
       for (int i = arr_len - 1; i >= pos; i--)
         arr[i + 1] = arr[i];
       arr[pos] = val;
@@ -1460,7 +1492,7 @@ class static_dict : public static_dict_fwd {
       return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, in_size_out_value_len, ret_val);
     }
 
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, dict_iter_ctx *ctx = NULL) {
+    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) {
       ctx_vars cv;
       uint8_t key_str_buf[max_key_len];
       byte_str key_str(key_str_buf, max_key_len);
@@ -1478,10 +1510,18 @@ class static_dict : public static_dict_fwd {
         cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block3);
         cv.ptr_bit_count = UINT32_MAX;
         tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
+        if (ctx != NULL) {
+          if ((cv.bm_mask & cv.bm_leaf) && (cmp == 0 || (cmp - 1 == cv.tail.length())) && !ctx->last_leaf_set) {
+            ctx->last_leaf_node_id = cv.node_id;
+            ctx->last_leaf_len_offset = key_str.length();
+            ctx->last_leaf_set = true;
+          }
+        }
         for (int i = cv.tail.length() - 1; i >= 0; i--)
           key_str.append(cv.tail[i]);
         if (ctx != NULL)
           insert_into_ctx(*ctx, cv);
+        cmp = 0;
         uint32_t term_count = term_lt.rank(cv.node_id);
         child_lt.select(cv.node_id, term_count);
       } while (cv.node_id > 0);
@@ -1495,22 +1535,26 @@ class static_dict : public static_dict_fwd {
       return true;
     }
 
-    bool find_first(const uint8_t *prefix, int prefix_len, dict_iter_ctx& ctx) {
+    bool find_first(const uint8_t *prefix, int prefix_len, dict_iter_ctx& ctx, bool for_next = false) {
       int cmp;
       uint32_t lkup_node_id;
-      lookup(prefix, prefix_len, lkup_node_id, &cmp);
-      uint8_t key_buf[max_key_len];
-      int key_len;
-      // TODO: set last_key_len
+      bool is_found = lookup(prefix, prefix_len, lkup_node_id, &cmp);
+      if (!is_found && cmp == 0)
+        cmp = 10000;
+        uint8_t key_buf[max_key_len];
+        int key_len;
+        // TODO: set last_key_len
       ctx.cur_idx = 0;
-      reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, NULL, NULL, &ctx);
+      reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, NULL, NULL, cmp, &ctx);
       ctx.cur_idx--;
-      // for (int i = 0; i < ctx.key_len; i++)
-      //   printf("%c", ctx.key[i]);
-      // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
-      ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
-      ctx.last_tail_len[ctx.cur_idx] = 0;
-      ctx.to_skip_first_leaf = false;
+        // for (int i = 0; i < ctx.key_len; i++)
+        //   printf("%c", ctx.key[i]);
+        // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
+      if (for_next) {
+        ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
+        ctx.last_tail_len[ctx.cur_idx] = 0;
+        ctx.to_skip_first_leaf = false;
+      }
       return true;
     }
 
@@ -1572,8 +1616,7 @@ class static_dict : public static_dict_fwd {
     }
 
     void map_from_memory(uint8_t *mem) {
-      dict_buf = mem;
-      load_into_vars();
+      load_from_mem(mem);
     }
 
     uint32_t leaf_rank(uint32_t node_id) {
