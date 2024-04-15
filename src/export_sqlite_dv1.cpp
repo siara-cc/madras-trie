@@ -163,17 +163,17 @@ int main(int argc, char* argv[]) {
 
   int key_col_idx = atoi(argv[3]);
   std::string column_names = table_name;
-  if (key_col_idx == 0)
-    column_names.append(",key");
-  else {
+  if (key_col_idx != 0) {
     column_names.append(",");
     column_names.append(sqlite3_column_name(stmt_col_names, key_col_idx - 1));
   }
 
   std::string col_types;
   std::string col_encodings;
-  col_types.append(1, key_col_idx == 0 ? 'i' : storage_types[key_col_idx - 1]);
-  col_encodings.append(1, key_col_idx == 0 ? 'u' : encoding_types[key_col_idx - 1]);
+  if (key_col_idx != 0) {
+    col_types.append(1, storage_types[key_col_idx - 1]);
+    col_encodings.append(1, encoding_types[key_col_idx - 1]);
+  }
   int exp_col_count = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
@@ -205,20 +205,24 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, col_encodings.c_str(), col_types.c_str());
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, col_encodings.c_str(), col_types.c_str(), true, key_col_idx == 0);
   mb.set_print_enabled();
+  mb.open_file();
 
   int exp_col_idx = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
-    if (exp_col_idx == 0) {
+    if (exp_col_idx == 0 && key_col_idx != 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
       mb.write_trie();
     } else {
       mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
-      mb.build_and_write_col_val();
+      if (exp_col_idx == 0)
+        mb.write_trie();
+      else
+        mb.build_and_write_col_val();
     }
     sqlite3_reset(stmt);
     exp_col_idx++;

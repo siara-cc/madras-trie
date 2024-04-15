@@ -113,6 +113,7 @@ class int_bv_reader {
 
 class static_dict_fwd {
   public:
+    int key_count;
     virtual ~static_dict_fwd() {
     }
     virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
@@ -295,14 +296,14 @@ class cmn {
       return ret;
     }
     static int8_t get_svint60_len(int64_t vint) {
-      vint = abs(vint);
+      vint = std::abs(vint);
       return vint < (1 << 4) ? 1 : (vint < (1 << 12) ? 2 : (vint < (1 << 20) ? 3 :
               (vint < (1 << 28) ? 4 : (vint < (1LL << 36) ? 5 : (vint < (1LL << 44) ? 6 :
               (vint < (1LL << 52) ? 7 : 8))))));
     }
     static void copy_svint60(int64_t input, uint8_t *out, int8_t vlen) {
       vlen--;
-      long lng = abs(input);
+      long lng = std::abs(input);
       *out++ = ((lng >> (vlen * 8)) & 0x0F) + (vlen << 4) + (input < 0 ? 0x00 : 0x80);
       while (vlen--)
         *out++ = ((lng >> (vlen * 8)) & 0xFF);
@@ -449,9 +450,11 @@ class grp_ptr_data_map {
 
     uint32_t scan_ptr_bits_val(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
       uint64_t bm_mask = bm_init_mask;
-      uint64_t bm_leaf;
-      cmn::read_uint64(t, bm_leaf);
-      t += 32;
+      uint64_t bm_leaf = UINT64_MAX;
+      if (dict_obj->key_count > 0) {
+        cmn::read_uint64(t, bm_leaf);
+        t += 32;
+      }
       uint8_t *t_upto = t + (node_id % 64);
       while (t < t_upto) {
         if (bm_leaf & bm_mask) {
@@ -644,8 +647,9 @@ class grp_ptr_data_map {
       delta_node_id *= nodes_per_bv_block3;
       uint8_t *t = trie_loc + (delta_node_id / nodes_per_ptr_block3) * bytes_per_ptr_block3;
       uint64_t bm_mask = bm_init_mask;
-      uint64_t bm_leaf;
-      cmn::read_uint64(t, bm_leaf);
+      uint64_t bm_leaf = UINT64_MAX;
+      if (dict_obj->key_count > 0)
+        cmn::read_uint64(t, bm_leaf);
       int64_t col_val = 0;
       do {
         if (bm_mask & bm_leaf) {
@@ -660,7 +664,9 @@ class grp_ptr_data_map {
     }
 
     void get_col_trie_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val) {
-      uint32_t ptr_pos = dict_obj->leaf_rank(node_id);
+      uint32_t ptr_pos = node_id;
+      if (dict_obj->key_count > 0)
+        ptr_pos = dict_obj->leaf_rank(node_id);
       uint32_t col_trie_node_id = col_trie_int_bv[ptr_pos];
       col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val);
     }
@@ -1036,7 +1042,6 @@ class static_dict : public static_dict_fwd {
 
   public:
     uint8_t *dict_buf;
-    uint32_t key_count;
     uint32_t val_count;
     uint8_t *names_pos;
     char *names_loc;
@@ -1055,12 +1060,19 @@ class static_dict : public static_dict_fwd {
     }
 
     void init_vars() {
+
       dict_buf = NULL;
       val_buf = NULL;
       val_map = NULL;
       is_mmapped = false;
       last_exit_loc = 0;
       to_release_dict_buf = true;
+
+      max_key_len = max_tail_len = max_level = cache_count = 0;
+      cache_loc = sec_cache_loc = term_select_lkup_loc = term_lt_loc = 0;
+      child_select_lkup_loc = child_lt_loc = leaf_select_lkup_loc = 0;
+      leaf_lt_loc = trie_loc = 0;
+
     }
 
     virtual ~static_dict() {
@@ -1090,31 +1102,35 @@ class static_dict : public static_dict_fwd {
       bv_block_count = node_count / nodes_per_bv_block;
       common_node_count = cmn::read_uint32(dict_buf + 22);
       key_count = cmn::read_uint32(dict_buf + 26);
-      max_key_len = cmn::read_uint32(dict_buf + 30);
+
       max_val_len = cmn::read_uint32(dict_buf + 34);
-      max_tail_len = cmn::read_uint16(dict_buf + 38) + 1;
-      max_level = cmn::read_uint16(dict_buf + 40);
-      cache_count = cmn::read_uint32(dict_buf + 42);
-      memcpy(&min_stats, dict_buf + 46, 4);
-      cache_loc = dict_buf + cmn::read_uint32(dict_buf + 50);
-      sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 54);
 
-      term_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 58);
-      term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 62);
-      child_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 66);
-      child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 70);
-      leaf_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 74);
-      leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 78);
+      if (key_count > 0) {
+        max_key_len = cmn::read_uint32(dict_buf + 30);
+        max_tail_len = cmn::read_uint16(dict_buf + 38) + 1;
+        max_level = cmn::read_uint16(dict_buf + 40);
+        cache_count = cmn::read_uint32(dict_buf + 42);
+        memcpy(&min_stats, dict_buf + 46, 4);
+        cache_loc = dict_buf + cmn::read_uint32(dict_buf + 50);
+        sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 54);
 
-      uint8_t *trie_tail_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 82);
-      uint32_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
-      uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
-      trie_loc = tails_loc + tail_size;
-      tail_map.init(dict_buf, this, trie_loc, tails_loc, node_count, true);
+        term_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 58);
+        term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 62);
+        child_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 66);
+        child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 70);
+        leaf_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 74);
+        leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 78);
 
-      term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, trie_loc, 8);
-      child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, trie_loc, 16);
-      leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, trie_loc, 0);
+        uint8_t *trie_tail_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 82);
+        uint32_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
+        uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
+        trie_loc = tails_loc + tail_size;
+        tail_map.init(dict_buf, this, trie_loc, tails_loc, node_count, true);
+
+        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, trie_loc, 8);
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, trie_loc, 16);
+        leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, trie_loc, 0);
+      }
 
       if (val_count > 0) {
         val_map = new grp_ptr_data_map[val_count];
