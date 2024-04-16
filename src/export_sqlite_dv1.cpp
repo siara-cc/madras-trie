@@ -215,12 +215,12 @@ int main(int argc, char* argv[]) {
       continue;
     if (exp_col_idx == 0 && key_col_idx != 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
-      mb.write_trie();
+      mb.write_kv();
     } else {
       mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
       if (exp_col_idx == 0)
-        mb.write_trie();
+        mb.write_kv();
       else
         mb.build_and_write_col_val();
     }

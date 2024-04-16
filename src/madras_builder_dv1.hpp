@@ -96,7 +96,9 @@ struct trie_parts {
   uint32_t leaf_bv_loc;
   uint32_t child_select_lkup_loc;
   uint32_t names_loc;
+  uint32_t names_sz;
   uint32_t col_val_table_loc;
+  uint32_t col_val_table_sz;
   uint32_t col_val_loc0;
   uint32_t total_idx_size;
   bldr_min_pos_stats min_stats;
@@ -1502,10 +1504,10 @@ class builder {
     byte_vec trie;
     uint32_t end_loc;
     tail_val_maps tail_vals;
-    uint32_t val_count;
+    uint32_t column_count;
     char *names;
-    char *value_encoding;
-    char *value_types;
+    char *column_encoding;
+    char *column_types;
     uint16_t *names_positions;
     uint16_t names_len;
     uint32_t *val_table;
@@ -1513,23 +1515,23 @@ class builder {
     FILE *fp;
     trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
-    builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _value_count = 1,
-        const char *_value_encoding = "uu", const char *_value_types = "tt", bool _maintain_seq = true, bool _no_primary_trie = false)
-        : memtrie(_value_count, _value_encoding, _value_types, _maintain_seq, _no_primary_trie),
+    builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
+        const char *_column_encoding = "uu", const char *_column_types = "tt", bool _maintain_seq = true, bool _no_primary_trie = false)
+        : memtrie(_column_count, _column_encoding, _column_types, _maintain_seq, _no_primary_trie),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       memset(&tp, '\0', sizeof(tp));
       col_trie_builder = NULL;
-      val_count = _value_count;
-      val_table = new uint32_t[_value_count];
-      value_encoding = new char[_value_count + 1];
-      memset(value_encoding, 'u', _value_count + 1);
-      *value_encoding = 't'; // first letter is for key
-      memcpy(value_encoding, _value_encoding, gen::min(strlen(_value_encoding), _value_count + 1));
-      value_types = new char[_value_count + 1];
-      memset(value_types, '*', _value_count + 1);
-      memcpy(value_types, _value_encoding, gen::min(strlen(_value_encoding), _value_count + 1));
-      set_names(_names, _value_types, value_encoding);
+      column_count = _column_count;
+      val_table = new uint32_t[_column_count];
+      column_encoding = new char[_column_count];
+      memset(column_encoding, 'u', _column_count);
+      *column_encoding = 't'; // first letter is for key
+      memcpy(column_encoding, _column_encoding, gen::min(strlen(_column_encoding), _column_count));
+      column_types = new char[_column_count];
+      memset(column_types, '*', _column_count);
+      memcpy(column_types, _column_types, gen::min(strlen(_column_types), _column_count));
+      set_names(_names, _column_types, column_encoding);
       common_node_count = 0;
       //art_tree_init(&at);
       memtrie.set_print_enabled(is_bldr_print_enabled);
@@ -1543,8 +1545,8 @@ class builder {
       delete names;
       delete val_table;
       delete names_positions;
-      delete value_encoding;
-      delete value_types;
+      delete column_encoding;
+      delete column_types;
       if (out_filename != NULL)
         delete out_filename;
       if (col_trie_builder != NULL)
@@ -1558,20 +1560,19 @@ class builder {
       fp = NULL;
     }
 
-    void set_names(const char *_names, const char *_value_types, const char *_value_encoding) {
-      int col_count = val_count + 1;
-      names_len = strlen(_names) + col_count * 2 + 3;
+    void set_names(const char *_names, const char *_column_types, const char *_column_encoding) {
+      names_len = strlen(_names) + column_count * 2 + 3;
       names = new char[names_len];
-      memset(names, '*', col_count);
-      memcpy(names, _value_types, gen::min(strlen(_value_types), col_count));
-      names[col_count] = ',';
-      memcpy(names + col_count + 1, _value_encoding, col_count);
-      names[col_count * 2 + 1] = ',';
-      memcpy(names + col_count * 2 + 2, _names, strlen(_names));
+      memset(names, '*', column_count);
+      memcpy(names, _column_types, gen::min(strlen(_column_types), column_count));
+      names[column_count] = ',';
+      memcpy(names + column_count + 1, _column_encoding, column_count);
+      names[column_count * 2 + 1] = ',';
+      memcpy(names + column_count * 2 + 2, _names, strlen(_names));
       // std::cout << names << std::endl;
-      names_positions = new uint16_t[col_count + 2];
+      names_positions = new uint16_t[column_count + 2];
       int idx = 0;
-      int name_str_pos = col_count;
+      int name_str_pos = column_count;
       while (name_str_pos < names_len) {
         if (names[name_str_pos] == ',') {
           names[name_str_pos] = '\0';
@@ -1580,8 +1581,8 @@ class builder {
         name_str_pos++;
       }
       name_str_pos--;
-      names[col_count] = '\0';
-      names[col_count * 2 + 1] = '\0';
+      names[column_count] = '\0';
+      names[column_count * 2 + 1] = '\0';
       names[name_str_pos] = '\0';
     }
 
@@ -1662,7 +1663,7 @@ class builder {
 
     uint32_t build_col_trie() {
       if (col_trie_builder == NULL) {
-        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*", true);
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", true, false);
         col_trie_builder->fp = fp;
       }
       uint32_t col_trie_size = col_trie_builder->build();
@@ -1705,10 +1706,10 @@ class builder {
 
     uint32_t build_and_write_col_val() {
       clock_t t = clock();
-      char encoding_type = value_encoding[memtrie.cur_val_idx];
+      char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
       if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
-        bldr_printf("\nCol: %s, ", names + names_positions[memtrie.cur_val_idx + 2]);
-        char data_type = memtrie.value_types[memtrie.cur_val_idx];
+        bldr_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1) + 2]);
+        char data_type = column_types[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
         bldr_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
         if (encoding_type == 'd')
           make_delta_values();
@@ -1742,11 +1743,12 @@ class builder {
     }
 
     void reset_for_next_col() {
-      char encoding_type = value_encoding[memtrie.cur_val_idx + 1];
+      memtrie.cur_col_idx++;
+      char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
-        col_trie_builder = new builder(NULL, "col_trie,key", 0, "*", "*");
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", true, false);
         col_trie_builder->fp = fp;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
@@ -2071,11 +2073,15 @@ class builder {
         tp.child_select_lkup_loc = tp.dummy_loc;
 
       tp.names_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-      tp.col_val_table_loc = tp.names_loc + (val_count + 3) * sizeof(uint16_t) + names_len;
-      tp.col_val_loc0 = tp.col_val_table_loc + val_count * sizeof(uint32_t);
+      tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
+      tp.col_val_table_loc = tp.names_loc + tp.names_sz;
+      int val_count = column_count - (memtrie.no_primary_trie ? 0 : 1);
+      tp.col_val_table_sz = val_count * sizeof(uint32_t);
+      tp.col_val_loc0 = tp.col_val_table_loc + tp.col_val_table_sz;
       tp.total_idx_size = 4 + 10 + 18 * 4 + tp.cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
-                tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz;
+                tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz +
+                tp.names_sz + tp.col_val_table_sz;
       tp.total_idx_size += trie_data_ptr_size();
 
       gen::print_time_taken(t, "Time taken for build(): ");
@@ -2116,7 +2122,8 @@ class builder {
       fputc(0, fp); // reserved
       fputc(0, fp);
 
-      gen::write_uint16(memtrie.value_count, fp);
+      int val_count = column_count - (memtrie.no_primary_trie ? 0 : 1);
+      gen::write_uint16(val_count, fp);
       gen::write_uint32(tp.names_loc, fp);
       gen::write_uint32(tp.col_val_table_loc, fp);
 
@@ -2155,15 +2162,10 @@ class builder {
         write_bv_select_lt(BV_CHILD, fp);
       }
 
-      uint32_t val_size = 0;
-      if (memtrie.all_vals->size() > 2 || value_encoding[memtrie.cur_val_idx] == 't') { // TODO: What if value contains only NULL and ""
+      if (column_count > 1)
         val_table[0] = tp.col_val_loc0;
-        write_names(fp);
-        write_col_val_table(fp);
-        val_size = build_and_write_col_val();
-      }
-
-      uint32_t total_size = tp.total_idx_size + val_size;
+      write_names(fp);
+      write_col_val_table(fp);
 
       bldr_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
         "Pri cache: %u, struct size: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
@@ -2176,28 +2178,39 @@ class builder {
       // fclose(fp);
 
       gen::print_time_taken(t, "Time taken for write_trie(): ");
-      bldr_printf("Total idx size: %u, Val size: %u, Total size: %u\n", tp.total_idx_size, val_size, total_size);
+      bldr_printf("Idx size: %u\n", tp.total_idx_size);
 
     }
 
+    void write_kv(const char *filename = NULL) {
+      write_trie(filename);
+      uint32_t val_size = 0;
+      char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
+      if (memtrie.all_vals->size() > 2 || encoding_type == 't') { // TODO: What if column contains only NULL and ""
+        val_size = build_and_write_col_val();
+      }
+    }
+
     void write_names(FILE *fp) {
-      int name_count = val_count + 3;
+      int name_count = column_count + 2;
       for (int i = 0; i < name_count; i++)
         gen::write_uint16(names_positions[i], fp);
       fwrite(names, names_len, 1, fp);
     }
 
     void write_col_val_table(FILE *fp) {
+      int val_count = column_count - (memtrie.no_primary_trie ? 0 : 1);
       for (int i = 0; i < val_count; i++)
         gen::write_uint32(val_table[i], fp);
     }
 
     uint32_t write_col_val() {
-      uint32_t val_size = write_val_ptrs_data(memtrie.value_types[memtrie.cur_val_idx],
-          value_encoding[memtrie.cur_val_idx], fp);
-      if (memtrie.cur_val_idx > 0) {
-        uint32_t prev_val_loc = val_table[memtrie.cur_val_idx - 1];
-        val_table[memtrie.cur_val_idx] = prev_val_loc + memtrie.prev_val_size;
+      char data_type = column_types[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
+      char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
+      uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, fp);
+      if (memtrie.cur_col_idx > 0) {
+        uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
+        val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
       }
       memtrie.prev_val_size = val_size;
       return val_size;
@@ -2205,8 +2218,8 @@ class builder {
 
     void write_final_val_table() {
       fseek(fp, tp.col_val_table_loc, SEEK_SET);
-      fwrite(val_table, val_count * sizeof(uint32_t), 1, fp);
-      bldr_printf("Total size: %u\n", val_table[memtrie.cur_val_idx] + memtrie.prev_val_size);
+      fwrite(val_table, column_count * sizeof(uint32_t), 1, fp);
+      bldr_printf("Total size: %u\n", val_table[memtrie.cur_col_idx] + memtrie.prev_val_size);
       close_file();
     }
 
