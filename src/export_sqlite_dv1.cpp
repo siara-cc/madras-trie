@@ -205,7 +205,8 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, col_encodings.c_str(), col_types.c_str(), true, key_col_idx == 0);
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
+      col_types.c_str(), col_encodings.c_str(), true, key_col_idx == 0);
   mb.set_print_enabled();
   mb.open_file();
 

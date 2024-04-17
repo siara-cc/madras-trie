@@ -1516,8 +1516,8 @@ class builder {
     trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
-        const char *_column_encoding = "uu", const char *_column_types = "tt", bool _maintain_seq = true, bool _no_primary_trie = false)
-        : memtrie(_column_count, _column_encoding, _column_types, _maintain_seq, _no_primary_trie),
+        const char *_column_types = "tt", const char *_column_encoding = "uu", bool _maintain_seq = true, bool _no_primary_trie = false)
+        : memtrie(_column_count, _column_types, _column_encoding, _maintain_seq, _no_primary_trie),
           tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       memset(&tp, '\0', sizeof(tp));
@@ -2073,7 +2073,7 @@ class builder {
         tp.child_select_lkup_loc = tp.dummy_loc;
 
       tp.names_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-      tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
+      tp.names_sz = (column_count + 3) * sizeof(uint16_t) + names_len;
       tp.col_val_table_loc = tp.names_loc + tp.names_sz;
       int val_count = column_count - (memtrie.no_primary_trie ? 0 : 1);
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
@@ -2162,7 +2162,7 @@ class builder {
         write_bv_select_lt(BV_CHILD, fp);
       }
 
-      if (column_count > 1)
+      if (column_count > (memtrie.no_primary_trie ? 0 : 1))
         val_table[0] = tp.col_val_loc0;
       write_names(fp);
       write_col_val_table(fp);
@@ -2192,7 +2192,7 @@ class builder {
     }
 
     void write_names(FILE *fp) {
-      int name_count = column_count + 2;
+      int name_count = column_count + 2 + 1;
       for (int i = 0; i < name_count; i++)
         gen::write_uint16(names_positions[i], fp);
       fwrite(names, names_len, 1, fp);
@@ -2209,8 +2209,8 @@ class builder {
       char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
       uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, fp);
       if (memtrie.cur_col_idx > 0) {
-        uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
-        val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
+        uint32_t prev_val_loc = val_table[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1) - 1];
+        val_table[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)] = prev_val_loc + memtrie.prev_val_size;
       }
       memtrie.prev_val_size = val_size;
       return val_size;

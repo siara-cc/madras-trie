@@ -1017,7 +1017,6 @@ class static_dict : public static_dict_fwd {
     size_t val_size;
     bool is_mmapped;
 
-    uint32_t node_count;
     uint32_t common_node_count;
     uint32_t max_val_len;
     uint32_t cache_count;
@@ -1042,6 +1041,7 @@ class static_dict : public static_dict_fwd {
 
   public:
     uint8_t *dict_buf;
+    uint32_t node_count;
     uint32_t val_count;
     uint8_t *names_pos;
     char *names_loc;
@@ -1355,8 +1355,8 @@ class static_dict : public static_dict_fwd {
       return false;
     }
 
-    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val) {
-      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val);
+    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = NULL) {
+      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
       return true;
     }
 
@@ -1591,7 +1591,7 @@ class static_dict : public static_dict_fwd {
     }
 
     const char get_column_count() {
-      return val_count + 1;
+      return val_count + (key_count > 0 ? 1 : 0);
     }
 
     uint8_t *get_trie_loc() {
