@@ -170,11 +170,12 @@ int main(int argc, char* argv[]) {
 
   std::string col_types;
   std::string col_encodings;
+  int exp_col_count = 0;
   if (key_col_idx != 0) {
     col_types.append(1, storage_types[key_col_idx - 1]);
     col_encodings.append(1, encoding_types[key_col_idx - 1]);
+    exp_col_count++;
   }
-  int exp_col_count = 0;
   for (int i = 0; i < columnCount; i++) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
