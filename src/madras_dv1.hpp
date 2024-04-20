@@ -1095,7 +1095,7 @@ class static_dict : public static_dict_fwd {
 
       val_count = cmn::read_uint16(dict_buf + 4);
       names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
-      names_loc = (char *) names_pos + (val_count + 3) * sizeof(uint16_t);
+      names_loc = (char *) names_pos + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
       column_encoding = names_loc + madras_dv1::cmn::read_uint16(names_pos);
       val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
       node_count = cmn::read_uint32(dict_buf + 14);

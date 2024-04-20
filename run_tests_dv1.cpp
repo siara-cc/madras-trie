@@ -21,7 +21,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 3, "tuuu", "tttt");
+  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tttt", "uuuu");
   sb.set_print_enabled(true);
   vector<uint8_t *> lines;
 
@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  sb.write_trie(out_file.c_str());
+  sb.write_kv(out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
   std::cout << "Sorted? : " << is_sorted << std::endl;
@@ -151,11 +151,22 @@ int main(int argc, char *argv[]) {
 
   // dict_reader.dump_vals();
 
+  if (!is_sorted) {
+    std::sort(lines.begin(), lines.end(), [](const uint8_t *lhs, const uint8_t *rhs) -> bool {
+      return madras_dv1::gen::compare(lhs, strlen((const char *) lhs), rhs, strlen((const char *) rhs)) < 0;
+    });
+    is_sorted = true;
+  }
+
   line_count = 0;
   bool success = false;
   for (int i = 0; i < lines.size(); i++) {
     line = lines[i];
     line_len = strlen((const char *) line);
+    if (madras_dv1::gen::compare(line, line_len, prev_line, prev_line_len) == 0)
+      continue;
+    prev_line = line;
+    prev_line_len = line_len;
     // if (line.compare("don't think there's anything wrong") == 0)
     //   std::cout << line << std::endl;;
     // if (line.compare("understand that there is a") == 0)
@@ -252,6 +263,10 @@ int main(int argc, char *argv[]) {
       cout.flush();
     }
   }
+  // out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+  // if (out_key_len != -1)
+  //   printf("Expected Eof: [%.*s], %d\n", out_key_len, key_buf, out_key_len);
+
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for retrieve: ");
 
