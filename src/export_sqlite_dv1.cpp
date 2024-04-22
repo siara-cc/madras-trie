@@ -235,6 +235,14 @@ int main(int argc, char* argv[]) {
 
   madras_dv1::static_dict sd;
   sd.load(out_file.c_str());
+  printf("Tbl name: %s\n", sd.get_table_name());
+  printf("Col types: %s\n", sd.get_column_types());
+  printf("Col encodings: %s\n", sd.get_column_encodings());
+  uint16_t sd_col_count = sd.get_column_count();
+  printf("Col Count: %u, Cols:", sd_col_count);
+  for (int i = 0; i < sd_col_count; i++)
+    printf(" %s", sd.get_column_name(i));
+  printf("\n");
 
   sqlite3_reset(stmt);
   int64_t ins_seq_id = 0;

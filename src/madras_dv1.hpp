@@ -502,7 +502,7 @@ class grp_ptr_data_map {
       return ret;
     }
 
-    uint32_t read_extra_ptr(uint32_t node_id, uint32_t& ptr_bit_count, int bits_left) {
+    uint32_t read_extra_ptr(uint32_t& ptr_bit_count, int bits_left) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_occu = (ptr_bit_count % 8);
       ptr_bit_count += bits_left;
@@ -536,6 +536,7 @@ class grp_ptr_data_map {
   public:
     char data_type;
     char encoding_type;
+    uint8_t flags;
     uint32_t max_len;
     static_dict_fwd *dict_obj;
     static_dict_fwd *col_trie;
@@ -571,20 +572,21 @@ class grp_ptr_data_map {
         ptr_lkup_tbl_mask = 0x00FFFFFF;
       data_type = data_loc[1];
       encoding_type = data_loc[2];
-      max_len = cmn::read_uint32(data_loc + 3);
-      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 7);
-      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 11);
-      two_byte_data_count = cmn::read_uint32(data_loc + 15);
-      idx2_ptr_count = cmn::read_uint32(data_loc + 19);
+      flags = data_loc[3];
+      max_len = cmn::read_uint32(data_loc + 4);
+      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 8);
+      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 12);
+      two_byte_data_count = cmn::read_uint32(data_loc + 16);
+      idx2_ptr_count = cmn::read_uint32(data_loc + 20);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
       idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 23);
-      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 27);
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 31);
+      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 24);
+      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 28);
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 32);
 
       col_trie = NULL;
       if (encoding_type == 't' && !is_tail) {
@@ -634,7 +636,7 @@ class grp_ptr_data_map {
       uint8_t grp_no = *lookup_tbl_ptr & 0x0F;
       uint8_t code_len = *lookup_tbl_ptr >> 5;
       *p_ptr_bit_count += code_len;
-      uint32_t ptr = read_extra_ptr(node_id, *p_ptr_bit_count, bit_len - code_len);
+      uint32_t ptr = read_extra_ptr(*p_ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
       return grp_data[grp_no] + ptr;
@@ -707,7 +709,7 @@ class grp_ptr_data_map {
       if (bit_len > 0) {
         if (ptr_bit_count == UINT32_MAX)
           ptr_bit_count = get_ptr_bit_count_tail(node_id);
-        ptr |= (read_extra_ptr(node_id, ptr_bit_count, bit_len) << node_val_bits);
+        ptr |= (read_extra_ptr(ptr_bit_count, bit_len) << node_val_bits);
       }
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
@@ -1043,8 +1045,8 @@ class static_dict : public static_dict_fwd {
     uint8_t *dict_buf;
     uint32_t node_count;
     uint32_t val_count;
-    uint8_t *names_pos;
-    char *names_loc;
+    uint8_t *names_loc;
+    char *names_start;
     const char *column_encoding;
     uint32_t last_exit_loc;
     min_pos_stats min_stats;
@@ -1094,14 +1096,14 @@ class static_dict : public static_dict_fwd {
     void load_into_vars() {
 
       val_count = cmn::read_uint16(dict_buf + 4);
-      names_pos = dict_buf + cmn::read_uint32(dict_buf + 6);
-      names_loc = (char *) names_pos + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
-      column_encoding = names_loc + madras_dv1::cmn::read_uint16(names_pos);
+      names_loc = dict_buf + cmn::read_uint32(dict_buf + 6);
       val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
       node_count = cmn::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
       common_node_count = cmn::read_uint32(dict_buf + 22);
       key_count = cmn::read_uint32(dict_buf + 26);
+      names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
+      column_encoding = names_start + madras_dv1::cmn::read_uint16(names_loc);
 
       max_val_len = cmn::read_uint32(dict_buf + 34);
 
@@ -1575,22 +1577,30 @@ class static_dict : public static_dict_fwd {
     }
 
     const char *get_table_name() {
-      return names_loc + madras_dv1::cmn::read_uint16(names_pos + 2);
+      return names_start + madras_dv1::cmn::read_uint16(names_loc + 2);
     }
 
     const char *get_column_name(int i) {
-      return names_loc + madras_dv1::cmn::read_uint16(names_pos + (i + 2) * 2);
+      return names_start + madras_dv1::cmn::read_uint16(names_loc + (i + 2) * 2);
+    }
+
+    const char *get_column_types() {
+      return names_start;
     }
 
     const char get_column_type(int i) {
-      return names_loc[i];
+      return names_start[i];
+    }
+
+    const char *get_column_encodings() {
+      return column_encoding;
     }
 
     const char get_column_encoding(int i) {
       return column_encoding[i];
     }
 
-    const char get_column_count() {
+    const uint16_t get_column_count() {
       return val_count + (key_count > 0 ? 1 : 0);
     }
 
