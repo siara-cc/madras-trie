@@ -39,10 +39,10 @@ class dict_iter_ctx {
     }
     void close() {
       if (is_allocated) {
-        delete key;
-        delete node_path;
-        delete child_count;
-        delete last_tail_len;
+        delete [] key;
+        delete [] node_path;
+        delete [] child_count;
+        delete [] last_tail_len;
       }
       is_allocated = false;
     }
@@ -80,7 +80,7 @@ class dict_lookup_ctx {
       key = new uint8_t[_max_key_len];
     }
     ~dict_lookup_ctx() {
-      delete key;
+      delete [] key;
     }
 };
 
@@ -549,7 +549,7 @@ class grp_ptr_data_map {
 
     ~grp_ptr_data_map() {
       if (grp_data != NULL)
-        delete grp_data;
+        delete [] grp_data;
       if (col_trie != NULL)
         delete col_trie;
     }
@@ -639,6 +639,8 @@ class grp_ptr_data_map {
       uint32_t ptr = read_extra_ptr(*p_ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
+      if (ptr == 0)
+        return NULL;
       return grp_data[grp_no] + ptr;
     }
 
@@ -656,13 +658,19 @@ class grp_ptr_data_map {
       do {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
-          col_val += cmn::read_svint60(val_loc);
+          if (val_loc != NULL)
+            col_val += cmn::read_svint60(val_loc);
         }
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
-      int8_t vlen = cmn::get_svint60_len(col_val);
-      cmn::copy_svint60(col_val, (uint8_t *) ret_val, vlen);
-      *in_size_out_value_len = vlen;
+      *in_size_out_value_len = 8;
+      if (data_type == DCT_S64_INT) {
+        *((int64_t *) ret_val) = col_val;
+        return;
+      }
+      double dbl = static_cast<double>(col_val);
+      dbl /= cmn::pow10(data_type - DCT_S64_DEC1 + 1);
+      *((double *)ret_val) = dbl;
     }
 
     void get_col_trie_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val) {
@@ -680,17 +688,43 @@ class grp_ptr_data_map {
       switch (encoding_type) {
         case 'u':
           val_loc = get_val_loc(node_id, p_ptr_bit_count);
-          if (data_type == DCT_TEXT || data_type == DCT_BIN)
-            val_len = cmn::read_vint32(val_loc, &len_of_len);
-          else if (data_type == DCT_S64_INT || (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9))
-            val_len = cmn::read_svint60_len(val_loc);
-          else if (data_type == DCT_U64_INT || (data_type >= DCT_U64_DEC1 && data_type <= DCT_U64_DEC9))
-            val_len = cmn::read_svint61_len(val_loc);
-          else if (data_type >= DCT_U15_DEC1 && data_type <= DCT_U15_DEC2)
-            val_len = cmn::read_svint15_len(val_loc);
-          //val_len = cmn::min(*in_size_out_value_len, val_len);
-          *in_size_out_value_len = val_len;
-          memcpy(ret_val, val_loc + len_of_len, val_len);
+          if (val_loc == NULL) {
+            *in_size_out_value_len = -1;
+            return;
+          }
+          switch (data_type) {
+            case DCT_TEXT: case DCT_BIN:
+              val_len = cmn::read_vint32(val_loc, &len_of_len);
+              *in_size_out_value_len = val_len;
+              memcpy(ret_val, val_loc + len_of_len, val_len);
+              break;
+            case DCT_S64_INT: {
+              int64_t i64 = cmn::read_svint60(val_loc);
+              memcpy(ret_val, &i64, sizeof(int64_t));
+            } break;
+            case DCT_S64_DEC1 ... DCT_S64_DEC9: {
+              int64_t i64 = cmn::read_svint60(val_loc);
+              double dbl = static_cast<double>(i64);
+              dbl /= cmn::pow10(data_type - DCT_S64_DEC1 + 1);
+              *((double *)ret_val) = dbl;
+            } break;
+            case DCT_U64_INT: {
+              uint64_t u64 = cmn::read_svint61(val_loc);
+              *((uint64_t *) ret_val) = u64;
+            } break;
+            case DCT_U64_DEC1 ... DCT_U64_DEC9: {
+              uint64_t u64 = cmn::read_svint61(val_loc);
+              double dbl = static_cast<double>(u64);
+              dbl /= cmn::pow10(data_type - DCT_U64_DEC1 + 1);
+              *((double *)ret_val) = dbl;
+            } break;
+            case DCT_U15_DEC1 ... DCT_U15_DEC2: {
+              uint64_t u64 = cmn::read_svint15(val_loc);
+              double dbl = static_cast<double>(u64);
+              dbl /= cmn::pow10(data_type - DCT_U15_DEC1 + 1);
+              *((double *)ret_val) = dbl;
+            } break;
+          }
           break;
         case 't':
           return get_col_trie_val(node_id, in_size_out_value_len, ret_val);
@@ -1020,7 +1054,6 @@ class static_dict : public static_dict_fwd {
     bool is_mmapped;
 
     uint32_t common_node_count;
-    uint32_t max_val_len;
     uint32_t cache_count;
     uint32_t bv_block_count;
     uint16_t max_tail_len;
@@ -1057,6 +1090,7 @@ class static_dict : public static_dict_fwd {
     bv_lookup_tbl child_lt;
     bv_lookup_tbl leaf_lt;
     uint32_t max_key_len;
+    uint32_t max_val_len;
     static_dict() {
       init_vars();
     }
@@ -1170,24 +1204,24 @@ class static_dict : public static_dict_fwd {
 
     void map_file_to_mem(const char *filename) {
       dict_buf = map_file(filename, dict_size);
-      int len_will_need = (dict_size >> 2);
-      //madvise(dict_buf, len_will_need, MADV_WILLNEED);
-#ifndef _WIN32
-      mlock(dict_buf, len_will_need);
-#endif
+//       int len_will_need = (dict_size >> 2);
+//       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
+// #ifndef _WIN32
+//       mlock(dict_buf, len_will_need);
+// #endif
       load_into_vars();
       is_mmapped = true;
     }
 
     void map_unmap() {
-#ifndef _WIN32
-      munlock(dict_buf, dict_size >> 2);
-      int err = munmap(dict_buf, dict_size);
-      if(err != 0){
-        printf("UnMapping dict_buf Failed\n");
-        return;
-      }
-#endif
+// #ifndef _WIN32
+//       munlock(dict_buf, dict_size >> 2);
+//       int err = munmap(dict_buf, dict_size);
+//       if(err != 0){
+//         printf("UnMapping dict_buf Failed\n");
+//         return;
+//       }
+// #endif
       dict_buf = NULL;
       is_mmapped = false;
     }
@@ -1211,10 +1245,10 @@ class static_dict : public static_dict_fwd {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-      int len_will_need = (dict_size >> 1);
-#ifndef _WIN32
-      mlock(dict_buf, len_will_need);
-#endif
+//       int len_will_need = (dict_size >> 1);
+// #ifndef _WIN32
+//       mlock(dict_buf, len_will_need);
+// #endif
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
 

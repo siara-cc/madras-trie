@@ -15,15 +15,6 @@
 
 #include "../../leopard-trie/src/leopard.hpp"
 
-enum {SRCH_ST_UNKNOWN, SRCH_ST_NEXT_SIBLING, SRCH_ST_NOT_FOUND, SRCH_ST_NEXT_CHAR};
-#define DCT_INSERT_AFTER -2
-#define DCT_INSERT_BEFORE -3
-#define DCT_INSERT_LEAF -4
-#define DCT_INSERT_EMPTY -5
-#define DCT_INSERT_THREAD -6
-#define DCT_INSERT_CONVERT -7
-#define DCT_INSERT_CHILD_LEAF -8
-
 namespace madras_dv1 {
 
 #define nodes_per_bv_block3 64
@@ -1365,8 +1356,12 @@ class tail_val_maps {
         uint32_t len_plus_len = vi->len + len_of_len;
         cur_limit = val_ptrs.check_next_grp(grp_no, cur_limit, len_plus_len);
         vi->grp_no = grp_no;
+        if (vi->flags & LPDU_NULL) {
+          vi->ptr = 0;
+          len_plus_len = 0;
+        } else
+          vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals.data() + vi->pos, vi->len, data_type);
         val_ptrs.update_current_grp(grp_no, len_plus_len, vi->freq_count);
-        vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals.data() + vi->pos, vi->len, data_type);
       }
       for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
         leopard::uniq_info *vi = uniq_vals_freq[freq_pos];
@@ -1622,11 +1617,11 @@ class builder {
     }
 
     ~builder() {
-      delete names;
-      delete val_table;
-      delete names_positions;
-      delete column_encoding;
-      delete column_types;
+      delete [] names;
+      delete [] val_table;
+      delete [] names_positions;
+      delete [] column_encoding;
+      delete [] column_types;
       if (out_filename != NULL)
         delete out_filename;
       if (col_trie_builder != NULL)
@@ -1708,6 +1703,7 @@ class builder {
 
     void make_delta_values() {
       leopard::byte_blocks *delta_vals = new leopard::byte_blocks();
+      delta_vals->push_back("\0", 2);
       int64_t prev_val = 0;
       uint32_t node_id = 0;
       for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
@@ -1806,15 +1802,23 @@ class builder {
             memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
           tail_vals.build_val_maps(tot_freq_count, data_type);
 
-          // for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
-          //   leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
-          //   leopard::node cur_node = cur_ns.first_node();
-          //   for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
-          //     tail_vals.get_val_grp_ptrs()->append_val_ptr(&cur_node, freq_grp_ptrs_data::get_vals_info_fn, memtrie.uniq_vals_fwd);
-          //     cur_node.next();
-          //   }
-          // }
-          // tail_vals.get_val_grp_ptrs()->append_ptr_bits(0x00, 8); // read beyond protection
+          uint32_t rpt_count = 0;
+          uint32_t prev1_val_pos, prev2_val_pos, prev3_val_pos;
+          prev1_val_pos = prev2_val_pos = prev3_val_pos = UINT32_MAX;
+          for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+            leopard::node_set_handler cur_ns(memtrie.all_node_sets, cur_ns_idx);
+            leopard::node cur_node = cur_ns.first_node();
+            for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+              leopard::uniq_info *ui = get_vi(&cur_node);
+              if (ui->pos == prev1_val_pos) // && ui->pos == prev2_val_pos && ui->pos == prev3_val_pos)
+                rpt_count++;
+              prev3_val_pos = prev2_val_pos;
+              prev2_val_pos = prev1_val_pos;
+              prev1_val_pos = ui->pos;
+              cur_node.next();
+            }
+          }
+          printf("Rpt count: %u\n", rpt_count);
 
           freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
           val_ptrs->build(memtrie.node_count, memtrie.all_node_sets, freq_grp_ptrs_data::get_vals_info_fn, 
