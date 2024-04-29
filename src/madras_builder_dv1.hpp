@@ -431,7 +431,7 @@ class freq_grp_ptrs_data {
     uint32_t idx2_ptrs_map_loc;
     uint32_t two_byte_count;
     uint32_t idx2_ptr_count;
-    uint32_t tot_ptr_bit_count;
+    uint64_t tot_ptr_bit_count;
     uint32_t max_len;
   public:
     freq_grp_ptrs_data() {
@@ -557,6 +557,8 @@ class freq_grp_ptrs_data {
     uint32_t append_bin_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = LPDT_BIN) {
       byte_vec& grp_data_vec = get_data(grp_no);
       uint32_t ptr = grp_data_vec.size();
+      if (memcmp("Crew Versapack Softside Expandable 8 Spinner Wheel Luggage, USB Port, Men and Women, Patriot Blue, Checked Medium 25-Inch", val, strlen("Crew Versapack Softside Expandable 8 Spinner Wheel Luggage, USB Port, Men and Women, Patriot Blue, Checked Medium 25-Inch")) == 0)
+        int hello = 1;
       if (data_type == LPDT_TEXT || data_type == LPDT_BIN)
         gen::append_vint32(grp_data_vec, len);
       for (int k = 0; k < len; k++)
@@ -660,7 +662,7 @@ class freq_grp_ptrs_data {
           if ((code_i >> (8 - code_len)) == code) {
             int bit_len = freq_grp_vec[j].grp_log2;
             fputc(bit_len, fp);
-            fputc((j - 1) | (code_len << 5), fp);
+            fputc((j - 1) | (code_len << 4), fp);
             code_found = true;
             break;
           }
@@ -941,6 +943,8 @@ class freq_grp_ptrs_data {
         }
         tot_ptr_bit_count += (fg->grp_log2 * fg->freq_count);
       }
+      if (tot_ptr_bit_count > 4294967296LL)
+        std::cout << "WARNING: ptr_bit_cout > 4gb" << std::endl;
     }
 };
 

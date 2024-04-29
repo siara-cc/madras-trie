@@ -257,6 +257,10 @@ int main(int argc, char* argv[]) {
   sqlite3_reset(stmt);
   int64_t ins_seq_id = 0;
   uint8_t *key = new uint8_t[sd.max_key_len];
+  int64_t int_sums[column_count];
+  double dbl_sums[column_count];
+  memset(int_sums, '\0', sizeof(int64_t) * column_count);
+  memset(dbl_sums, '\0', sizeof(double) * column_count);
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     uint32_t node_id = mb.get_node_id_from_sequence(ins_seq_id);
     int col_val_idx = 0;
@@ -301,12 +305,16 @@ int main(int argc, char* argv[]) {
         int val_len = sql_val_len + 1;
         bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf);
         if (is_success) {
-          val_buf[val_len] = '\0';
-          if (val_len != sql_val_len)
-            std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << val_buf << ": " << val_len << ": " << sql_val_len << std::endl;
-          else {
-            if (memcmp(sql_val, val_buf, val_len) != 0)
-              std::cout << "Val not maching: " << node_id << ", " << col_val_idx << " - " << sql_val << ": " << val_buf << std::endl;
+          if (val_len == -1 && sql_val == NULL) {
+            // NULL value
+          } else {
+            val_buf[val_len] = '\0';
+            if (val_len != sql_val_len)
+              std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << val_buf << ": " << val_len << ": " << sql_val_len << std::endl;
+            else {
+              if (memcmp(sql_val, val_buf, val_len) != 0)
+                std::cout << "Val not maching: " << node_id << ", " << col_val_idx << " - " << sql_val << ": " << val_buf << std::endl;
+            }
           }
         }
       } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
@@ -318,6 +326,7 @@ int main(int argc, char* argv[]) {
           int64_t i64 = *((int64_t *) val);
           if (i64 != sql_val)
             std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " - " << sql_val << ":" << i64 << std::endl;
+          int_sums[col_val_idx] += i64;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
       } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
@@ -331,6 +340,7 @@ int main(int argc, char* argv[]) {
           double dbl_val = *((double *) val);
           if (dbl_val != sql_val)
             std::cerr << "Val not matching: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " - " << sql_val << ":" << dbl_val << std::endl;
+          dbl_sums[col_val_idx] += dbl_val;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << col_val_idx << " = " << sql_val << std::endl;
       }
@@ -338,6 +348,15 @@ int main(int argc, char* argv[]) {
     }
     ins_seq_id++;
   }
+  printf("Totals:");
+  for (int i = 0; i < sd_col_count; i++) {
+    printf(" %s: ", sd.get_column_name(i));
+    if (int_sums[i] != 0)
+      printf(" %lld", int_sums[i]);
+    if (dbl_sums[i] != 0)
+      printf(" %f", dbl_sums[i]);
+  }
+  printf("\n");
   delete [] key;
 
   sqlite3_finalize(stmt_col_names);

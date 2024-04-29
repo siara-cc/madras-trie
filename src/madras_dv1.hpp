@@ -2,10 +2,13 @@
 #define STATIC_DICT_H
 
 #include <math.h>
+#include <time.h>
 #include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <cstdlib>
 #include <stdarg.h>
 #include <sys/stat.h> 
 #include <sys/types.h>
@@ -507,7 +510,7 @@ class grp_ptr_data_map {
       uint8_t bits_occu = (ptr_bit_count % 8);
       ptr_bit_count += bits_left;
       bits_left += (bits_occu - 8);
-      uint32_t ret = *ptr_loc++ & (0xFF >> bits_occu);
+      uint64_t ret = *ptr_loc++ & (0xFF >> bits_occu);
       while (bits_left > 0) {
         ret = (ret << 8) | *ptr_loc++;
         bits_left -= 8;
@@ -545,6 +548,7 @@ class grp_ptr_data_map {
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
       grp_data = NULL;
+      col_trie = NULL;
     }
 
     ~grp_ptr_data_map() {
@@ -634,7 +638,7 @@ class grp_ptr_data_map {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       uint8_t grp_no = *lookup_tbl_ptr & 0x0F;
-      uint8_t code_len = *lookup_tbl_ptr >> 5;
+      uint8_t code_len = *lookup_tbl_ptr >> 4;
       *p_ptr_bit_count += code_len;
       uint32_t ptr = read_extra_ptr(*p_ptr_bit_count, bit_len - code_len);
       if (grp_no < grp_idx_limit)
@@ -692,6 +696,7 @@ class grp_ptr_data_map {
             *in_size_out_value_len = -1;
             return;
           }
+          *in_size_out_value_len = 8;
           switch (data_type) {
             case DCT_TEXT: case DCT_BIN:
               val_len = cmn::read_vint32(val_loc, &len_of_len);
@@ -737,7 +742,7 @@ class grp_ptr_data_map {
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       grp_no = *lookup_tbl_ptr & 0x0F;
-      uint8_t code_len = *lookup_tbl_ptr >> 5;
+      uint8_t code_len = *lookup_tbl_ptr >> 4;
       uint8_t node_val_bits = 8 - code_len;
       uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
       if (bit_len > 0) {
@@ -747,6 +752,7 @@ class grp_ptr_data_map {
       }
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
+      // printf("Grp: %u, ptr: %u\n", grp_no, ptr);
       return ptr;
     }
 
