@@ -1010,7 +1010,7 @@ class bv_lookup_tbl {
     }};
     void select(uint32_t& node_id, uint32_t target_count) {
       if (target_count == 0) {
-        node_id = 0;
+        node_id = 2;
         return;
       }
       uint32_t block_count = block_select(target_count, node_id);
@@ -1313,11 +1313,19 @@ class static_dict : public static_dict_fwd {
     }
 
     bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = NULL) {
+      if (key == NULL) {
+        node_id = 0;
+        return trie_loc[32] == 0xFF;
+      }
+      if (key_len == 0) {
+        node_id = 1;
+        return trie_loc[33] == 0xFF;
+      }
       int cmp = 0;
       if (pcmp == NULL)
         pcmp = &cmp;
       int key_pos = 0;
-      node_id = 0;
+      node_id = 2;
       uint8_t tail_str_buf[max_tail_len];
       byte_str tail_str(tail_str_buf, max_tail_len);
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
@@ -1479,6 +1487,12 @@ class static_dict : public static_dict_fwd {
           cv.t++;
           cv.bm_mask <<= 1;
           cv.node_id++;
+          if (cv.node_id < 3) {
+            if (cv.node_id == 1 && *cv.t == 0xFF)
+              return -1; // null
+            if (cv.node_id == 2 && *cv.t == 0xFF)
+              return -2; // empty
+          }
           continue;
         }
         if (cv.bm_mask & cv.bm_leaf) {
@@ -1582,7 +1596,7 @@ class static_dict : public static_dict_fwd {
         cmp = 0;
         uint32_t term_count = term_lt.rank(cv.node_id);
         child_lt.select(cv.node_id, term_count);
-      } while (cv.node_id > 0);
+      } while (cv.node_id > 2);
       int key_pos = 0;
       for (int i = key_str.length() - 1; i >= 0; i--) {
         ret_key[key_pos++] = key_str[i];

@@ -34,11 +34,11 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
       key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
     }
-    const void *val;
+    const void *val = NULL;
     int val_len = 8;
     int64_t s64;
     double dbl;
-    if (sqlite3_column_blob(stmt, sql_col_idx) == NULL) {
+    if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
       val = NULL;
       val_len = 0;
     } else if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {

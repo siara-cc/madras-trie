@@ -5,11 +5,14 @@ INCLUDES = -I./src
 L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3
 M_FLAGS = -mbmi2 -mpopcnt
 
-opt: CXXFLAGS += -g -O3 -funroll-loops -DNDEBUG
+opt: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
 opt: export_sqlite
 
 debug: CXXFLAGS += -g -O0 -fno-inline
 debug: export_sqlite
+
+asan: CXXFLAGS += -static-libsan -fno-inline -O3 -g -fsanitize=address -fno-omit-frame-pointer
+asan: export_sqlite
 
 release: CXXFLAGS += -O3 -fno-inline
 release: export_sqlite

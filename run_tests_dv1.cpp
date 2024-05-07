@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
 
   t = print_time_taken(t, "Time taken for insert/append: ");
 
-  madras_dv1::static_dict dict_reader; //, &sb);
+  madras_dv1::static_dict dict_reader;
   dict_reader.set_print_enabled(true);
   dict_reader.load(out_file.c_str());
 
