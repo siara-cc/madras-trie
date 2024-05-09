@@ -18,21 +18,34 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 }
 
 void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
-    int sql_col_idx, int exp_col_idx, int exp_col_type, int key_col_idx) {
+    int sql_col_idx, int exp_col_idx, int exp_col_type, int key_col_idx, char key_data_type) {
   int rc;
   int64_t ins_seq_id = 0;
   uint8_t key_buf[10];
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     uint8_t *key;
     int key_len;
-    if (key_col_idx == 0) {
-      key = key_buf;
-      int8_t vlen = leopard::gen::get_svint61_len(ins_seq_id);
-      leopard::gen::copy_svint61(ins_seq_id, key, vlen);
-      key_len = vlen;
-    } else {
-      key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
-      key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
+    uint8_t converted_val[10];
+    switch (key_data_type) {
+      case LPDT_TEXT:
+        key = (uint8_t *) sqlite3_column_text(stmt, key_col_idx - 1);
+        key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
+        break;
+      case LPDT_BIN:
+        key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
+        key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
+        break;
+      default: {
+        int64_t ki64;
+        double kd64;
+        if (key_data_type == LPDT_S64_INT || key_data_type == LPDT_U64_INT) {
+          ki64 = sqlite3_column_int64(stmt, key_col_idx - 1);
+          key = leopard::gen::convert(&ki64, 8, converted_val, key_len, key_data_type);
+        } else {
+          kd64 = sqlite3_column_double(stmt, key_col_idx - 1);
+          key = leopard::gen::convert(&kd64, 8, converted_val, key_len, key_data_type);
+        }
+      }
     }
     const void *val = NULL;
     int val_len = 8;
@@ -41,7 +54,10 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
       val = NULL;
       val_len = 0;
-    } else if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+    } else if (exp_col_type == LPDT_TEXT) {
+      val = sqlite3_column_text(stmt, sql_col_idx);
+      val_len = sqlite3_column_bytes(stmt, sql_col_idx);
+    } else if (exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
     } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
@@ -74,8 +90,10 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       null_count++;
       val = NULL;
       val_len = 0;
-    } else
-    if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+    } else if (exp_col_type == LPDT_TEXT) {
+      val = sqlite3_column_text(stmt, sql_col_idx);
+      val_len = sqlite3_column_bytes(stmt, sql_col_idx);
+    } else if (exp_col_type == LPDT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
     } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
@@ -226,7 +244,8 @@ int main(int argc, char* argv[]) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
     if (exp_col_idx == 0 && key_col_idx != 0) {
-      export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i], key_col_idx);
+      export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i],
+              key_col_idx, storage_types[key_col_idx - 1]);
       mb.write_kv();
     } else {
       mb.reset_for_next_col();
@@ -267,14 +286,11 @@ int main(int argc, char* argv[]) {
     if (key_col_idx > 0) {
       const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
       int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
-      uint8_t *null_val = (uint8_t *) "";
-      if (sql_key == NULL) {
-        sql_key = null_val;
-        sql_key_len = 1;
-      }
       int key_len;
       bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
-      if (key_len != sql_key_len)
+      if (sql_key == NULL && key_len == -1) {
+        // Ok
+      } else if (key_len != sql_key_len)
         std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
       else {
         if (memcmp(key, sql_key, key_len) != 0)

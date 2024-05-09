@@ -686,6 +686,8 @@ class grp_ptr_data_map {
     }
 
     void get_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = NULL) {
+      if (ret_val == NULL || in_size_out_value_len == NULL)
+        return;
       uint8_t *val_loc;
       int val_len = 0;
       int8_t len_of_len = 0;
@@ -1418,7 +1420,7 @@ class static_dict : public static_dict_fwd {
     bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val, uint32_t& node_id) {
       int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
-      if (is_found && node_id >= 0 && val != NULL) {
+      if (is_found && node_id >= 0) {
         val_map[0].get_val(node_id, in_size_out_value_len, val);
         return true;
       }
@@ -1481,18 +1483,27 @@ class static_dict : public static_dict_fwd {
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       read_from_ctx(ctx, cv);
+      cv.read_flags_block_begin();
+      while (cv.node_id < 2) {
+        uint8_t trie_byte = *cv.t;
+        cv.t++;
+        cv.node_id++;
+        cv.bm_mask <<= 1;
+        if (cv.node_id == 1 && trie_byte == 0xFF) {
+          val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          return -1; // null
+        }
+        if (cv.node_id == 2 && trie_byte == 0xFF) {
+          val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          return 0; // empty
+        }
+      }
       while (cv.node_id < node_count) {
         cv.read_flags_block_begin();
         if ((cv.bm_mask & cv.bm_child) == 0 && (cv.bm_mask & cv.bm_leaf) == 0) {
           cv.t++;
           cv.bm_mask <<= 1;
           cv.node_id++;
-          if (cv.node_id < 3) {
-            if (cv.node_id == 1 && *cv.t == 0xFF)
-              return -1; // null
-            if (cv.node_id == 2 && *cv.t == 0xFF)
-              return -2; // empty
-          }
           continue;
         }
         if (cv.bm_mask & cv.bm_leaf) {
@@ -1515,8 +1526,7 @@ class static_dict : public static_dict_fwd {
             tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
             memcpy(key_buf, ctx.key, ctx.key_len);
-            if (val_buf != NULL && val_buf_len != NULL)
-              val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
           }
@@ -1533,7 +1543,7 @@ class static_dict : public static_dict_fwd {
           push_to_ctx(ctx, cv);
         }
       }
-      return -1;
+      return -2;
     }
 
     uint32_t get_max_level() {
@@ -1573,6 +1583,14 @@ class static_dict : public static_dict_fwd {
       cv.node_id = node_id;
       if (ret_val != NULL && val_map[0].exists())
         val_map[0].get_val(cv.node_id, in_size_out_value_len, ret_val);
+      if (node_id == 0) {
+        *in_size_out_key_len = -1; // unconditional?
+        return true;
+      }
+      if (node_id == 1) {
+        *in_size_out_key_len = 0; // unconditional?
+        return true;
+      }
       cv.node_id++;
       do {
         cv.node_id--;
