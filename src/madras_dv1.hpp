@@ -18,6 +18,8 @@
 #endif
 #include <stdint.h>
 
+#include "../../ds_common/src/gen.hpp"
+
 namespace madras_dv1 {
 
 class dict_iter_ctx {
@@ -84,33 +86,6 @@ class dict_lookup_ctx {
     }
     ~dict_lookup_ctx() {
       delete [] key;
-    }
-};
-
-class int_bv_reader {
-  private:
-    uint8_t *int_bv;
-    int bit_len;
-  public:
-    int_bv_reader() {
-    }
-    void init(uint8_t *_int_bv, int _bit_len) {
-      int_bv = _int_bv;
-      bit_len = _bit_len;
-    }
-    uint32_t operator[](int pos) {
-      uint32_t bit_pos = pos * bit_len;
-      uint32_t byte_pos = bit_pos / 8;
-      uint8_t bits_occu = (bit_pos % 8);
-      const uint8_t *loc = int_bv + byte_pos;
-      uint32_t ret = *loc++ & (0xFF >> bits_occu);
-      int bits_left = bit_len + (bits_occu - 8);
-      while (bits_left > 0) {
-        ret = (ret << 8) | *loc++;
-        bits_left -= 8;
-      }
-      ret >>= (bits_left * -1);
-      return ret;
     }
 };
 
@@ -185,187 +160,11 @@ struct min_pos_stats {
   uint8_t max_len;
 };
 
-class byte_str {
-  int max_len;
-  int len;
-  uint8_t *buf;
-  public:
-    byte_str() {
-    }
-    byte_str(uint8_t *_buf, int _max_len) {
-      set_buf_max_len(_buf, _max_len);
-    }
-    void set_buf_max_len(uint8_t *_buf, int _max_len) {
-      len = 0;
-      buf = _buf;
-      max_len = _max_len;
-    }
-    void append(uint8_t b) {
-      if (len >= max_len)
-        return;
-      buf[len++] = b;
-    }
-    void append(uint8_t *b, size_t blen) {
-      size_t start = 0;
-      while (len < max_len && start < blen) {
-        buf[len++] = *b++;
-        start++;
-      }
-    }
-    uint8_t *data() {
-      return buf;
-    }
-    uint8_t operator[](uint32_t idx) const {
-      return buf[idx];
-    }
-    size_t length() {
-      return len;
-    }
-    void clear() {
-      len = 0;
-    }
-};
-
-static bool is_dict_print_enabled = false;
-static void dict_printf(const char* format, ...) {
-  if (!is_dict_print_enabled)
-    return;
-  va_list args;
-  va_start(args, format);
-  vprintf(format, args);
-  va_end(args);
-}
-
-constexpr double dbl_div[] = {1.0000000000001, 10.0000000000001, 100.0000000000001, 1000.0000000000001, 10000.0000000000001, 100000.0000000000001, 1000000.0000000000001, 10000000.0000000000001, 100000000.0000000000001, 1000000000.0000000000001};
-class cmn {
-  public:
-    static int compare(const uint8_t *v1, int len1, const uint8_t *v2,
-            int len2, int k = 0) {
-        int lim = (len2 < len1 ? len2 : len1);
-        do {
-          if (v1[k] != v2[k])
-            return ++k;
-        } while (++k < lim);
-        if (len1 == len2)
-          return 0;
-        return ++k;
-    }
-    static uint32_t read_uintx(const uint8_t *ptr, uint32_t mask) {
-      uint32_t ret = *((uint32_t *) ptr);
-      return ret & mask; // faster endian dependent
-    }
-    static uint32_t read_uint32(const uint8_t *ptr) {
-      return *((uint32_t *) ptr); // faster endian dependent
-      // uint32_t ret = 0;
-      // int i = 4;
-      // while (i--) {
-      //   ret <<= 8;
-      //   ret += *pos++;
-      // }
-      // return ret;
-    }
-    static uint32_t read_uint24(const uint8_t *ptr) {
-      return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
-      // uint32_t ret = *ptr++;
-      // ret |= (*ptr++ << 8);
-      // ret |= (*ptr << 16);
-      // return ret;
-    }
-    static uint32_t read_uint16(const uint8_t *ptr) {
-      return *((uint16_t *) ptr); // faster endian dependent
-      // uint32_t ret = *ptr++;
-      // ret |= (*ptr << 8);
-      // return ret;
-    }
-    static uint8_t *read_uint64(uint8_t *t, uint64_t& u64) {
-      u64 = *((uint64_t *) t); // faster endian dependent
-      return t + 8;
-      // u64 = 0;
-      // for (int v = 0; v < 8; v++) {
-      //   u64 <<= 8;
-      //   u64 |= *t++;
-      // }
-      // return t;
-    }
-    static uint32_t read_vint32(const uint8_t *ptr, int8_t *vlen) {
-      uint32_t ret = 0;
-      int8_t len = 5; // read max 5 bytes
-      do {
-        ret <<= 7;
-        ret += *ptr & 0x7F;
-        len--;
-      } while ((*ptr++ >> 7) && len);
-      *vlen = 5 - len;
-      return ret;
-    }
-    static int8_t get_svint60_len(int64_t vint) {
-      vint = std::abs(vint);
-      return vint < (1 << 4) ? 1 : (vint < (1 << 12) ? 2 : (vint < (1 << 20) ? 3 :
-              (vint < (1 << 28) ? 4 : (vint < (1LL << 36) ? 5 : (vint < (1LL << 44) ? 6 :
-              (vint < (1LL << 52) ? 7 : 8))))));
-    }
-    static void copy_svint60(int64_t input, uint8_t *out, int8_t vlen) {
-      vlen--;
-      long lng = std::abs(input);
-      *out++ = ((lng >> (vlen * 8)) & 0x0F) + (vlen << 4) + (input < 0 ? 0x00 : 0x80);
-      while (vlen--)
-        *out++ = ((lng >> (vlen * 8)) & 0xFF);
-    }
-    static int read_svint60_len(const uint8_t *ptr) {
-      return 1 + ((*ptr >> 4) & 0x07);
-    }
-    static int64_t read_svint60(const uint8_t *ptr) {
-      int64_t ret = *ptr & 0x0F;
-      bool is_neg = true;
-      if (*ptr & 0x80)
-        is_neg = false;
-      int len = (*ptr >> 4) & 0x07;
-      while (len--) {
-        ret <<= 8;
-        ptr++;
-        ret |= *ptr;
-      }
-      return is_neg ? -ret : ret;
-    }
-    static int read_svint61_len(const uint8_t *ptr) {
-      return 1 + (*ptr >> 5);
-    }
-    static uint64_t read_svint61(const uint8_t *ptr) {
-      uint64_t ret = *ptr & 0x1F;
-      int len = (*ptr >> 5);
-      while (len--) {
-        ret <<= 8;
-        ptr++;
-        ret |= *ptr;
-      }
-      return ret;
-    }
-    static int read_svint15_len(const uint8_t *ptr) {
-      return 1 + (*ptr >> 7);
-    }
-    static uint64_t read_svint15(const uint8_t *ptr) {
-      uint64_t ret = *ptr & 0x7F;
-      int len = (*ptr >> 7);
-      while (len--) {
-        ret <<= 8;
-        ptr++;
-        ret |= *ptr;
-      }
-      return ret;
-    }
-    static size_t pow10(int p) {
-      return dbl_div[p];
-    }
-    static uint32_t min(uint32_t v1, uint32_t v2) {
-      return v1 < v2 ? v1 : v2;
-    }
-};
-
 struct ctx_vars {
   uint8_t *t;
   uint32_t node_id, child_count;
   uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
-  byte_str tail;
+  gen::byte_str tail;
   uint32_t tail_ptr;
   uint32_t ptr_bit_count;
   uint8_t grp_no;
@@ -374,16 +173,16 @@ struct ctx_vars {
     ptr_bit_count = UINT32_MAX;
   }
   static uint8_t *read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
-    t = cmn::read_uint64(t, bm_leaf);
-    t = cmn::read_uint64(t, bm_term);
-    t = cmn::read_uint64(t, bm_child);
-    return cmn::read_uint64(t, bm_ptr);
+    t = gen::read_uint64(t, bm_leaf);
+    t = gen::read_uint64(t, bm_term);
+    t = gen::read_uint64(t, bm_child);
+    return gen::read_uint64(t, bm_ptr);
   }
   void read_flags() {
-    t = cmn::read_uint64(t, bm_leaf);
-    t = cmn::read_uint64(t, bm_term);
-    t = cmn::read_uint64(t, bm_child);
-    t = cmn::read_uint64(t, bm_ptr);
+    t = gen::read_uint64(t, bm_leaf);
+    t = gen::read_uint64(t, bm_term);
+    t = gen::read_uint64(t, bm_child);
+    t = gen::read_uint64(t, bm_ptr);
   }
   void read_flags_block_begin() {
     if ((node_id % nodes_per_bv_block3) == 0) {
@@ -392,11 +191,16 @@ struct ctx_vars {
     }
   }
   void init_cv_nid0(uint8_t *trie_loc) {
+    if (trie_loc == NULL)
+      return;
+    t = trie_loc;
     read_flags();
     bm_mask = bm_init_mask;
     ptr_bit_count = 0;
   }
   void init_cv_from_node_id(uint8_t *trie_loc) {
+    if (trie_loc == NULL)
+      return;
     t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
     if (node_id % nodes_per_bv_block3) {
       read_flags();
@@ -433,14 +237,14 @@ class grp_ptr_data_map {
     uint32_t idx_ptr_mask;
     uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
       int idx_map_start = idx_map_arr[grp_no];
-      ptr = cmn::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
+      ptr = gen::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
       return ptr;
     }
 
     uint32_t scan_ptr_bits_tail(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
       uint64_t bm_mask = bm_init_mask;
       uint64_t bm_ptr;
-      t = cmn::read_uint64(t + 24, bm_ptr);
+      t = gen::read_uint64(t + 24, bm_ptr);
       uint8_t *t_upto = t + (node_id % 64);
       while (t < t_upto) {
         if (bm_ptr & bm_mask)
@@ -455,7 +259,7 @@ class grp_ptr_data_map {
       uint64_t bm_mask = bm_init_mask;
       uint64_t bm_leaf = UINT64_MAX;
       if (dict_obj->key_count > 0) {
-        cmn::read_uint64(t, bm_leaf);
+        gen::read_uint64(t, bm_leaf);
         t += 32;
       }
       uint8_t *t_upto = t + (node_id % 64);
@@ -475,12 +279,12 @@ class grp_ptr_data_map {
     #define bytes_per_ptr_block3 96
     uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block) * ptr_lkup_tbl_ptr_width;
-      ptr_bit_count = cmn::read_uintx(block_ptr, ptr_lkup_tbl_mask);
+      ptr_bit_count = gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
       int pos = (node_id / nodes_per_ptr_block3) % 4;
       if (pos) {
         pos--;
         uint8_t *ptr3 = block_ptr + (ptr_lkup_tbl_ptr_width - 6) + pos * 2;
-        ptr_bit_count += cmn::read_uint16(ptr3);
+        ptr_bit_count += gen::read_uint16(ptr3);
       }
       return trie_loc + (node_id / nodes_per_ptr_block3) * bytes_per_ptr_block3;
     }
@@ -543,7 +347,7 @@ class grp_ptr_data_map {
     uint32_t max_len;
     static_dict_fwd *dict_obj;
     static_dict_fwd *col_trie;
-    int_bv_reader col_trie_int_bv;
+    gen::int_bv_reader col_trie_int_bv;
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
@@ -577,20 +381,20 @@ class grp_ptr_data_map {
       data_type = data_loc[1];
       encoding_type = data_loc[2];
       flags = data_loc[3];
-      max_len = cmn::read_uint32(data_loc + 4);
-      ptr_lookup_tbl_loc = data_loc + cmn::read_uint32(data_loc + 8);
-      grp_data_loc = data_loc + cmn::read_uint32(data_loc + 12);
-      two_byte_data_count = cmn::read_uint32(data_loc + 16);
-      idx2_ptr_count = cmn::read_uint32(data_loc + 20);
+      max_len = gen::read_uint32(data_loc + 4);
+      ptr_lookup_tbl_loc = data_loc + gen::read_uint32(data_loc + 8);
+      grp_data_loc = data_loc + gen::read_uint32(data_loc + 12);
+      two_byte_data_count = gen::read_uint32(data_loc + 16);
+      idx2_ptr_count = gen::read_uint32(data_loc + 20);
       idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       start_bits = (idx2_ptr_count >> 20) & 0x0F;
       grp_idx_limit = (idx2_ptr_count >> 24) & 0x1F;
       idx_step_bits = (idx2_ptr_count >> 29) & 0x03;
       idx2_ptr_count &= 0x000FFFFF;
-      ptrs_loc = data_loc + cmn::read_uint32(data_loc + 24);
-      two_byte_data_loc = data_loc + cmn::read_uint32(data_loc + 28);
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 32);
+      ptrs_loc = data_loc + gen::read_uint32(data_loc + 24);
+      two_byte_data_loc = data_loc + gen::read_uint32(data_loc + 28);
+      idx2_ptrs_map_loc = data_loc + gen::read_uint32(data_loc + 32);
 
       col_trie = NULL;
       if (encoding_type == 't' && !is_tail) {
@@ -602,7 +406,7 @@ class grp_ptr_data_map {
         uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
         grp_data = new uint8_t*[group_count];
         for (int i = 0; i < group_count; i++)
-          grp_data[i] = data_loc + cmn::read_uint32(grp_data_idx_start + i * 4);
+          grp_data[i] = data_loc + gen::read_uint32(grp_data_idx_start + i * 4);
         int _start_bits = start_bits;
         for (int i = 1; i <= grp_idx_limit; i++) {
           idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
@@ -614,6 +418,10 @@ class grp_ptr_data_map {
     bool next_val(ctx_vars& cv, int *in_size_out_value_len, uint8_t *ret_val) {
       if (cv.node_id >= node_count)
         return false;
+      if (dict_obj->key_count == 0) {
+        get_val(cv.node_id, in_size_out_value_len, ret_val, &cv.ptr_bit_count);
+        return true;
+      }
       cv.init_cv_from_node_id(trie_loc);
       do {
         cv.read_flags_block_begin();
@@ -657,13 +465,13 @@ class grp_ptr_data_map {
       uint64_t bm_mask = bm_init_mask;
       uint64_t bm_leaf = UINT64_MAX;
       if (dict_obj->key_count > 0)
-        cmn::read_uint64(t, bm_leaf);
+        gen::read_uint64(t, bm_leaf);
       int64_t col_val = 0;
       do {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
           if (val_loc != NULL)
-            col_val += cmn::read_svint60(val_loc);
+            col_val += gen::read_svint60(val_loc);
         }
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
@@ -673,7 +481,7 @@ class grp_ptr_data_map {
         return;
       }
       double dbl = static_cast<double>(col_val);
-      dbl /= cmn::pow10(data_type - DCT_S64_DEC1 + 1);
+      dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
       *((double *)ret_val) = dbl;
     }
 
@@ -701,34 +509,34 @@ class grp_ptr_data_map {
           *in_size_out_value_len = 8;
           switch (data_type) {
             case DCT_TEXT: case DCT_BIN:
-              val_len = cmn::read_vint32(val_loc, &len_of_len);
+              val_len = gen::read_vint32(val_loc, &len_of_len);
               *in_size_out_value_len = val_len;
               memcpy(ret_val, val_loc + len_of_len, val_len);
               break;
             case DCT_S64_INT: {
-              int64_t i64 = cmn::read_svint60(val_loc);
+              int64_t i64 = gen::read_svint60(val_loc);
               memcpy(ret_val, &i64, sizeof(int64_t));
             } break;
             case DCT_S64_DEC1 ... DCT_S64_DEC9: {
-              int64_t i64 = cmn::read_svint60(val_loc);
+              int64_t i64 = gen::read_svint60(val_loc);
               double dbl = static_cast<double>(i64);
-              dbl /= cmn::pow10(data_type - DCT_S64_DEC1 + 1);
+              dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
               *((double *)ret_val) = dbl;
             } break;
             case DCT_U64_INT: {
-              uint64_t u64 = cmn::read_svint61(val_loc);
+              uint64_t u64 = gen::read_svint61(val_loc);
               *((uint64_t *) ret_val) = u64;
             } break;
             case DCT_U64_DEC1 ... DCT_U64_DEC9: {
-              uint64_t u64 = cmn::read_svint61(val_loc);
+              uint64_t u64 = gen::read_svint61(val_loc);
               double dbl = static_cast<double>(u64);
-              dbl /= cmn::pow10(data_type - DCT_U64_DEC1 + 1);
+              dbl /= gen::pow10(data_type - DCT_U64_DEC1 + 1);
               *((double *)ret_val) = dbl;
             } break;
             case DCT_U15_DEC1 ... DCT_U15_DEC2: {
-              uint64_t u64 = cmn::read_svint15(val_loc);
+              uint64_t u64 = gen::read_svint15(val_loc);
               double dbl = static_cast<double>(u64);
-              dbl /= cmn::pow10(data_type - DCT_U15_DEC1 + 1);
+              dbl /= gen::pow10(data_type - DCT_U15_DEC1 + 1);
               *((double *)ret_val) = dbl;
             } break;
           }
@@ -758,7 +566,7 @@ class grp_ptr_data_map {
       return ptr;
     }
 
-    void get_tail_str(byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t max_tail_len, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no, bool is_ptr) {
+    void get_tail_str(gen::byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t max_tail_len, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no, bool is_ptr) {
       ret.clear();
       if (!is_ptr) {
         ret.append(node_byte);
@@ -787,7 +595,7 @@ class grp_ptr_data_map {
     }
 
     //const int max_tailset_len = 129;
-    void get_tail_str(byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
+    void get_tail_str(gen::byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
       uint8_t *tail = grp_data[grp_no];
       ret.clear();
       uint8_t *t = tail + tail_ptr;
@@ -818,14 +626,14 @@ class grp_ptr_data_map {
       } while (byt > 31 && ptr);
       ptr++;
       uint8_t prev_str_buf[max_tailset_len];
-      byte_str prev_str(prev_str_buf, max_tailset_len);
+      gen::byte_str prev_str(prev_str_buf, max_tailset_len);
       byt = tail[++ptr];
       while (byt != 0) {
         prev_str.append(byt);
         byt = tail[++ptr];
       }
       uint8_t last_str_buf[max_tailset_len];
-      byte_str last_str(last_str_buf, max_tailset_len);
+      gen::byte_str last_str(last_str_buf, max_tailset_len);
       while (ptr < ptr_end) {
         byt = tail[++ptr];
         while (byt > 31) {
@@ -864,7 +672,7 @@ class bv_lookup_tbl {
     int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first < last) {
         const uint32_t middle = (first + last) >> 1;
-        if (cmn::read_uint32(lt_rank_loc + middle * 7) < given_count)
+        if (gen::read_uint32(lt_rank_loc + middle * 7) < given_count)
           first = middle + 1;
         else
           last = middle;
@@ -875,14 +683,14 @@ class bv_lookup_tbl {
       uint32_t block;
       uint8_t *select_loc = lt_sel_loc + target_count / sel_divisor * 3;
       if ((target_count % sel_divisor) == 0) {
-        block = cmn::read_uint24(select_loc);
+        block = gen::read_uint24(select_loc);
       } else {
-        uint32_t start_block = cmn::read_uint24(select_loc);
-        uint32_t end_block = cmn::read_uint24(select_loc + 3);
+        uint32_t start_block = gen::read_uint24(select_loc);
+        uint32_t end_block = gen::read_uint24(select_loc + 3);
         if (start_block + 10 >= end_block) {
           do {
             start_block++;
-          } while (cmn::read_uint32(lt_rank_loc + start_block * 7) < target_count && start_block <= end_block);
+          } while (gen::read_uint32(lt_rank_loc + start_block * 7) < target_count && start_block <= end_block);
           block = start_block - 1;
         } else {
           block = bin_srch_lkup_tbl(start_block, end_block, target_count);
@@ -892,7 +700,7 @@ class bv_lookup_tbl {
       uint32_t cur_count;
       do {
         block--;
-        cur_count = cmn::read_uint32(lt_rank_loc + block * 7);
+        cur_count = gen::read_uint32(lt_rank_loc + block * 7);
       } while (cur_count >= target_count);
       node_id = block * nodes_per_bv_block;
       uint8_t *bv3 = lt_rank_loc + block * 7 + 4;
@@ -912,7 +720,7 @@ class bv_lookup_tbl {
     }
     uint32_t block_rank(uint32_t node_id) {
       uint8_t *rank_ptr = lt_rank_loc + node_id / nodes_per_bv_block * 7;
-      uint32_t rank = cmn::read_uint32(rank_ptr);
+      uint32_t rank = gen::read_uint32(rank_ptr);
       int pos = (node_id / nodes_per_bv_block3) % 4;
       if (pos > 0) {
         uint8_t *bv3 = rank_ptr + 4;
@@ -924,7 +732,7 @@ class bv_lookup_tbl {
       uint32_t rank = block_rank(node_id);
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm;
-      cmn::read_uint64(t + bm_pos, bm);
+      gen::read_uint64(t + bm_pos, bm);
       uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block3);
       return rank + __builtin_popcountll(bm & (mask - 1));
     }
@@ -1018,7 +826,7 @@ class bv_lookup_tbl {
       uint32_t block_count = block_select(target_count, node_id);
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm;
-      cmn::read_uint64(t + bm_pos, bm);
+      gen::read_uint64(t + bm_pos, bm);
       // int remaining = target_count - block_count - 1;
       // uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
       // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
@@ -1132,41 +940,41 @@ class static_dict : public static_dict_fwd {
     }
 
     void set_print_enabled(bool to_print_messages = true) {
-      is_dict_print_enabled = to_print_messages;
+      gen::is_gen_print_enabled = to_print_messages;
     }
 
     void load_into_vars() {
 
-      val_count = cmn::read_uint16(dict_buf + 4);
-      names_loc = dict_buf + cmn::read_uint32(dict_buf + 6);
-      val_table_loc = dict_buf + cmn::read_uint32(dict_buf + 10);
-      node_count = cmn::read_uint32(dict_buf + 14);
+      val_count = gen::read_uint16(dict_buf + 4);
+      names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
+      val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
+      node_count = gen::read_uint32(dict_buf + 14);
       bv_block_count = node_count / nodes_per_bv_block;
-      common_node_count = cmn::read_uint32(dict_buf + 22);
-      key_count = cmn::read_uint32(dict_buf + 26);
+      common_node_count = gen::read_uint32(dict_buf + 22);
+      key_count = gen::read_uint32(dict_buf + 26);
       names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
-      column_encoding = names_start + madras_dv1::cmn::read_uint16(names_loc);
+      column_encoding = names_start + gen::read_uint16(names_loc);
 
-      max_val_len = cmn::read_uint32(dict_buf + 34);
+      max_val_len = gen::read_uint32(dict_buf + 34);
 
       if (key_count > 0) {
-        max_key_len = cmn::read_uint32(dict_buf + 30);
-        max_tail_len = cmn::read_uint16(dict_buf + 38) + 1;
-        max_level = cmn::read_uint16(dict_buf + 40);
-        cache_count = cmn::read_uint32(dict_buf + 42);
+        max_key_len = gen::read_uint32(dict_buf + 30);
+        max_tail_len = gen::read_uint16(dict_buf + 38) + 1;
+        max_level = gen::read_uint16(dict_buf + 40);
+        cache_count = gen::read_uint32(dict_buf + 42);
         memcpy(&min_stats, dict_buf + 46, 4);
-        cache_loc = dict_buf + cmn::read_uint32(dict_buf + 50);
-        sec_cache_loc = dict_buf + cmn::read_uint32(dict_buf + 54);
+        cache_loc = dict_buf + gen::read_uint32(dict_buf + 50);
+        sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 54);
 
-        term_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 58);
-        term_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 62);
-        child_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 66);
-        child_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 70);
-        leaf_select_lkup_loc = dict_buf + cmn::read_uint32(dict_buf + 74);
-        leaf_lt_loc = dict_buf + cmn::read_uint32(dict_buf + 78);
+        term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 58);
+        term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 62);
+        child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 66);
+        child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 70);
+        leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
+        leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
 
-        uint8_t *trie_tail_ptrs_data_loc = dict_buf + cmn::read_uint32(dict_buf + 82);
-        uint32_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
+        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 82);
+        uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
         trie_loc = tails_loc + tail_size;
         tail_map.init(dict_buf, this, trie_loc, tails_loc, node_count, true);
@@ -1179,7 +987,7 @@ class static_dict : public static_dict_fwd {
       if (val_count > 0) {
         val_map = new grp_ptr_data_map[val_count];
         for (int i = 0; i < val_count; i++) {
-          val_buf = dict_buf + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
+          val_buf = dict_buf + gen::read_uint32(val_table_loc + i * sizeof(uint32_t));
           val_map[i].init(val_buf, this, trie_loc, val_buf, node_count, false);
         }
       }
@@ -1276,19 +1084,19 @@ class static_dict : public static_dict_fwd {
       do {
         uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
         cache *cche = cche0 + cache_idx;
-        uint32_t cache_node_id = cmn::read_uint24(&cche->parent_node_id1);
+        uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (node_id == cache_node_id) {
           if (cche->node_byte == key_byte) {
             key_pos++;
             if (key_pos < key_len) {
-              node_id = cmn::read_uint24(&cche->child_node_id1);
+              node_id = gen::read_uint24(&cche->child_node_id1);
               key_byte = key[key_pos];
               continue;
             }
             node_id += cche->node_offset;
             uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
             uint64_t bm_leaf;
-            cmn::read_uint64(t, bm_leaf);
+            gen::read_uint64(t, bm_leaf);
             uint64_t bm_mask = (bm_init_mask << (node_id % 64));
             if (bm_leaf & bm_mask) {
               last_exit_loc = 0;
@@ -1329,7 +1137,7 @@ class static_dict : public static_dict_fwd {
       int key_pos = 0;
       node_id = 2;
       uint8_t tail_str_buf[max_tail_len];
-      byte_str tail_str(tail_str_buf, max_tail_len);
+      gen::byte_str tail_str(tail_str_buf, max_tail_len);
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       uint8_t trie_byte;
       uint8_t grp_no;
@@ -1384,10 +1192,10 @@ class static_dict : public static_dict_fwd {
           if (bm_mask & bm_ptr) {
             tail_map.get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len);
             tail_len = tail_str.length();
-            *pcmp = cmn::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
+            *pcmp = gen::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
           }
           key_pos += tail_len;
-          if (key_pos < key_len && (*pcmp == 0 || *pcmp - 1 == tail_len)) {
+          if (key_pos < key_len && (*pcmp == 0 || abs(*pcmp) - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0) {
               last_exit_loc = t - dict_buf;
               return false;
@@ -1483,8 +1291,9 @@ class static_dict : public static_dict_fwd {
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       read_from_ctx(ctx, cv);
-      cv.read_flags_block_begin();
       while (cv.node_id < 2) {
+        if (cv.node_id == 0)
+          cv.read_flags_block_begin();
         uint8_t trie_byte = *cv.t;
         cv.t++;
         cv.node_id++;
@@ -1577,7 +1386,7 @@ class static_dict : public static_dict_fwd {
     bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) {
       ctx_vars cv;
       uint8_t key_str_buf[max_key_len];
-      byte_str key_str(key_str_buf, max_key_len);
+      gen::byte_str key_str(key_str_buf, max_key_len);
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       cv.node_id = node_id;
@@ -1649,11 +1458,11 @@ class static_dict : public static_dict_fwd {
     }
 
     const char *get_table_name() {
-      return names_start + madras_dv1::cmn::read_uint16(names_loc + 2);
+      return names_start + gen::read_uint16(names_loc + 2);
     }
 
     const char *get_column_name(int i) {
-      return names_start + madras_dv1::cmn::read_uint16(names_loc + (i + 2) * 2);
+      return names_start + gen::read_uint16(names_loc + (i + 2) * 2);
     }
 
     const char *get_column_types() {
@@ -1681,35 +1490,35 @@ class static_dict : public static_dict_fwd {
     }
 
     int64_t get_val_int60(uint8_t *val) {
-      return cmn::read_svint60(val);
+      return gen::read_svint60(val);
     }
 
     double get_val_int60_dbl(uint8_t *val, char type) {
-      int64_t i64 = cmn::read_svint60(val);
+      int64_t i64 = gen::read_svint60(val);
       double ret = static_cast<double>(i64);
-      ret /= cmn::pow10(type - DCT_S64_DEC1 + 1);
+      ret /= gen::pow10(type - DCT_S64_DEC1 + 1);
       return ret;
     }
 
     uint64_t get_val_int61(uint8_t *val) {
-      return cmn::read_svint61(val);
+      return gen::read_svint61(val);
     }
 
     double get_val_int61_dbl(uint8_t *val, char type) {
-      uint64_t i64 = cmn::read_svint61(val);
+      uint64_t i64 = gen::read_svint61(val);
       double ret = static_cast<double>(i64);
-      ret /= cmn::pow10(type - DCT_U64_DEC1 + 1);
+      ret /= gen::pow10(type - DCT_U64_DEC1 + 1);
       return ret;
     }
 
     uint64_t get_val_int15(uint8_t *val) {
-      return cmn::read_svint15(val);
+      return gen::read_svint15(val);
     }
 
     double get_val_int15_dbl(uint8_t *val, char type) {
-      uint64_t i64 = cmn::read_svint15(val);
+      uint64_t i64 = gen::read_svint15(val);
       double ret = static_cast<double>(i64);
-      ret /= cmn::pow10(type - DCT_U15_DEC1 + 1);
+      ret /= gen::pow10(type - DCT_U15_DEC1 + 1);
       return ret;
     }
 

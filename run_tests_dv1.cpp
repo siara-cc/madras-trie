@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
       } else {
         val_len = (line_len > 6 ? 7 : line_len);
       }
-      if (madras_dv1::gen::compare(key, key_len, prev_line, madras_dv1::gen::min(prev_line_len, key_len)) < 0)
+      if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
       sb.insert(key, key_len, val, val_len);
       lines.push_back(line);
@@ -153,7 +153,7 @@ int main(int argc, char *argv[]) {
 
   if (!is_sorted) {
     std::sort(lines.begin(), lines.end(), [](const uint8_t *lhs, const uint8_t *rhs) -> bool {
-      return madras_dv1::gen::compare(lhs, strlen((const char *) lhs), rhs, strlen((const char *) rhs)) < 0;
+      return gen::compare(lhs, strlen((const char *) lhs), rhs, strlen((const char *) rhs)) < 0;
     });
     is_sorted = true;
   }
@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < lines.size(); i++) {
     line = lines[i];
     line_len = strlen((const char *) line);
-    if (madras_dv1::gen::compare(line, line_len, prev_line, prev_line_len) == 0)
+    if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
       continue;
     prev_line = line;
     prev_line_len = line_len;
@@ -218,8 +218,8 @@ int main(int argc, char *argv[]) {
     if (!is_found)
       std::cout << line << std::endl;
     uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
-    bool success = dict_reader.reverse_lookup(leaf_id, &key_len, key_buf);
-    key_buf[key_len] = 0;
+    bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
+    key_buf[out_key_len] = 0;
     if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
       printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", key, key_len, key_buf);
 
