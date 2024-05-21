@@ -44,6 +44,18 @@ int main(int argc, char *argv[]) {
   char data_type = dict_reader.get_column_type(column_idx);
   printf("Row count: %d, Col type: %c, name: %s\n", row_count,
     dict_reader.get_column_type(column_idx), dict_reader.get_column_name(column_idx));
+  if (data_type == 't' || data_type == '*') {
+    //uint8_t val[dict_reader.get_max_val_len(column_idx)];
+    uint8_t val[1000]; // get_max_val_len not working for trie columns
+    int val_len;
+    int64_t sum = 0;
+    for (int i = 0; i < row_count; i++) {
+      bool is_success = dict_reader.get_col_val(i, column_idx, &val_len, val, &ptr_bit_count);
+      if (is_success && val_len != -1)
+        sum += val_len;
+    }
+    printf("Sum: %lld\n", sum);
+  } else
   if (data_type == '0' || data_type == 'i') {
     int64_t sum = 0;
     for (int i = 0; i < row_count; i++) {

@@ -436,7 +436,10 @@ class grp_ptr_data_map {
       return false;
     }
 
-    uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = NULL) {
+    uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = NULL, uint8_t *p_grp_no = NULL) {
+      uint8_t grp_no = 0;
+      if (p_grp_no == NULL)
+        p_grp_no = &grp_no;
       uint32_t ptr_bit_count = UINT32_MAX;
       if (p_ptr_bit_count == NULL)
         p_ptr_bit_count = &ptr_bit_count;
@@ -445,15 +448,15 @@ class grp_ptr_data_map {
       uint8_t code = read_ptr_bits8(node_id, *p_ptr_bit_count);
       uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
-      uint8_t grp_no = *lookup_tbl_ptr & 0x0F;
+      *p_grp_no = *lookup_tbl_ptr & 0x0F;
       uint8_t code_len = *lookup_tbl_ptr >> 4;
       *p_ptr_bit_count += code_len;
       uint32_t ptr = read_extra_ptr(*p_ptr_bit_count, bit_len - code_len);
-      if (grp_no < grp_idx_limit)
-        ptr = read_ptr_from_idx(grp_no, ptr);
+      if (*p_grp_no < grp_idx_limit)
+        ptr = read_ptr_from_idx(*p_grp_no, ptr);
       if (ptr == 0)
         return NULL;
-      return grp_data[grp_no] + ptr;
+      return grp_data[*p_grp_no] + ptr;
     }
 
     void get_delta_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val) {
@@ -499,20 +502,24 @@ class grp_ptr_data_map {
       uint8_t *val_loc;
       int val_len = 0;
       int8_t len_of_len = 0;
+      uint8_t grp_no = 0;
       switch (encoding_type) {
         case 'u':
-          val_loc = get_val_loc(node_id, p_ptr_bit_count);
+          val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
           if (val_loc == NULL) {
             *in_size_out_value_len = -1;
             return;
           }
           *in_size_out_value_len = 8;
           switch (data_type) {
-            case DCT_TEXT: case DCT_BIN:
-              val_len = gen::read_vint32(val_loc, &len_of_len);
+            case DCT_TEXT: case DCT_BIN: {
+              uint8_t val_str_buf[max_len];
+              gen::byte_str val_str(val_str_buf, max_len);
+              get_val_str(val_str, val_loc - grp_data[grp_no], grp_no, max_len);
+              size_t val_len = val_str.length();
               *in_size_out_value_len = val_len;
-              memcpy(ret_val, val_loc + len_of_len, val_len);
-              break;
+              memcpy(ret_val, val_str.data(), val_len);
+            } break;
             case DCT_S64_INT: {
               int64_t i64 = gen::read_svint60(val_loc);
               memcpy(ret_val, &i64, sizeof(int64_t));
@@ -616,39 +623,107 @@ class grp_ptr_data_map {
         return;
       uint8_t len_len = 0;
       uint32_t sfx_len = read_len(t - 1, len_len);
-      uint32_t ptr_end = tail_ptr;
-      uint32_t ptr = tail_ptr;
+      uint8_t *t_end = tail + tail_ptr;
+      t = t_end;
       do {
-        byt = tail[ptr--];
-      } while (byt != 0 && ptr);
+        byt = *t--;
+      } while (byt != 0 && t > tail);
       do {
-        byt = tail[ptr--];
-      } while (byt > 31 && ptr);
-      ptr++;
+        byt = *t--;
+      } while (byt > 31 && t >= tail);
+      t += 2;
       uint8_t prev_str_buf[max_tailset_len];
       gen::byte_str prev_str(prev_str_buf, max_tailset_len);
-      byt = tail[++ptr];
+      byt = *t++;
       while (byt != 0) {
         prev_str.append(byt);
-        byt = tail[++ptr];
+        byt = *t++;
       }
       uint8_t last_str_buf[max_tailset_len];
       gen::byte_str last_str(last_str_buf, max_tailset_len);
-      while (ptr < ptr_end) {
-        byt = tail[++ptr];
+      while (t < t_end) {
+        byt = *t++;
         while (byt > 31) {
           last_str.append(byt);
-          byt = tail[++ptr];
+          byt = *t++;
         }
-        uint32_t prev_sfx_len = read_len(tail + ptr, len_len);
+        uint32_t prev_sfx_len = read_len(t - 1, len_len);
         last_str.append(prev_str.data() + prev_str.length()-prev_sfx_len, prev_sfx_len);
-        ptr += len_len;
-        ptr--;
+        t += len_len;
         prev_str.clear();
         prev_str.append(last_str.data(), last_str.length());
         last_str.clear();
       }
       ret.append(prev_str.data() + prev_str.length()-sfx_len, sfx_len);
+    }
+    void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, int max_valset_len) {
+      uint8_t *val = grp_data[grp_no];
+      ret.clear();
+      uint8_t *t = val + val_ptr;
+      if (*t < 32) {
+        uint8_t len_len;
+        uint32_t bin_len = read_len(t, len_len);
+        t += len_len;
+        while (bin_len--)
+          ret.append(*t++);
+        return;
+      }
+      int len_left = 0;
+      if (t[1] == '\0' || t[1] > 31) {
+        uint8_t *end_t = t;
+        do {
+          t--;
+        } while (*t > 31 && t >= val);
+        t++;
+        do {
+          ret.append(*t++);
+        } while (t <= end_t);
+        if (*t == '\0')
+          return;
+        while (*t++ > 31)
+          len_left++;
+        if (*t == '\0')
+          return;
+        ret.clear();
+        t--;
+      }
+      uint8_t len_len = 0;
+      uint32_t pfx_len = read_len(t + 1, len_len);
+      uint8_t *t_end = t;
+      uint8_t byt;
+      do {
+        byt = *t--;
+      } while (byt > 31 && t > val);
+      while (byt != 0 && t > val) {
+        byt = *t--;
+      }
+      do {
+        byt = *t--;
+      } while (byt > 31 && t >= val);
+      t += 2;
+      uint8_t prev_str_buf[max_valset_len];
+      gen::byte_str prev_str(prev_str_buf, max_valset_len);
+      byt = *t++;
+      while (byt != 0) {
+        prev_str.append(byt);
+        byt = *t++;
+      }
+      uint8_t last_str_buf[max_valset_len];
+      gen::byte_str last_str(last_str_buf, max_valset_len);
+      while (t <= t_end) {
+        byt = *t++;
+        while (byt > 31) {
+          last_str.append(byt);
+          byt = *t++;
+        }
+        uint32_t prev_pfx_len = read_len(t - 1, len_len);
+        prev_str.truncate(prev_pfx_len);
+        prev_str.append(last_str.data(), last_str.length());
+        t += len_len;
+        t--;
+        last_str.clear();
+      }
+      ret.append(prev_str.data(), prev_str.length() - len_left);
     }
 };
 
@@ -1369,6 +1444,10 @@ class static_dict : public static_dict_fwd {
 
     uint32_t get_max_val_len() {
       return max_val_len;
+    }
+
+    uint32_t get_max_val_len(int col_val_idx) {
+      return val_map[col_val_idx].max_len;
     }
 
     uint32_t get_leaf_rank(uint32_t node_id) {
