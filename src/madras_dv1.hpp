@@ -1304,7 +1304,8 @@ class static_dict : public static_dict_fwd {
       int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
       if (is_found && node_id >= 0) {
-        val_map[0].get_val(node_id, in_size_out_value_len, val);
+        if (val_count > 0)
+          val_map[0].get_val(node_id, in_size_out_value_len, val);
         return true;
       }
       return false;
@@ -1374,11 +1375,13 @@ class static_dict : public static_dict_fwd {
         cv.node_id++;
         cv.bm_mask <<= 1;
         if (cv.node_id == 1 && trie_byte == 0xFF) {
-          val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          if (val_count > 0)
+            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
           return -1; // null
         }
         if (cv.node_id == 2 && trie_byte == 0xFF) {
-          val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          if (val_count > 0)
+            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
           return 0; // empty
         }
       }
@@ -1410,7 +1413,8 @@ class static_dict : public static_dict_fwd {
             tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
             update_ctx(ctx, cv);
             memcpy(key_buf, ctx.key, ctx.key_len);
-            val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+            if (val_count > 0)
+              val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
           }

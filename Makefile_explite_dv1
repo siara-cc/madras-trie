@@ -2,7 +2,7 @@ C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I./src
-L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3
+L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd
 M_FLAGS = -mbmi2 -mpopcnt
 
 opt: CXXFLAGS += -O2 -funroll-loops -DNDEBUG
@@ -21,5 +21,5 @@ clean:
 	rm export_sqlite
 	rm -rf export_sqlite.dSYM
 
-export_sqlite: src/export_sqlite_dv1.cpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ../leopard-trie/src/leopard.hpp
+export_sqlite: src/export_sqlite_dv1.cpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ../leopard-trie/src/leopard.hpp ../ds_common/src/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) src/export_sqlite_dv1.cpp -o export_sqlite $(L_FLAGS)

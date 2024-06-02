@@ -2,8 +2,11 @@
 *.o
 run_tests*
 !run_tests_dv1.cpp
+prgs/query_mdx*
+!prgs/query_mdx.cpp
 a.out*
-*.txt
+*.txt*
+*.log
 *.rst
 *.val
 *.mdx

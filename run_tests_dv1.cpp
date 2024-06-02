@@ -21,8 +21,18 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
-  madras_dv1::builder sb(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tttt", "uuuu");
-  sb.set_print_enabled(true);
+  int what = 0;
+  if (argc > 2)
+   what = atoi(argv[2]);
+
+  madras_dv1::builder *sb;
+  if (what == 0)
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tttt", "uuuu");
+  else if (what == 1) // Process only key
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u");
+  else if (what == 2) // Insert key as value to compare trie and prefix coding
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu");
+  sb->set_print_enabled(true);
   vector<uint8_t *> lines;
 
   clock_t t = clock();
@@ -30,7 +40,7 @@ int main(int argc, char *argv[]) {
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
   uint8_t *file_buf = (uint8_t *) malloc(file_stat.st_size + 1);
-  printf("File_size: %lld\n", file_stat.st_size);
+  printf("File_name: %s, size: %lld\n", argv[1], file_stat.st_size);
 
   FILE *fp = fopen(argv[1], "rb");
   if (fp == NULL) {
@@ -50,33 +60,30 @@ int main(int argc, char *argv[]) {
   bool is_sorted = true;
   const uint8_t *prev_line = (const uint8_t *) "";
   size_t prev_line_len = 0;
-  uint8_t *line = file_buf;
-  uint8_t *cr_pos = (uint8_t *) memchr(line, '\n', file_stat.st_size);
-  if (cr_pos == NULL)
-    cr_pos = file_buf + file_stat.st_size;
-  else {
-    if (cr_pos > line && *(cr_pos - 1) == '\r')
-      cr_pos--;
-  }
-  *cr_pos = 0;
-  int line_len = cr_pos - line;
+  int line_len = 0;
+  uint8_t *line = gen::extract_line(file_buf, line_len, file_stat.st_size);
   do {
     if (prev_line_len != line_len || strncmp((const char *) line, (const char *) prev_line, prev_line_len) != 0) {
       uint8_t *key = line;
       int key_len = line_len;
       uint8_t *val = line;
       int val_len;
-      uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
-      if (tab_loc != NULL) {
-        key_len = tab_loc - line;
-        val = tab_loc + 1;
-        val_len = line_len - key_len - 1;
-      } else {
+      // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
+      // if (tab_loc != NULL) {
+      //   key_len = tab_loc - line;
+      //   val = tab_loc + 1;
+      //   val_len = line_len - key_len - 1;
+      // } else {
         val_len = (line_len > 6 ? 7 : line_len);
-      }
+      // }
       if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
-      sb.insert(key, key_len, val, val_len);
+      if (what == 0)
+        sb->insert(key, key_len, val, val_len);
+      else if (what == 1)
+        sb->insert(key, key_len);
+      else if (what == 2)
+        sb->insert(key, key_len, key, key_len);
       lines.push_back(line);
       prev_line = line;
       prev_line_len = line_len;
@@ -86,50 +93,45 @@ int main(int argc, char *argv[]) {
         cout.flush();
       }
     }
-    line = cr_pos + (cr_pos[1] == '\n' ? 2 : 1);
-    cr_pos = (uint8_t *) memchr(line, '\n', file_stat.st_size - (cr_pos - file_buf));
-    if (cr_pos != NULL && cr_pos > line) {
-      if (*(cr_pos - 1) == '\r')
-        cr_pos--;
-      *cr_pos = 0;
-      line_len = cr_pos - line;
-    }
-  } while (cr_pos != NULL);
+    line = gen::extract_line(line, line_len, file_stat.st_size - (line - file_buf) - line_len);
+  } while (line != NULL);
   std::cout << std::endl;
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  sb.write_kv(out_file.c_str());
+  sb->write_kv(out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
   std::cout << "Sorted? : " << is_sorted << std::endl;
 
-  sb.reset_for_next_col();
-  for (int i = 0; i < line_count; i++) {
-    line = lines[i];
-    line_len = strlen((const char *) line);
-    char val[30];
-    sprintf(val, "%d", line_len);
-    // printf("[%.*s]]\n", (int) strlen(val), val);
-    sb.insert_col_val(val, strlen(val));
-  }
-  sb.build_and_write_col_val();
-
-  sb.reset_for_next_col();
-  for (int i = 0; i < line_count; i++) {
-    line = lines[i];
-    int checksum = 0;
-    for (int i = 0; i < strlen((const char *) line); i++) {
-      checksum += line[i];
+  if (what == 0) {
+    sb->reset_for_next_col();
+    for (int i = 0; i < line_count; i++) {
+      line = lines[i];
+      line_len = strlen((const char *) line);
+      char val[30];
+      snprintf(val, 30, "%d", line_len);
+      // printf("[%.*s]]\n", (int) strlen(val), val);
+      sb->insert_col_val(val, strlen(val));
     }
-    char val[30];
-    sprintf(val, "%d", checksum);
-    // printf("[%.*s]]\n", (int) strlen(val), val);
-    sb.insert_col_val(val, strlen(val));
-  }
-  sb.build_and_write_col_val();
+    sb->build_and_write_col_val();
 
-  sb.write_final_val_table();
+    sb->reset_for_next_col();
+    for (int i = 0; i < line_count; i++) {
+      line = lines[i];
+      int checksum = 0;
+      for (int i = 0; i < strlen((const char *) line); i++) {
+        checksum += line[i];
+      }
+      char val[30];
+      snprintf(val, 30, "%d", checksum);
+      // printf("[%.*s]]\n", (int) strlen(val), val);
+      sb->insert_col_val(val, strlen(val));
+    }
+    sb->build_and_write_col_val();
+  }
+
+  sb->write_final_val_table();
 
   t = print_time_taken(t, "Time taken for insert/append: ");
 
@@ -139,17 +141,10 @@ int main(int argc, char *argv[]) {
 
   int out_key_len = 0;
   int out_val_len = 0;
-  uint8_t key_buf[1000];
-  uint8_t val_buf[100];
+  uint8_t key_buf[dict_reader.get_max_key_len() + 1];
+  uint8_t val_buf[dict_reader.get_max_val_len() + 1];
   madras_dv1::dict_iter_ctx dict_ctx;
   dict_ctx.init(dict_reader.get_max_key_len(), dict_reader.get_max_level());
-
-  // dict_reader.reverse_lookup(1096762, &line_count, key_buf, &val_len, val_buf);
-  // //dict_reader.reverse_lookup_from_node_id(65, &line_count, key_buf, &val_len, val_buf);
-  // printf("Key: [%.*s]\n", line_count, key_buf);
-  // printf("Val: [%.*s]\n", val_len, val_buf);
-
-  // dict_reader.dump_vals();
 
   if (!is_sorted) {
     std::sort(lines.begin(), lines.end(), [](const uint8_t *lhs, const uint8_t *rhs) -> bool {
@@ -177,8 +172,8 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    // if (line.compare("a 1tb") == 0)
-    //   ret = 1;
+    // if (strcmp((const char *) line, "a 1 in") == 0)
+    //   int ret = 1;
     // if (line.compare("really act") == 0)
     //   ret = 1;
     // if (line.compare("they argued") == 0)
@@ -192,14 +187,14 @@ int main(int argc, char *argv[]) {
     int key_len = line_len;
     uint8_t *val = line;
     int val_len;
-    uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
-    if (tab_loc != NULL) {
-      key_len = tab_loc - line;
-      val = tab_loc + 1;
-      val_len = line_len - key_len - 1;
-    } else {
-      val_len = (line_len > 6 ? 7 : line_len);
-    }
+    // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
+    // if (tab_loc != NULL) {
+    //   key_len = tab_loc - line;
+    //   val = tab_loc + 1;
+    //   val_len = line_len - key_len - 1;
+    // } else {
+    //   val_len = (line_len > 6 ? 7 : line_len);
+    // }
 
     if (is_sorted) {
       out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
@@ -208,7 +203,9 @@ int main(int argc, char *argv[]) {
       else {
         if (memcmp(key, key_buf, key_len) != 0)
           printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
-        if (memcmp(val, val_buf, val_len) != 0)
+        if (what == 2 && memcmp(key, val_buf, val_len) != 0)
+          printf("2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+        if (what == 0 && memcmp(val, val_buf, val_len) != 0)
           printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
       }
     }
@@ -216,7 +213,7 @@ int main(int argc, char *argv[]) {
     uint32_t node_id;
     bool is_found = dict_reader.lookup(key, key_len, node_id);
     if (!is_found)
-      std::cout << line << std::endl;
+      std::cout << "Lookup fail: " << line << std::endl;
     uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
     bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
     key_buf[out_key_len] = 0;
@@ -226,27 +223,31 @@ int main(int argc, char *argv[]) {
     success = dict_reader.get(key, key_len, &out_val_len, val_buf, node_id);
     if (success) {
       val_buf[out_val_len] = 0;
-      if (strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
+      if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
+        printf("2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+      if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
         printf("key: [%.*s], val: [%.*s]\n", out_key_len, key, out_val_len, val_buf);
     } else
-      std::cout << key << std::endl;
+      std::cout << "Get fail: " << key << std::endl;
 
-    dict_reader.get_col_val(node_id, 1, &out_val_len, val_buf);
-    val_buf[out_val_len] = 0;
-    if (atoi((const char *) val_buf) != line_len) {
-      std::cout << "First val mismatch - expected: " << line_len << ", found: "
-           << (const char *) val_buf << std::endl;
-    }
+    if (what == 0) {
+      dict_reader.get_col_val(node_id, 1, &out_val_len, val_buf);
+      val_buf[out_val_len] = 0;
+      if (atoi((const char *) val_buf) != line_len) {
+        std::cout << "First val mismatch - expected: " << line_len << ", found: "
+            << (const char *) val_buf << std::endl;
+      }
 
-    dict_reader.get_col_val(node_id, 2, &out_val_len, val_buf);
-    val_buf[out_val_len] = 0;
-    int checksum = 0;
-    for (int i = 0; i < strlen((const char *) line); i++) {
-      checksum += line[i];
-    }
-    if (atoi((const char *) val_buf) != checksum) {
-      std::cout << "Second val mismatch - expected: " << checksum << ", found: "
-           << (const char *) val_buf << std::endl;
+      dict_reader.get_col_val(node_id, 2, &out_val_len, val_buf);
+      val_buf[out_val_len] = 0;
+      int checksum = 0;
+      for (int i = 0; i < strlen((const char *) line); i++) {
+        checksum += line[i];
+      }
+      if (atoi((const char *) val_buf) != checksum) {
+        std::cout << "Second val mismatch - expected: " << checksum << ", found: "
+            << (const char *) val_buf << std::endl;
+      }
     }
 
     // success = sb.get(line, line_len, &val_len, val_buf);
@@ -269,6 +270,8 @@ int main(int argc, char *argv[]) {
 
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for retrieve: ");
+
+  delete sb;
 
   free(file_buf);
 

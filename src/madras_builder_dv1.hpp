@@ -20,6 +20,7 @@
 #include "../../ds_common/src/vint.hpp"
 #include "../../ds_common/src/huffman.hpp"
 #include "../../ds_common/src/match_words.hpp"
+#include "../../ds_common/src/compress.hpp"
 
 namespace madras_dv1 {
 
@@ -112,6 +113,58 @@ struct freq_grp {
   uint32_t grp_size;
   uint8_t code;
   uint8_t code_len;
+};
+
+    class frag_val_sort_callbacks : public leopard::sort_callbacks {
+      private:
+        byte_ptr_vec& all_node_sets;
+        gen::byte_blocks& all_vals;
+        gen::byte_blocks& uniq_vals;
+      public:
+        frag_val_sort_callbacks(byte_ptr_vec& _all_node_sets, gen::byte_blocks& _all_vals, gen::byte_blocks& _uniq_vals)
+          : all_node_sets (_all_node_sets), all_vals (_all_vals), uniq_vals (_uniq_vals) {
+        }
+        uint8_t *get_data_and_len(leopard::node& n, uint32_t& len, char type = '*') {
+          len = 0;
+          if (n.get_flags() & NFLAG_LEAF) {
+            uint32_t col_val = n.get_col_val();
+            if (col_val == 1) {
+              len = 1;
+              return NULL;
+            }
+            return get_data(all_vals, n.get_col_val(), len, type);
+          }
+          return NULL;
+        }
+        void set_uniq_pos(uint32_t ns_id, uint8_t node_idx, uint32_t pos) {
+        }
+        int compare(const uint8_t *v1, int len1, const uint8_t *v2, int len2) {
+          if (v1 == NULL && v2 == NULL)
+            return 0;
+          if (v1 == NULL)
+            return -1;
+          if (v2 == NULL)
+            return 1;
+          return gen::compare(v1, len1, v2, len2);
+        }
+        void sort_data(leopard::sort_data_vec& nodes_for_sort) {
+          clock_t t = clock();
+          std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct leopard::sort_data& lhs, const struct leopard::sort_data& rhs) -> bool {
+            if (rhs.data == NULL)
+              return false;
+            if (lhs.data == NULL)
+              return true;
+            return gen::compare(lhs.data, lhs.len, rhs.data, rhs.len) < 0;
+          });
+          t = gen::print_time_taken(t, "Time taken for sort vals: ");
+        }
+    };
+
+class builder_fwd {
+  public:
+    virtual ~builder_fwd() {
+    }
+    virtual void build_dict_trie(gen::byte_blocks& uniq_data, gen::dict_match_vec& dmv) = 0;
 };
 
 #define step_bits_idx 3
@@ -618,12 +671,16 @@ class freq_grp_ptrs_data {
     }
     void show_freq_codes() {
       gen::gen_printf("bits\tcd\tct_t\tfct_t\tlen_t\tcdln\tmxsz\tbyts\n");
+      uint32_t sums[4];
+      memset(sums, 0, sizeof(uint32_t) * 4);
       for (int i = 1; i < freq_grp_vec.size(); i++) {
         freq_grp *fg = &freq_grp_vec[i];
+        uint32_t byts = (fg->grp_log2 * fg->freq_count) >> 3;
         gen::gen_printf("%u\t%2x\t%u\t%u\t%u\t%u\t%u\t%u\n", fg->grp_log2, fg->code,
-              fg->count, fg->freq_count, fg->grp_size, fg->code_len, fg->grp_limit, (fg->grp_log2 * fg->freq_count) >> 3);
+              fg->count, fg->freq_count, fg->grp_size, fg->code_len, fg->grp_limit, byts);
+        sums[0] += fg->count; sums[1] += fg->freq_count; sums[2] += fg->grp_size; sums[3] += byts;
       }
-      gen::gen_printf("Idx limit; %d\n", idx_limit);
+      gen::gen_printf("Idx limit: %d,\t%u\t%u\t%u\t\t\t%u\n", idx_limit, sums[0], sums[1], sums[2], sums[3]);
     }
     void build_freq_codes(bool is_val = false) {
       if (freq_grp_vec.size() == 1) {
@@ -672,18 +729,19 @@ class freq_grp_ptrs_data {
 
 class tail_val_maps {
   private:
-    byte_vec& uniq_tails;
+    builder_fwd *bldr;
+    gen::byte_blocks& uniq_tails;
     leopard::uniq_info_vec& uniq_tails_rev;
     //leopard::uniq_info_vec uniq_tails_fwd;
     freq_grp_ptrs_data tail_ptrs;
     freq_grp_ptrs_data val_ptrs;
     byte_vec two_byte_tails;
-    byte_vec& uniq_vals;
+    gen::byte_blocks& uniq_vals;
     leopard::uniq_info_vec& uniq_vals_fwd;
     int start_nid, end_nid;
   public:
-    tail_val_maps(byte_vec& _uniq_tails, leopard::uniq_info_vec& _uniq_tails_rev, byte_vec& _uniq_vals, leopard::uniq_info_vec& _uniq_vals_fwd)
-        : uniq_tails (_uniq_tails), uniq_tails_rev (_uniq_tails_rev), uniq_vals (_uniq_vals), uniq_vals_fwd (_uniq_vals_fwd) {
+    tail_val_maps(builder_fwd *_bldr, gen::byte_blocks& _uniq_tails, leopard::uniq_info_vec& _uniq_tails_rev, gen::byte_blocks& _uniq_vals, leopard::uniq_info_vec& _uniq_vals_fwd)
+        : bldr (_bldr), uniq_tails (_uniq_tails), uniq_tails_rev (_uniq_tails_rev), uniq_vals (_uniq_vals), uniq_vals_fwd (_uniq_vals_fwd) {
     }
     ~tail_val_maps() {
       for (int i = 0; i < uniq_tails_rev.size(); i++)
@@ -802,7 +860,7 @@ class tail_val_maps {
 
     }
 
-    void check_remaining_text(leopard::uniq_info_vec& uniq_freq_vec, byte_vec& uniq_data) {
+    void check_remaining_text(leopard::uniq_info_vec& uniq_freq_vec, gen::byte_blocks& uniq_data, bool is_tail) {
 
       uint32_t remain_tot = 0;
       uint32_t remain_cnt = 0;
@@ -812,11 +870,11 @@ class tail_val_maps {
       uint32_t free_cnt = 0;
       gen::word_matcher wm(uniq_data);
       //fp = fopen("remain.txt", "w+");
-      uint32_t freq_pos = 0;
+      uint32_t freq_idx = 0;
       clock_t tt = clock();
-      while (freq_pos < uniq_freq_vec.size()) {
-        leopard::uniq_info *ti = uniq_freq_vec[freq_pos];
-        freq_pos++;
+      while (freq_idx < uniq_freq_vec.size()) {
+        leopard::uniq_info *ti = uniq_freq_vec[freq_idx];
+        freq_idx++;
         if ((ti->flags & MDX_SUFFIX_FULL) || (ti->flags & MDX_PREFIX_FULL))
          continue;
         if ((ti->flags & 0x07) == 0) {
@@ -825,9 +883,12 @@ class tail_val_maps {
           free_tot += ti->len;
           free_cnt++;
         }
-        int remain_len = ti->len - ti->cmp_max - ti->cmp;
+        int remain_len = ti->len - ti->cmp_max;
         if (remain_len > 3) {
-          wm.add_words(ti->pos + 1, remain_len - 1, ti->arr_idx);
+          if (is_tail)
+            wm.add_word_combis(ti->pos + 1, remain_len - 1, freq_idx);
+          else
+            wm.add_word_combis(ti->pos + ti->cmp_max, remain_len, freq_idx);
           // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
           //fprintf(fp, "%.*s\n", remain_len - 1, uniq_tails.data() + ti->tail_pos + 1);
           remain_tot += remain_len;
@@ -843,11 +904,102 @@ class tail_val_maps {
       tt = gen::print_time_taken(tt, "Time taken for remain: ");
       wm.process_combis();
       gen::print_time_taken(tt, "Time taken for process combis: ");
+
+      gen::dict_match_vec dmv;
+      find_matches(uniq_freq_vec, uniq_data, wm, dmv);
+
       //fclose(fp);
       gen::gen_printf("Free entries: %u, %u\n", free_tot, free_cnt);
       gen::gen_printf("Remaining: %u, %u\n", remain_tot, remain_cnt);
       gen::gen_printf("Cmp_min_tot: %u, %u\n", cmp_min_tot, cmp_min_cnt);
 
+    }
+
+    #define MDX_WM_MIN_MATCH 5
+    void find_matches(leopard::uniq_info_vec& uniq_freq_vec, gen::byte_blocks& uniq_data, gen::word_matcher& wm, gen::dict_match_vec& dmv) {
+      std::vector<gen::word_combi> *wcs = wm.get_combis();
+      size_t wcs_size = wcs->size();
+      if (wcs_size < 5)
+        return;
+      std::vector<uint32_t> *ref_id_vec = wm.get_ref_id_vec();
+      clock_t t = clock();
+      int ref_idx = 0;
+      int take_out = 0;
+      int total_data_len = 0;
+      for (int fp = 0; fp < uniq_freq_vec.size(); ) {
+        leopard::uniq_info *ui = uniq_freq_vec[fp];
+        total_data_len += ui->len;
+        total_data_len++;
+        fp++;
+        uint32_t wcs_idx = (*ref_id_vec)[ref_idx];
+        gen::word_combi *wc = &(*wcs)[wcs_idx];
+        int start_ref_idx = ref_idx;
+        int start_dict_idx = dmv.size();
+        while (wc->ref_id == fp - 1) {
+          if (wc->cmp >= MDX_WM_MIN_MATCH) {
+            if (start_ref_idx == ref_idx) {
+              take_out += wc->cmp;
+              take_out -= 4;
+              dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
+              // printf("0:[%.*s], %d\n", wc->cmp, uniq_data[wc->pos], wc->cmp);
+            } else {
+              bool overlap = false;
+              for (int i = dmv.size() - 1; i >= start_dict_idx; i--) {
+                gen::dict_match *dm = &dmv[i];
+                if (wc->pos + wc->cmp <= dm->pos || wc->pos >= dm->pos + dm->len) {
+                  // no overlap
+                } else {
+                  overlap = true;
+                  break;
+                }
+              }
+              if (!overlap) {
+                take_out += wc->cmp;
+                take_out -= 4;
+                dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
+                // printf("1:[%.*s], %d\n", wc->cmp, uniq_data[wc->pos], wc->cmp);
+              }
+            }
+          }
+          ref_idx++;
+          if (ref_idx >= wcs_size)
+            break;
+          wcs_idx = (*ref_id_vec)[ref_idx];
+          wc = &(*wcs)[wcs_idx];
+        }
+        // printf("%d, [%.*s]\n\n\n\n", ui->len - ui->cmp, ui->len - ui->cmp, uniq_data[ui->pos + ui->cmp]);
+        if (ref_idx >= wcs_size)
+          break;
+      }
+      std::sort(dmv.begin(), dmv.end(), [](const gen::dict_match& lhs, const gen::dict_match& rhs) -> bool {
+        return lhs.ref_id == rhs.ref_id ? (lhs.pos < rhs.pos) : (lhs.ref_id < rhs.ref_id);
+      });
+      gen::byte_blocks new_all_vals;
+      leopard::sort_data_vec nodes_for_sort;
+      for (int i = 0; i < dmv.size(); i++) {
+        gen::dict_match *dm = &dmv[i];
+        uint32_t new_pos = new_all_vals.push_back_with_vlen(uniq_data[dm->pos], dm->len);
+        nodes_for_sort.push_back((struct leopard::sort_data) { uniq_data[dm->pos], dm->len, new_pos, 0});
+        //printf("%u, %u, %u, [%.*s]\n", dm->pos, dm->len, dm->ref_id, dm->len, (*memtrie.all_vals)[dm->pos]);
+      }
+      // uint32_t max_len;
+      // leopard::uniq_info_vec new_vals_fwd;
+      // gen::byte_blocks new_uniq_data;
+      // byte_ptr_vec all_node_sets;
+      // frag_val_sort_callbacks val_sort_cb(all_node_sets, new_all_vals, uniq_data);
+      // uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, new_all_vals, new_uniq_data, new_vals_fwd, val_sort_cb, max_len, 't');
+      // uniq_vals = new_uniq_data;
+      // uniq_vals_fwd = new_vals_fwd;
+      // build_text_val_maps(tot_freq);
+      // if (dmv.size() > 100) {
+      //   gen::gen_printf("===============================================================================\n");
+      //   bldr->build_dict_trie(uniq_data, dmv);
+      //   gen::gen_printf("Total data len: %d, take_out: %d, remaining: %d\n", total_data_len, take_out, total_data_len - take_out);
+      //   gen::gen_printf("-------------------------------------------------------------------------------\n");
+      // }
+      gen::print_time_taken(t, "Time taken for find_matches: ");
+      wm.make_uniq_combis(dmv);
+      printf("Total data len: %u, Dictionary matches savings: %d, %lu\n", total_data_len, take_out, dmv.size());
     }
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
@@ -865,18 +1017,18 @@ class tail_val_maps {
       uint32_t cumu_freq_idx = make_uniq_freq((leopard::uniq_info_vec&) uniq_tails_rev, (leopard::uniq_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
       tail_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
 
-      uint32_t freq_pos = 0;
+      uint32_t freq_idx = 0;
       bool is_bin = false;
       if (uniq_tails_rev[0]->flags & LPDU_BIN)
         is_bin = true;
       if (!is_bin) {
-        leopard::uniq_info *prev_ti = uniq_tails_freq[freq_pos];
-        while (freq_pos < uniq_tails_freq.size()) {
-          leopard::uniq_info *ti = uniq_tails_freq[freq_pos];
-          freq_pos++;
-          int cmp = gen::compare_rev(uniq_tails.data() + prev_ti->pos, prev_ti->len, uniq_tails.data() + ti->pos, ti->len);
+        leopard::uniq_info *prev_ti = uniq_tails_freq[freq_idx];
+        while (freq_idx < uniq_tails_freq.size()) {
+          leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
+          freq_idx++;
+          int cmp = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
           cmp--;
-          if (cmp == ti->len || (freq_pos >= cumu_freq_idx && cmp > 1)) {
+          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
             ti->flags |= (cmp == ti->len ? MDX_SUFFIX_FULL : MDX_SUFFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
@@ -886,8 +1038,10 @@ class tail_val_maps {
               if (cmp == ti->len && prev_ti->cmp >= cmp)
                 prev_ti->cmp = cmp - 1;
             }
-            if (prev_ti->cmp_max < cmp)
-              prev_ti->cmp_max = cmp;
+            if (cmp == ti->len) {
+              if (prev_ti->cmp_max < cmp)
+                prev_ti->cmp_max = cmp;
+            }
             prev_ti->flags |= MDX_HAS_SUFFIX;
             ti->link_arr_idx = prev_ti->arr_idx;
           }
@@ -896,7 +1050,7 @@ class tail_val_maps {
         }
       }
 
-      freq_pos = 0;
+      freq_idx = 0;
       grp_no = 1;
       uint32_t cur_limit = pow(2, start_bits);
       tail_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
@@ -911,15 +1065,15 @@ class tail_val_maps {
       uint32_t sfx_set_freq = 0;
       uint32_t sfx_set_tot_cnt = 0;
       uint32_t sfx_set_tot_len = 0;
-      while (freq_pos < uniq_tails_freq.size()) {
-        leopard::uniq_info *ti = uniq_tails_freq[freq_pos];
-        freq_pos++;
+      while (freq_idx < uniq_tails_freq.size()) {
+        leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
+        freq_idx++;
         if (is_bin) {
           uint32_t bin_len = ti->len;
           uint32_t len_len = tail_ptrs.get_set_len_len(bin_len);
           bin_len += len_len;
           uint32_t new_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = tail_ptrs.append_bin15_to_grp_data(grp_no, uniq_tails.data() + ti->pos, ti->len);
+          ti->ptr = tail_ptrs.append_bin15_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
           ti->grp_no = grp_no;
           tail_ptrs.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
@@ -933,7 +1087,7 @@ class tail_val_maps {
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
             tail_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails.data() + link_ti->pos, link_ti->len, true);
+            link_ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[link_ti->pos], link_ti->len, true);
           }
           //cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, 0);
           tail_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
@@ -958,7 +1112,7 @@ class tail_val_maps {
               savings_count_partial++;
               tail_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails.data() + ti->pos, remain_len);
+              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], remain_len);
               byte_vec& tail_data = tail_ptrs.get_data(grp_no);
               tail_ptrs.get_set_len_len(cmp, &tail_data);
             } else {
@@ -972,9 +1126,9 @@ class tail_val_maps {
               if (ti->len > sfx_set_max)
                sfx_set_max = ti->len * 2;
               tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
+              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
             }
-              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails.data() + ti->tail_pos);
+              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails[ti->tail_pos]);
             cur_limit = new_limit;
           } else {
             // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
@@ -988,19 +1142,41 @@ class tail_val_maps {
              sfx_set_max = ti->len * 2;
             cur_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
             tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails.data() + ti->pos, ti->len, true);
+            ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
       }
       gen::gen_printf("Tail Savings full: %u, %u\nSavings Partial: %u, %u / Sfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
 
-      for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
-        leopard::uniq_info *ti = uniq_tails_freq[freq_pos];
+      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
+        leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
         ti->ptr = tail_ptrs.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
-      check_remaining_text(uniq_tails_freq, uniq_tails);
+      check_remaining_text(uniq_tails_freq, uniq_tails, true);
+
+      // int cmpr_blk_size = 65536;
+      // size_t total_size = 0;
+      // size_t tot_cmpr_size = 0;
+      // uint8_t *cmpr_buf = (uint8_t *) malloc(cmpr_blk_size * 1.2);
+      // for (int g = 1; g <= grp_no; g++) {
+      //   byte_vec& gd = tail_ptrs.get_data(g);
+      //   if (gd.size() > cmpr_blk_size) {
+      //     int cmpr_blk_count = gd.size() / cmpr_blk_size + 1;
+      //     for (int b = 0; b < cmpr_blk_count; b++) {
+      //       size_t input_size = (b == cmpr_blk_count - 1 ? gd.size() % cmpr_blk_size : cmpr_blk_size);
+      //       size_t cmpr_size = gen::compress_block(CMPR_TYPE_ZSTD, gd.data() + (b * cmpr_blk_size), input_size, cmpr_buf);
+      //       total_size += input_size;
+      //       tot_cmpr_size += cmpr_size;
+      //       printf("Grp_no: %d, grp_size: %lu, blk_count: %d, In size: %lu, cmpr size: %lu\n", g, gd.size(), cmpr_blk_count, input_size, cmpr_size);
+      //     }
+      //   } else {
+      //     total_size += gd.size();
+      //     tot_cmpr_size += gd.size();
+      //   }
+      // }
+      // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
 
       tail_ptrs.build_freq_codes();
       tail_ptrs.show_freq_codes();
@@ -1023,18 +1199,20 @@ class tail_val_maps {
       val_ptrs.reset();
       val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
 
-      uint32_t freq_pos = 0;
+      uint32_t freq_idx = 0;
       bool is_bin = false;
-      if (uniq_vals_fwd[0]->flags & LPDU_BIN)
+      if (uniq_vals_fwd[0]->flags & LPDU_BIN) {
+        gen::gen_printf("Given content not text.\n");
         is_bin = true;
+      }
       if (!is_bin) {
-        leopard::uniq_info *prev_ti = uniq_vals_freq[freq_pos];
-        while (freq_pos < uniq_vals_freq.size()) {
-          leopard::uniq_info *ti = uniq_vals_freq[freq_pos];
-          freq_pos++;
-          int cmp = gen::compare(uniq_vals.data() + prev_ti->pos, prev_ti->len, uniq_vals.data() + ti->pos, ti->len);
+        leopard::uniq_info *prev_ti = uniq_vals_freq[freq_idx];
+        while (freq_idx < uniq_vals_freq.size()) {
+          leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
+          freq_idx++;
+          int cmp = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
           cmp--;
-          if (cmp == ti->len || (freq_pos >= cumu_freq_idx && cmp > 1)) {
+          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
             ti->flags |= (cmp == ti->len ? MDX_PREFIX_FULL : MDX_PREFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
@@ -1044,8 +1222,10 @@ class tail_val_maps {
               if (cmp == ti->len && prev_ti->cmp >= cmp)
                 prev_ti->cmp = cmp - 1;
             }
-            if (prev_ti->cmp_max < cmp)
-              prev_ti->cmp_max = cmp;
+            if (cmp == ti->len) {
+              if (prev_ti->cmp_max < cmp)
+                prev_ti->cmp_max = cmp;
+            }
             prev_ti->flags |= MDX_HAS_PREFIX;
             ti->link_arr_idx = prev_ti->arr_idx;
           }
@@ -1054,7 +1234,7 @@ class tail_val_maps {
         }
       }
 
-      freq_pos = 0;
+      freq_idx = 0;
       grp_no = 1;
       uint32_t cur_limit = pow(2, start_bits);
       val_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
@@ -1069,16 +1249,16 @@ class tail_val_maps {
       uint32_t pfx_set_freq = 0;
       uint32_t pfx_set_tot_cnt = 0;
       uint32_t pfx_set_tot_len = 0;
-      while (freq_pos < uniq_vals_freq.size()) {
-        leopard::uniq_info *ti = uniq_vals_freq[freq_pos];
-        freq_pos++;
+      while (freq_idx < uniq_vals_freq.size()) {
+        leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
+        freq_idx++;
         byte_vec& val_data = val_ptrs.get_data(grp_no);
         if (is_bin) {
           uint32_t bin_len = ti->len;
           uint32_t len_len = val_ptrs.get_set_len_len(bin_len);
           bin_len += len_len;
           uint32_t new_limit = val_ptrs.check_next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = val_ptrs.append_bin15_to_grp_data(grp_no, uniq_vals.data() + ti->pos, ti->len);
+          ti->ptr = val_ptrs.append_bin15_to_grp_data(grp_no, uniq_vals[ti->pos], ti->len);
           ti->grp_no = grp_no;
           val_ptrs.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
@@ -1092,7 +1272,7 @@ class tail_val_maps {
             cur_limit = val_ptrs.check_next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
             val_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals.data() + link_ti->pos, link_ti->len, true);
+            link_ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[link_ti->pos], link_ti->len, true);
           }
           //cur_limit = val_ptrs.check_next_grp(grp_no, cur_limit, 0);
           val_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
@@ -1117,7 +1297,7 @@ class tail_val_maps {
               savings_count_partial++;
               val_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals.data() + ti->pos + cmp, remain_len) + 1;
+              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos + cmp], remain_len) + 1;
               val_ptrs.get_set_len_len(cmp, &val_data);
             } else {
               // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
@@ -1130,9 +1310,9 @@ class tail_val_maps {
               if (ti->len > pfx_set_max)
                 pfx_set_max = ti->len * 2;
               val_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals.data() + ti->pos, ti->len, true);
+              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
             }
-              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp, ti->cmp_min, ti->val_ptr, remain_len, ti->val_len, ti->val_len, uniq_vals.data() + ti->val_pos);
+              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp, ti->cmp_min, ti->val_ptr, remain_len, ti->val_len, ti->val_len, uniq_vals[ti->val_pos]);
             cur_limit = new_limit;
           } else {
             // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, pfx_set_count, pfx_set_freq, pfx_set_len);
@@ -1146,19 +1326,44 @@ class tail_val_maps {
               pfx_set_max = ti->len * 2;
             cur_limit = val_ptrs.check_next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
             val_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals.data() + ti->pos, ti->len, true);
+            ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
       }
       gen::gen_printf("Val Savings full: %u, %u\nSavings Partial: %u, %u / Pfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, pfx_set_tot_len, pfx_set_tot_cnt);
 
-      for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
-        leopard::uniq_info *ti = uniq_vals_freq[freq_pos];
+      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
+        leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
         ti->ptr = val_ptrs.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
-      check_remaining_text(uniq_vals_freq, uniq_vals);
+      check_remaining_text(uniq_vals_freq, uniq_vals, false);
+
+      // clock_t tt = clock();
+
+      // int cmpr_blk_size = 262144;
+      // size_t total_size = 0;
+      // size_t tot_cmpr_size = 0;
+      // uint8_t *cmpr_buf = (uint8_t *) malloc(cmpr_blk_size * 1.2);
+      // for (int g = 1; g <= grp_no; g++) {
+      //   byte_vec& gd = val_ptrs.get_data(g);
+      //   // if (gd.size() > cmpr_blk_size) {
+      //     int cmpr_blk_count = gd.size() / cmpr_blk_size + 1;
+      //     for (int b = 0; b < cmpr_blk_count; b++) {
+      //       size_t input_size = (b == cmpr_blk_count - 1 ? gd.size() % cmpr_blk_size : cmpr_blk_size);
+      //       size_t cmpr_size = gen::compress_block(CMPR_TYPE_ZSTD, gd.data() + (b * cmpr_blk_size), input_size, cmpr_buf);
+      //       total_size += input_size;
+      //       tot_cmpr_size += cmpr_size;
+      //       printf("Grp_no: %d, grp_size: %lu, blk_count: %d, In size: %lu, cmpr size: %lu\n", g, gd.size(), cmpr_blk_count, input_size, cmpr_size);
+      //     }
+      //   // } else {
+      //   //   total_size += gd.size();
+      //   //   tot_cmpr_size += gd.size();
+      //   // }
+      // }
+      // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
+      // gen::print_time_taken(tt, "Time taken for compress (): ");
 
       val_ptrs.build_freq_codes(true);
       val_ptrs.show_freq_codes();
@@ -1175,15 +1380,15 @@ class tail_val_maps {
       uint32_t cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
       val_ptrs.reset();
       val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
-      uint32_t freq_pos = 0;
+      uint32_t freq_idx = 0;
       uint32_t cur_limit = pow(2, start_bits);
       grp_no = 1;
       // gen::word_matcher wm(uniq_vals);
       val_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
       val_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
-      while (freq_pos < uniq_vals_freq.size()) {
-        leopard::uniq_info *vi = uniq_vals_freq[freq_pos];
-        freq_pos++;
+      while (freq_idx < uniq_vals_freq.size()) {
+        leopard::uniq_info *vi = uniq_vals_freq[freq_idx];
+        freq_idx++;
         uint8_t len_of_len = 0;
         if (data_type == LPDT_TEXT || data_type == LPDT_BIN)
           len_of_len = gen::get_vlen_of_uint32(vi->len);
@@ -1194,15 +1399,15 @@ class tail_val_maps {
           vi->ptr = 0;
           len_plus_len = 0;
         } else {
-          vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals.data() + vi->pos, vi->len, data_type);
+          vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals[vi->pos], vi->len, data_type);
           // if (data_type == 't')
           //   wm.add_all_combis(vi->pos, vi->len, vi->arr_idx);
         }
         val_ptrs.update_current_grp(grp_no, len_plus_len, vi->freq_count);
       }
       // wm.process_combis();
-      for (freq_pos = 0; freq_pos < cumu_freq_idx; freq_pos++) {
-        leopard::uniq_info *vi = uniq_vals_freq[freq_pos];
+      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
+        leopard::uniq_info *vi = uniq_vals_freq[freq_idx];
         vi->ptr = val_ptrs.append_ptr2_idx_map(vi->grp_no, vi->ptr);
       }
       val_ptrs.build_freq_codes(true);
@@ -1316,10 +1521,10 @@ class tail_val_maps {
     leopard::uniq_info_vec *get_uniq_tails_rev() {
       return &uniq_tails_rev;
     }
-    byte_vec *get_uniq_tails() {
+    gen::byte_blocks *get_uniq_tails() {
       return &uniq_tails;
     }
-    byte_vec *get_uniq_vals() {
+    gen::byte_blocks *get_uniq_vals() {
       return &uniq_vals;
     }
     leopard::uniq_info_vec *get_uniq_vals_fwd() {
@@ -1342,7 +1547,7 @@ struct node_cache {
   uint8_t node_byte;
 };
 
-class builder {
+class builder : public builder_fwd {
 
   private:
     uint32_t common_node_count;
@@ -1398,17 +1603,19 @@ class builder {
     uint16_t names_len;
     uint32_t *val_table;
     builder *col_trie_builder;
+    builder *dict_trie_builder;
     FILE *fp;
     trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", bool _maintain_seq = true, bool _no_primary_trie = false)
         : memtrie(_column_count, _column_types, _column_encoding, _maintain_seq, _no_primary_trie),
-          tail_vals (memtrie.uniq_tails, memtrie.uniq_tails_rev,
+          tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev,
                       memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       no_primary_trie = _no_primary_trie;
       memset(&tp, '\0', sizeof(tp));
       col_trie_builder = NULL;
+      dict_trie_builder = NULL;
       column_count = _column_count;
       val_table = new uint32_t[_column_count];
       column_encoding = new char[_column_count];
@@ -1428,7 +1635,7 @@ class builder {
         set_out_file(out_file);
     }
 
-    ~builder() {
+    virtual ~builder() {
       delete [] names;
       delete [] val_table;
       delete [] names_positions;
@@ -1438,6 +1645,8 @@ class builder {
         delete out_filename;
       if (col_trie_builder != NULL)
         delete col_trie_builder;
+      if (dict_trie_builder != NULL)
+        delete dict_trie_builder;
       //close_file(); // TODO: Close for nested tries?
     }
 
@@ -1593,9 +1802,202 @@ class builder {
       return col_trie_size;
     }
 
+    void build_dict_trie(gen::byte_blocks& uniq_data, gen::dict_match_vec& dmv) {
+      if (dict_trie_builder == NULL) {
+        dict_trie_builder = new builder(NULL, "dict_trie,key", 1, "t", "t", true, false);
+        dict_trie_builder->fp = fp;
+      }
+      for (int i = 0; i < dmv.size(); i++) {
+        gen::dict_match *dm = &dmv[i];
+        dict_trie_builder->insert(uniq_data[dm->pos], dm->len);
+      }
+      uint32_t dict_trie_size = dict_trie_builder->build();
+      byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
+      uint32_t dict_node_count = dict_trie_builder->memtrie.node_count;
+      int bit_len = ceil(log2(dict_node_count));
+      gen::gen_printf("Dict trie_size: %u, Key count: %u, Node count: %u, Bit len: %d, DMV Size: %lu, Ptrs size: %u\n",
+        dict_trie_size, dict_trie_builder->memtrie.key_count, dict_node_count, bit_len, dmv.size(),
+        4 * dmv.size());
+    }
+
+    void find_matches_for_store(gen::word_matcher& wm, gen::dict_match_vec& dmv) {
+      std::vector<gen::word_combi> *wcs = wm.get_combis();
+      size_t wcs_size = wcs->size();
+      if (wcs_size < 5)
+        return;
+      std::vector<uint32_t> *ref_id_vec = wm.get_ref_id_vec();
+      clock_t t = clock();
+      int ref_idx = 0;
+      int take_out = 0;
+      int total_data_len = 0;
+      for (int fp = 1; fp < memtrie.all_node_sets.size(); ) {
+        leopard::node_set_handler cur_ns(memtrie.all_node_sets, fp);
+        leopard::node cur_node = cur_ns.first_node();
+        uint32_t col_val_pos = cur_node.get_col_val();
+        uint8_t *v = (*memtrie.all_vals)[col_val_pos];
+        int8_t vlen;
+        uint32_t len = gen::read_vint32(v, &vlen);
+        v += vlen;
+        total_data_len += len;
+        total_data_len++;
+        fp++;
+        uint32_t wcs_idx = (*ref_id_vec)[ref_idx];
+        gen::word_combi *wc = &(*wcs)[wcs_idx];
+        int start_ref_idx = ref_idx;
+        int start_dict_idx = dmv.size();
+        while (wc->ref_id == fp - 1) {
+          if (wc->cmp >= MDX_WM_MIN_MATCH) {
+            if (start_ref_idx == ref_idx) {
+              take_out += wc->cmp;
+              take_out -= 4;
+              dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
+              // printf("0:[%.*s], %d, %u\n", wc->cmp, (*memtrie.all_vals)[wc->pos], wc->cmp, wc->ref_id);
+            } else {
+              bool overlap = false;
+              for (int i = dmv.size() - 1; i >= start_dict_idx; i--) {
+                gen::dict_match *dm = &dmv[i];
+                if (wc->pos + wc->cmp <= dm->pos || wc->pos >= dm->pos + dm->len) {
+                  // no overlap
+                } else {
+                  overlap = true;
+                  break;
+                }
+              }
+              if (!overlap) {
+                take_out += wc->cmp;
+                take_out -= 4;
+                dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
+                // printf("1:[%.*s], %d, %u\n", wc->cmp, (*memtrie.all_vals)[wc->pos], wc->cmp, wc->ref_id);
+              }
+            }
+          }
+          ref_idx++;
+          if (ref_idx >= wcs_size)
+            break;
+          wcs_idx = (*ref_id_vec)[ref_idx];
+          wc = &(*wcs)[wcs_idx];
+        }
+        // printf("%d, [%.*s]\n\n\n\n", len, len, v);
+        if (ref_idx >= wcs_size)
+          break;
+      }
+      std::sort(dmv.begin(), dmv.end(), [](const gen::dict_match& lhs, const gen::dict_match& rhs) -> bool {
+        return lhs.ref_id == rhs.ref_id ? (lhs.pos < rhs.pos) : (lhs.ref_id < rhs.ref_id);
+      });
+      gen::byte_blocks new_all_vals;
+      leopard::sort_data_vec nodes_for_sort;
+      for (int i = 0; i < dmv.size(); i++) {
+        gen::dict_match *dm = &dmv[i];
+        uint32_t new_pos = new_all_vals.push_back_with_vlen((*memtrie.all_vals)[dm->pos], dm->len);
+        nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[dm->pos], dm->len, new_pos, 0});
+        //printf("%u, %u, %u, [%.*s]\n", dm->pos, dm->len, dm->ref_id, dm->len, (*memtrie.all_vals)[dm->pos]);
+      }
+      wm.make_uniq_combis(dmv);
+      printf("Total data len: %u, Dictionary matches savings: %d, %lu\n", total_data_len, take_out, dmv.size());
+      uint32_t max_len;
+      frag_val_sort_callbacks val_sort_cb(memtrie.all_node_sets, new_all_vals, memtrie.uniq_vals);
+      uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, new_all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, max_len, 't');
+      tail_vals.build_text_val_maps(tot_freq);
+      // int dmv_idx = 0;
+      // gen::byte_blocks new_all_vals;
+      // leopard::sort_data_vec nodes_for_sort;
+      // for (int fp = 1; fp < memtrie.all_node_sets.size(); ) {
+      //   leopard::node_set_handler cur_ns(memtrie.all_node_sets, fp);
+      //   leopard::node cur_node = cur_ns.first_node();
+      //   uint32_t col_val_pos = cur_node.get_col_val();
+      //   uint8_t *v = (*memtrie.all_vals)[col_val_pos];
+      //   int8_t vlen;
+      //   uint32_t val_len = gen::read_vint32(v, &vlen);
+      //   v += vlen;
+      //   fp++;
+      //   // printf("\n[%.*s], %u\n", val_len, v, val_len);
+      //   gen::dict_match *dm = &dmv[dmv_idx];
+      //   if (dm->ref_id > fp - 1) {
+      //     uint32_t new_val_pos = new_all_vals.push_back_with_vlen(v, val_len);
+      //     cur_node.set_col_val(new_val_pos);
+      //     // printf("Fully pushed\n");
+      //   } else if (dm->ref_id == fp - 1) {
+      //     uint32_t frag_val_pos = new_all_vals.push_back(0);
+      //     new_all_vals.push_back(0); // number of fragments
+      //     cur_node.set_col_val(frag_val_pos);
+      //     uint8_t frag_count = 0;
+      //     uint8_t *last_start = v;
+      //     while (dm->ref_id == fp - 1) {
+      //       uint8_t *dm_start = (*memtrie.all_vals)[dm->pos];
+      //       if (dm_start - last_start > 0) {
+      //         uint32_t frag_len = dm_start - last_start;
+      //         uint32_t frag_pos = dm->pos - frag_len;
+      //         new_all_vals.append_uint32(frag_pos);
+      //         new_all_vals.append_uint32(frag_len);
+      //         nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[frag_pos], frag_len, frag_val_pos, frag_count});
+      //         // printf("0:%u, [%.*s], %u\n", frag_len, frag_len, (*memtrie.all_vals)[frag_pos], dm->ref_id);
+      //         frag_count++;
+      //         last_start += frag_len;
+      //       }
+      //       new_all_vals.append_uint32(dm->pos);
+      //       new_all_vals.append_uint32(dm->len);
+      //       nodes_for_sort.push_back((struct leopard::sort_data) { dm_start, dm->len, frag_val_pos, frag_count});
+      //         // printf("1:%u, [%.*s], %u\n", dm->len, dm->len, dm_start, dm->ref_id);
+      //       frag_count++;
+      //       last_start += dm->len;
+      //       dm = &dmv[++dmv_idx];
+      //     }
+      //     if (last_start < v + val_len) {
+      //       uint32_t frag_pos = col_val_pos + last_start - v + vlen;
+      //       uint32_t frag_len = v + val_len - last_start;
+      //       new_all_vals.append_uint32(frag_pos);
+      //       new_all_vals.append_uint32(frag_len);
+      //       nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[frag_pos], frag_len, frag_val_pos, frag_count});
+      //         // printf("2:%u, [%.*s], %u\n", frag_len, frag_len, (*memtrie.all_vals)[frag_pos], dm->ref_id);
+      //       frag_count++;
+      //     }
+      //     uint8_t *fc_loc = new_all_vals[frag_val_pos];
+      //     *fc_loc = frag_count;
+      //   }
+      // }
+      // uint32_t max_len;
+      // frag_val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
+      // uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, max_len, 't');
+      // tail_vals.build_text_val_maps(tot_freq);
+
+      // if (dmv.size() > 100) {
+      //   gen::gen_printf("===============================================================================\n");
+      //   bldr->build_dict_trie(uniq_data, dmv);
+      //   gen::gen_printf("Total data len: %d, take_out: %d, remaining: %d\n", total_data_len, take_out, total_data_len - take_out);
+      //   gen::gen_printf("-------------------------------------------------------------------------------\n");
+      // }
+      gen::print_time_taken(t, "Time taken for find_matches: ");
+    }
+
+    uint32_t store_col_val() {
+      gen::word_matcher wm(*memtrie.all_vals);
+      leopard::node_set_handler cur_ns(memtrie.all_node_sets, 1);
+      for (uint32_t cur_ns_idx = 1; cur_ns_idx < memtrie.all_node_sets.size(); cur_ns_idx++) {
+        cur_ns.set_pos(cur_ns_idx);
+        leopard::node cur_node = cur_ns.first_node();
+        for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+          uint32_t col_val_pos = cur_node.get_col_val();
+          uint8_t *v = (*memtrie.all_vals)[col_val_pos];
+          int8_t vlen;
+          uint32_t len = gen::read_vint32(v, &vlen);
+          //wm.add_word_combis(col_val_pos + vlen, len, cur_ns_idx);
+          wm.add_words(col_val_pos + vlen, len, cur_ns_idx);
+          cur_node.next();
+        }
+      }
+      wm.make_uniq_words();
+      //wm.process_combis();
+      gen::dict_match_vec dmv;
+      find_matches_for_store(wm, dmv);
+      return 0;
+    }
+
     uint32_t build_and_write_col_val() {
       clock_t t = clock();
       char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
+      if (encoding_type == 's') {
+        return store_col_val();
+      }
       if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
         gen::gen_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1) + 2]);
         char data_type = column_types[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
@@ -1799,7 +2201,7 @@ class builder {
     }
 
     bool put(const uint8_t *key, int key_len, const void *value, int value_len) {
-      return memtrie.insert(key, key_len, value, value_len);
+      return insert(key, key_len, value, value_len);
     }
 
     bool insert(const uint8_t *key, int key_len) {

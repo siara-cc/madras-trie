@@ -19,8 +19,8 @@ clock_t print_time_taken(clock_t t, const char *msg) {
   return clock();
 }
 
-void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
-    int sql_col_idx, int exp_col_idx, int exp_col_type, int key_col_idx, char key_data_type) {
+void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int sql_col_idx,
+    int exp_col_idx, int exp_col_type, int key_col_idx, char key_data_type, int row_count) {
   int rc;
   int64_t ins_seq_id = 0;
   uint8_t key_buf[10];
@@ -72,12 +72,14 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       val = &dbl;
     }
     bldr.insert(key, key_len, val, val_len);
+    if (ins_seq_id >= row_count)
+      break;
     ins_seq_id++;
   }
 }
 
 void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
-    int sql_col_idx, int exp_col_idx, int exp_col_type) {
+    int sql_col_idx, int exp_col_idx, int exp_col_type, int row_count) {
   int rc;
   const char *null_val = "";
   int64_t ins_seq_id = 0;
@@ -116,6 +118,8 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       std::cerr << "Error inserting into builder" << std::endl;
       return;
     }
+    if (ins_seq_id >= row_count)
+      break;
     ins_seq_id++;
   }
   printf("NULL count: %d, 0 count: %d\n", null_count, zero_count);
@@ -129,7 +133,7 @@ int main(int argc, char* argv[]) {
   int rc;
   if (argc < 6) {
     std::cout << std::endl;
-    std::cout << "Usage: export_sqlite <db_file> <table_or_select> <key_col_idx> <storage_types>" << std::endl;
+    std::cout << "Usage: export_sqlite <db_file> <table_or_select> <key_col_idx> <storage_types> [row_count]" << std::endl;
     std::cout << std::endl;
     std::cout << "  <db_file>         - Sqlite database file name [with path]" << std::endl;
     std::cout << std::endl;
@@ -151,6 +155,7 @@ int main(int argc, char* argv[]) {
     std::cout << "                      Following types are supported:" << std::endl;
     std::cout << "                      u : Make unique values (remove duplicates before storing)" << std::endl;
     std::cout << "                      d : Make unique values and apply delta coding (only for numeric columns)" << std::endl;
+    std::cout << "  [row_count]       - No. of rows to export. If not given, all rows are exported." << std::endl;
     std::cout << std::endl;
     return 1;
   }
@@ -164,13 +169,19 @@ int main(int argc, char* argv[]) {
   }
 
   const char *table_name = "vtab";
+  const char *arg_sel_or_tbl = argv[2];
+  bool dont_verify = false;
+  if (*arg_sel_or_tbl == '-') {
+    dont_verify = true;
+    arg_sel_or_tbl++;
+  }
   std::string sql;
   if (sqlite3_strnicmp(argv[2], "select ", 7) == 0) {
-    sql = argv[2];
+    sql = arg_sel_or_tbl;
   } else {
     sql = "SELECT * FROM ";
-    sql += argv[2];
-    table_name = argv[2];
+    sql += arg_sel_or_tbl;
+    table_name = arg_sel_or_tbl;
   }
 
   rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_col_names, NULL);
@@ -197,6 +208,10 @@ int main(int argc, char* argv[]) {
     column_names.append(",");
     column_names.append(sqlite3_column_name(stmt_col_names, key_col_idx - 1));
   }
+
+  int row_count = INT_MAX;
+  if (argc > 6)
+    row_count = atoi(argv[6]);
 
   std::string col_types;
   std::string col_encodings;
@@ -247,11 +262,11 @@ int main(int argc, char* argv[]) {
       continue;
     if (exp_col_idx == 0 && key_col_idx != 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i],
-              key_col_idx, storage_types[key_col_idx - 1]);
+              key_col_idx, storage_types[key_col_idx - 1], row_count);
       mb.write_kv();
     } else {
       mb.reset_for_next_col();
-      export_column(mb, stmt, i, exp_col_idx, storage_types[i]);
+      export_column(mb, stmt, i, exp_col_idx, storage_types[i], row_count);
       if (exp_col_idx == 0)
         mb.write_kv();
       else
@@ -274,6 +289,13 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < sd_col_count; i++)
     printf(" %s", sd.get_column_name(i));
   printf("\n");
+
+  if (dont_verify) {
+    sqlite3_finalize(stmt_col_names);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return 1;
+  }
 
   sqlite3_reset(stmt);
   int64_t ins_seq_id = 0;
@@ -364,6 +386,8 @@ int main(int argc, char* argv[]) {
       }
       col_val_idx++;
     }
+    if (ins_seq_id >= row_count)
+      break;
     ins_seq_id++;
   }
   printf("Totals:");
