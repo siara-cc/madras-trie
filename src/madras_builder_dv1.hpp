@@ -164,7 +164,6 @@ class builder_fwd {
   public:
     virtual ~builder_fwd() {
     }
-    virtual void build_dict_trie(gen::byte_blocks& uniq_data, gen::dict_match_vec& dmv) = 0;
 };
 
 #define step_bits_idx 3
@@ -868,7 +867,7 @@ class tail_val_maps {
       uint32_t cmp_min_cnt = 0;
       uint32_t free_tot = 0;
       uint32_t free_cnt = 0;
-      gen::word_matcher wm(uniq_data);
+      // gen::word_matcher wm(uniq_data);
       //fp = fopen("remain.txt", "w+");
       uint32_t freq_idx = 0;
       clock_t tt = clock();
@@ -885,10 +884,10 @@ class tail_val_maps {
         }
         int remain_len = ti->len - ti->cmp_max;
         if (remain_len > 3) {
-          if (is_tail)
-            wm.add_word_combis(ti->pos + 1, remain_len - 1, freq_idx);
-          else
-            wm.add_word_combis(ti->pos + ti->cmp_max, remain_len, freq_idx);
+          // if (is_tail)
+          //   wm.add_word_combis(ti->pos + 1, remain_len - 1, freq_idx);
+          // else
+          //   wm.add_word_combis(ti->pos + ti->cmp_max, remain_len, freq_idx);
           // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, ti->grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
           //fprintf(fp, "%.*s\n", remain_len - 1, uniq_tails.data() + ti->tail_pos + 1);
           remain_tot += remain_len;
@@ -902,104 +901,14 @@ class tail_val_maps {
         }
       }
       tt = gen::print_time_taken(tt, "Time taken for remain: ");
-      wm.process_combis();
-      gen::print_time_taken(tt, "Time taken for process combis: ");
-
-      gen::dict_match_vec dmv;
-      find_matches(uniq_freq_vec, uniq_data, wm, dmv);
+      // wm.process_combis();
+      // gen::print_time_taken(tt, "Time taken for process combis: ");
 
       //fclose(fp);
       gen::gen_printf("Free entries: %u, %u\n", free_tot, free_cnt);
       gen::gen_printf("Remaining: %u, %u\n", remain_tot, remain_cnt);
       gen::gen_printf("Cmp_min_tot: %u, %u\n", cmp_min_tot, cmp_min_cnt);
 
-    }
-
-    #define MDX_WM_MIN_MATCH 5
-    void find_matches(leopard::uniq_info_vec& uniq_freq_vec, gen::byte_blocks& uniq_data, gen::word_matcher& wm, gen::dict_match_vec& dmv) {
-      std::vector<gen::word_combi> *wcs = wm.get_combis();
-      size_t wcs_size = wcs->size();
-      if (wcs_size < 5)
-        return;
-      std::vector<uint32_t> *ref_id_vec = wm.get_ref_id_vec();
-      clock_t t = clock();
-      int ref_idx = 0;
-      int take_out = 0;
-      int total_data_len = 0;
-      for (int fp = 0; fp < uniq_freq_vec.size(); ) {
-        leopard::uniq_info *ui = uniq_freq_vec[fp];
-        total_data_len += ui->len;
-        total_data_len++;
-        fp++;
-        uint32_t wcs_idx = (*ref_id_vec)[ref_idx];
-        gen::word_combi *wc = &(*wcs)[wcs_idx];
-        int start_ref_idx = ref_idx;
-        int start_dict_idx = dmv.size();
-        while (wc->ref_id == fp - 1) {
-          if (wc->cmp >= MDX_WM_MIN_MATCH) {
-            if (start_ref_idx == ref_idx) {
-              take_out += wc->cmp;
-              take_out -= 4;
-              dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
-              // printf("0:[%.*s], %d\n", wc->cmp, uniq_data[wc->pos], wc->cmp);
-            } else {
-              bool overlap = false;
-              for (int i = dmv.size() - 1; i >= start_dict_idx; i--) {
-                gen::dict_match *dm = &dmv[i];
-                if (wc->pos + wc->cmp <= dm->pos || wc->pos >= dm->pos + dm->len) {
-                  // no overlap
-                } else {
-                  overlap = true;
-                  break;
-                }
-              }
-              if (!overlap) {
-                take_out += wc->cmp;
-                take_out -= 4;
-                dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
-                // printf("1:[%.*s], %d\n", wc->cmp, uniq_data[wc->pos], wc->cmp);
-              }
-            }
-          }
-          ref_idx++;
-          if (ref_idx >= wcs_size)
-            break;
-          wcs_idx = (*ref_id_vec)[ref_idx];
-          wc = &(*wcs)[wcs_idx];
-        }
-        // printf("%d, [%.*s]\n\n\n\n", ui->len - ui->cmp, ui->len - ui->cmp, uniq_data[ui->pos + ui->cmp]);
-        if (ref_idx >= wcs_size)
-          break;
-      }
-      std::sort(dmv.begin(), dmv.end(), [](const gen::dict_match& lhs, const gen::dict_match& rhs) -> bool {
-        return lhs.ref_id == rhs.ref_id ? (lhs.pos < rhs.pos) : (lhs.ref_id < rhs.ref_id);
-      });
-      gen::byte_blocks new_all_vals;
-      leopard::sort_data_vec nodes_for_sort;
-      for (int i = 0; i < dmv.size(); i++) {
-        gen::dict_match *dm = &dmv[i];
-        uint32_t new_pos = new_all_vals.push_back_with_vlen(uniq_data[dm->pos], dm->len);
-        nodes_for_sort.push_back((struct leopard::sort_data) { uniq_data[dm->pos], dm->len, new_pos, 0});
-        //printf("%u, %u, %u, [%.*s]\n", dm->pos, dm->len, dm->ref_id, dm->len, (*memtrie.all_vals)[dm->pos]);
-      }
-      // uint32_t max_len;
-      // leopard::uniq_info_vec new_vals_fwd;
-      // gen::byte_blocks new_uniq_data;
-      // byte_ptr_vec all_node_sets;
-      // frag_val_sort_callbacks val_sort_cb(all_node_sets, new_all_vals, uniq_data);
-      // uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, new_all_vals, new_uniq_data, new_vals_fwd, val_sort_cb, max_len, 't');
-      // uniq_vals = new_uniq_data;
-      // uniq_vals_fwd = new_vals_fwd;
-      // build_text_val_maps(tot_freq);
-      // if (dmv.size() > 100) {
-      //   gen::gen_printf("===============================================================================\n");
-      //   bldr->build_dict_trie(uniq_data, dmv);
-      //   gen::gen_printf("Total data len: %d, take_out: %d, remaining: %d\n", total_data_len, take_out, total_data_len - take_out);
-      //   gen::gen_printf("-------------------------------------------------------------------------------\n");
-      // }
-      gen::print_time_taken(t, "Time taken for find_matches: ");
-      wm.make_uniq_combis(dmv);
-      printf("Total data len: %u, Dictionary matches savings: %d, %lu\n", total_data_len, take_out, dmv.size());
     }
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
@@ -1603,7 +1512,6 @@ class builder : public builder_fwd {
     uint16_t names_len;
     uint32_t *val_table;
     builder *col_trie_builder;
-    builder *dict_trie_builder;
     FILE *fp;
     trie_parts tp;
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
@@ -1615,7 +1523,6 @@ class builder : public builder_fwd {
       no_primary_trie = _no_primary_trie;
       memset(&tp, '\0', sizeof(tp));
       col_trie_builder = NULL;
-      dict_trie_builder = NULL;
       column_count = _column_count;
       val_table = new uint32_t[_column_count];
       column_encoding = new char[_column_count];
@@ -1645,8 +1552,6 @@ class builder : public builder_fwd {
         delete out_filename;
       if (col_trie_builder != NULL)
         delete col_trie_builder;
-      if (dict_trie_builder != NULL)
-        delete dict_trie_builder;
       //close_file(); // TODO: Close for nested tries?
     }
 
@@ -1802,171 +1707,119 @@ class builder : public builder_fwd {
       return col_trie_size;
     }
 
-    void build_dict_trie(gen::byte_blocks& uniq_data, gen::dict_match_vec& dmv) {
-      if (dict_trie_builder == NULL) {
-        dict_trie_builder = new builder(NULL, "dict_trie,key", 1, "t", "t", true, false);
-        dict_trie_builder->fp = fp;
+    uint32_t build_words() {
+      gen::byte_blocks *words = memtrie.wm.get_words();
+      std::vector<uint32_t> *word_positions = memtrie.wm.get_word_positions();
+      gen::combi_freq_vec word_freq_vec;
+      gen::combi_freq_ptr_vec word_freq_ptr_vec;
+      memtrie.wm.make_uniq_words(word_freq_vec, word_freq_ptr_vec);
+      int words_grp_count = memtrie.wm.grp_count;
+      builder *word_tries[words_grp_count];
+      for (int i = 0; i < words_grp_count; i++) {
+        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", false, false);
+        word_tries[i]->fp = fp;
       }
-      for (int i = 0; i < dmv.size(); i++) {
-        gen::dict_match *dm = &dmv[i];
-        dict_trie_builder->insert(uniq_data[dm->pos], dm->len);
+      int line_count = 0;
+      for (int i = 0; i < word_positions->size(); i++) {
+        uint32_t wp = word_positions->at(i);
+        uint8_t *word_info = (*words)[wp];
+        uint32_t fp = gen::read_uint32(word_info);
+        gen::combi_freq *cf = &word_freq_vec[fp];
+        uint8_t *word = (*words)[cf->pos];
+        word_tries[cf->grp]->insert(word, cf->len, nullptr, 0, fp);
+        if (word_info[4] == 1)
+          line_count++;
       }
-      uint32_t dict_trie_size = dict_trie_builder->build();
-      byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
-      uint32_t dict_node_count = dict_trie_builder->memtrie.node_count;
-      int bit_len = ceil(log2(dict_node_count));
-      gen::gen_printf("Dict trie_size: %u, Key count: %u, Node count: %u, Bit len: %d, DMV Size: %lu, Ptrs size: %u\n",
-        dict_trie_size, dict_trie_builder->memtrie.key_count, dict_node_count, bit_len, dmv.size(),
-        4 * dmv.size());
-    }
-
-    void find_matches_for_store(gen::word_matcher& wm, gen::dict_match_vec& dmv) {
-      std::vector<gen::word_combi> *wcs = wm.get_combis();
-      size_t wcs_size = wcs->size();
-      if (wcs_size < 5)
-        return;
-      std::vector<uint32_t> *ref_id_vec = wm.get_ref_id_vec();
-      clock_t t = clock();
-      int ref_idx = 0;
-      int take_out = 0;
-      int total_data_len = 0;
-      for (int fp = 1; fp < memtrie.all_node_sets.size(); ) {
-        leopard::node_set_handler cur_ns(memtrie.all_node_sets, fp);
-        leopard::node cur_node = cur_ns.first_node();
-        uint32_t col_val_pos = cur_node.get_col_val();
-        uint8_t *v = (*memtrie.all_vals)[col_val_pos];
-        int8_t vlen;
-        uint32_t len = gen::read_vint32(v, &vlen);
-        v += vlen;
-        total_data_len += len;
-        total_data_len++;
-        fp++;
-        uint32_t wcs_idx = (*ref_id_vec)[ref_idx];
-        gen::word_combi *wc = &(*wcs)[wcs_idx];
-        int start_ref_idx = ref_idx;
-        int start_dict_idx = dmv.size();
-        while (wc->ref_id == fp - 1) {
-          if (wc->cmp >= MDX_WM_MIN_MATCH) {
-            if (start_ref_idx == ref_idx) {
-              take_out += wc->cmp;
-              take_out -= 4;
-              dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
-              // printf("0:[%.*s], %d, %u\n", wc->cmp, (*memtrie.all_vals)[wc->pos], wc->cmp, wc->ref_id);
-            } else {
-              bool overlap = false;
-              for (int i = dmv.size() - 1; i >= start_dict_idx; i--) {
-                gen::dict_match *dm = &dmv[i];
-                if (wc->pos + wc->cmp <= dm->pos || wc->pos >= dm->pos + dm->len) {
-                  // no overlap
-                } else {
-                  overlap = true;
-                  break;
-                }
-              }
-              if (!overlap) {
-                take_out += wc->cmp;
-                take_out -= 4;
-                dmv.push_back((gen::dict_match) {wc->ref_id, wc->pos, wc->cmp});
-                // printf("1:[%.*s], %d, %u\n", wc->cmp, (*memtrie.all_vals)[wc->pos], wc->cmp, wc->ref_id);
-              }
+      std::vector<uint32_t> idx_sizes;
+      uint32_t total_trie_size = 0;
+      for (int i = 0; i < words_grp_count; i++) {
+        uint32_t trie_size = word_tries[i]->build();
+        idx_sizes.push_back(trie_size);
+        total_trie_size += trie_size;
+        uint32_t leaf_id = 0;
+        leopard::node_set_handler cur_ns(word_tries[i]->memtrie.all_node_sets, 1);
+        for (uint32_t cur_ns_idx = 1; cur_ns_idx < word_tries[i]->memtrie.all_node_sets.size(); cur_ns_idx++) {
+          cur_ns.set_pos(cur_ns_idx);
+          leopard::node cur_node = cur_ns.first_node();
+          for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
+            uint32_t col_val_pos = cur_node.get_col_val();
+            if (cur_node.get_flags() & NFLAG_LEAF) {
+              // printf("%u, %u\n", col_val_pos, leaf_id);
+              gen::combi_freq *cf = &word_freq_vec[col_val_pos];
+              cf->ptr = leaf_id++;
             }
+            cur_node.next();
           }
-          ref_idx++;
-          if (ref_idx >= wcs_size)
-            break;
-          wcs_idx = (*ref_id_vec)[ref_idx];
-          wc = &(*wcs)[wcs_idx];
         }
-        // printf("%d, [%.*s]\n\n\n\n", len, len, v);
-        if (ref_idx >= wcs_size)
-          break;
       }
-      std::sort(dmv.begin(), dmv.end(), [](const gen::dict_match& lhs, const gen::dict_match& rhs) -> bool {
-        return lhs.ref_id == rhs.ref_id ? (lhs.pos < rhs.pos) : (lhs.ref_id < rhs.ref_id);
-      });
-      gen::byte_blocks new_all_vals;
-      leopard::sort_data_vec nodes_for_sort;
-      for (int i = 0; i < dmv.size(); i++) {
-        gen::dict_match *dm = &dmv[i];
-        uint32_t new_pos = new_all_vals.push_back_with_vlen((*memtrie.all_vals)[dm->pos], dm->len);
-        nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[dm->pos], dm->len, new_pos, 0});
-        //printf("%u, %u, %u, [%.*s]\n", dm->pos, dm->len, dm->ref_id, dm->len, (*memtrie.all_vals)[dm->pos]);
+      byte_vec ptrs;
+      byte_vec line_ptrs;
+      byte_vec ptr_lkup_tbl;
+      int line_no = 0;
+      for (int i = 0; i < word_positions->size(); i++) {
+        uint32_t wp = word_positions->at(i);
+        uint8_t *word_info = (*words)[wp];
+        uint32_t fp = gen::read_uint32(word_info);
+        gen::combi_freq *cf = &word_freq_vec[fp];
+        gen::append_vint32(line_ptrs, cf->ptr, cf->grp + 1);
+        if (word_info[4] == 1) {
+          if ((line_no % nodes_per_bv_block3) == 0) {
+            gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+          }
+          gen::append_fvint32(ptrs, line_ptrs.size());
+          ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
+          line_ptrs.clear();
+          line_no++;
+        }
       }
-      wm.make_uniq_combis(dmv);
-      printf("Total data len: %u, Dictionary matches savings: %d, %lu\n", total_data_len, take_out, dmv.size());
-      uint32_t max_len;
-      frag_val_sort_callbacks val_sort_cb(memtrie.all_node_sets, new_all_vals, memtrie.uniq_vals);
-      uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, new_all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, max_len, 't');
-      tail_vals.build_text_val_maps(tot_freq);
-      // int dmv_idx = 0;
-      // gen::byte_blocks new_all_vals;
-      // leopard::sort_data_vec nodes_for_sort;
-      // for (int fp = 1; fp < memtrie.all_node_sets.size(); ) {
-      //   leopard::node_set_handler cur_ns(memtrie.all_node_sets, fp);
-      //   leopard::node cur_node = cur_ns.first_node();
-      //   uint32_t col_val_pos = cur_node.get_col_val();
-      //   uint8_t *v = (*memtrie.all_vals)[col_val_pos];
-      //   int8_t vlen;
-      //   uint32_t val_len = gen::read_vint32(v, &vlen);
-      //   v += vlen;
-      //   fp++;
-      //   // printf("\n[%.*s], %u\n", val_len, v, val_len);
-      //   gen::dict_match *dm = &dmv[dmv_idx];
-      //   if (dm->ref_id > fp - 1) {
-      //     uint32_t new_val_pos = new_all_vals.push_back_with_vlen(v, val_len);
-      //     cur_node.set_col_val(new_val_pos);
-      //     // printf("Fully pushed\n");
-      //   } else if (dm->ref_id == fp - 1) {
-      //     uint32_t frag_val_pos = new_all_vals.push_back(0);
-      //     new_all_vals.push_back(0); // number of fragments
-      //     cur_node.set_col_val(frag_val_pos);
-      //     uint8_t frag_count = 0;
-      //     uint8_t *last_start = v;
-      //     while (dm->ref_id == fp - 1) {
-      //       uint8_t *dm_start = (*memtrie.all_vals)[dm->pos];
-      //       if (dm_start - last_start > 0) {
-      //         uint32_t frag_len = dm_start - last_start;
-      //         uint32_t frag_pos = dm->pos - frag_len;
-      //         new_all_vals.append_uint32(frag_pos);
-      //         new_all_vals.append_uint32(frag_len);
-      //         nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[frag_pos], frag_len, frag_val_pos, frag_count});
-      //         // printf("0:%u, [%.*s], %u\n", frag_len, frag_len, (*memtrie.all_vals)[frag_pos], dm->ref_id);
-      //         frag_count++;
-      //         last_start += frag_len;
-      //       }
-      //       new_all_vals.append_uint32(dm->pos);
-      //       new_all_vals.append_uint32(dm->len);
-      //       nodes_for_sort.push_back((struct leopard::sort_data) { dm_start, dm->len, frag_val_pos, frag_count});
-      //         // printf("1:%u, [%.*s], %u\n", dm->len, dm->len, dm_start, dm->ref_id);
-      //       frag_count++;
-      //       last_start += dm->len;
-      //       dm = &dmv[++dmv_idx];
-      //     }
-      //     if (last_start < v + val_len) {
-      //       uint32_t frag_pos = col_val_pos + last_start - v + vlen;
-      //       uint32_t frag_len = v + val_len - last_start;
-      //       new_all_vals.append_uint32(frag_pos);
-      //       new_all_vals.append_uint32(frag_len);
-      //       nodes_for_sort.push_back((struct leopard::sort_data) { (*memtrie.all_vals)[frag_pos], frag_len, frag_val_pos, frag_count});
-      //         // printf("2:%u, [%.*s], %u\n", frag_len, frag_len, (*memtrie.all_vals)[frag_pos], dm->ref_id);
-      //       frag_count++;
-      //     }
-      //     uint8_t *fc_loc = new_all_vals[frag_val_pos];
-      //     *fc_loc = frag_count;
-      //   }
-      // }
-      // uint32_t max_len;
-      // frag_val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
-      // uint32_t tot_freq = leopard::uniq_maker::sort_and_reduce(nodes_for_sort, memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, max_len, 't');
-      // tail_vals.build_text_val_maps(tot_freq);
-
-      // if (dmv.size() > 100) {
-      //   gen::gen_printf("===============================================================================\n");
-      //   bldr->build_dict_trie(uniq_data, dmv);
-      //   gen::gen_printf("Total data len: %d, take_out: %d, remaining: %d\n", total_data_len, take_out, total_data_len - take_out);
-      //   gen::gen_printf("-------------------------------------------------------------------------------\n");
-      // }
-      gen::print_time_taken(t, "Time taken for find_matches: ");
+      if (line_ptrs.size() > 0) {
+        gen::append_fvint32(ptrs, line_ptrs.size());
+        ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
+      }
+      gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+      uint32_t ptr_lkup_tbl_ptr_width = 4;
+      fputc(ptr_lkup_tbl_ptr_width, fp);
+      fputc(LPDT_WORDS, fp); // data type
+      fputc(LPDT_WORDS, fp); // encoding type
+      fputc(0, fp); // flags
+      uint32_t hdr_size = 8 * 4 + 4;
+      uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_count, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
+      uint32_t ptr_lookup_tbl_loc = hdr_size;
+      uint32_t grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
+      uint32_t two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
+      uint32_t two_byte_data_loc = grp_ptrs_loc + ptrs.size();
+      uint32_t idx2_ptr_count = 0;
+      uint32_t idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
+      uint32_t grp_data_loc = idx2_ptrs_map_loc + 0;
+      uint32_t grp_data_size = 2 + words_grp_count * 4 + total_trie_size;
+      gen::write_uint32(memtrie.max_val_len, fp);
+      gen::write_uint32(ptr_lookup_tbl_loc, fp); // ptr_lookup_tbl_loc
+      gen::write_uint32(grp_data_loc, fp); // grp_data_loc
+      gen::write_uint32(two_byte_count, fp); // two_byte_count
+      gen::write_uint32(idx2_ptr_count, fp); // idx2_ptr_count
+      gen::write_uint32(grp_ptrs_loc, fp); // grp_ptrs_loc
+      gen::write_uint32(two_byte_data_loc, fp); // two_byte_data_loc
+      gen::write_uint32(idx2_ptrs_map_loc, fp); // idx2_ptrs_map_loc
+      fwrite(ptr_lkup_tbl.data(), ptr_lkup_tbl.size(), 1, fp);
+      fwrite(ptrs.data(), ptrs.size(), 1, fp);
+      //fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
+      // fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
+      fputc(words_grp_count, fp);
+      fputc(0, fp); // grp_log2 (?)
+      total_trie_size = 0;
+      for (int i = 0; i < words_grp_count; i++) {
+        gen::write_uint32(2 + words_grp_count * 4 + total_trie_size, fp);
+        total_trie_size += idx_sizes[i];
+      }
+      for (int i = 0; i < words_grp_count; i++) {
+        word_tries[i]->write_trie();
+        delete word_tries[i];
+      }
+      gen::gen_printf("Header size: %u\n", hdr_size);
+      gen::gen_printf("Total trie size: %u\n", grp_data_size);
+      gen::gen_printf("Ptrs size: %lu\n", ptrs.size());
+      gen::gen_printf("Lookup table size: %u\n", ptr_lookup_tbl_sz);
+      return grp_data_size + ptrs.size() + ptr_lookup_tbl_sz + hdr_size;
     }
 
     uint32_t store_col_val() {
@@ -1980,15 +1833,12 @@ class builder : public builder_fwd {
           uint8_t *v = (*memtrie.all_vals)[col_val_pos];
           int8_t vlen;
           uint32_t len = gen::read_vint32(v, &vlen);
-          //wm.add_word_combis(col_val_pos + vlen, len, cur_ns_idx);
           wm.add_words(col_val_pos + vlen, len, cur_ns_idx);
           cur_node.next();
         }
       }
-      wm.make_uniq_words();
+      //wm.make_uniq_words();
       //wm.process_combis();
-      gen::dict_match_vec dmv;
-      find_matches_for_store(wm, dmv);
       return 0;
     }
 
@@ -1997,6 +1847,10 @@ class builder : public builder_fwd {
       char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
       if (encoding_type == 's') {
         return store_col_val();
+      }
+      if (encoding_type == 'w') {
+        uint32_t val_size = build_words();
+        gen::gen_printf("Total val size: %u\n", val_size);
       }
       if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
         gen::gen_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1) + 2]);
@@ -2208,8 +2062,8 @@ class builder : public builder_fwd {
       return memtrie.insert(key, key_len, NULL, 0);
     }
 
-    bool insert(const uint8_t *key, int key_len, const void *val, int val_len) {
-      return memtrie.insert(key, key_len, val, val_len);
+    bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
+      return memtrie.insert(key, key_len, val, val_len, val_pos);
     }
 
     void set_node_id() {
@@ -2491,7 +2345,7 @@ class builder : public builder_fwd {
       write_trie(filename);
       uint32_t val_size = 0;
       char encoding_type = column_encoding[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1)];
-      if (memtrie.all_vals->size() > 2 || encoding_type == 't') { // TODO: What if column contains only NULL and ""
+      if (memtrie.all_vals->size() > 2 || encoding_type == 't' || encoding_type == 'w') { // TODO: What if column contains only NULL and ""
         val_size = build_and_write_col_val();
       }
     }

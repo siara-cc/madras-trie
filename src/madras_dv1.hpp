@@ -98,6 +98,7 @@ class static_dict_fwd {
     virtual void map_from_memory(uint8_t *mem) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
     virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) = 0;
+    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL) = 0;
 };
 
 #define DCT_INSERT_AFTER -2
@@ -110,6 +111,7 @@ class static_dict_fwd {
 
 #define DCT_BIN '*'
 #define DCT_TEXT 't'
+#define DCT_WORDS 'w'
 #define DCT_FLOAT 'f'
 #define DCT_DOUBLE 'd'
 #define DCT_S64_INT '0'
@@ -289,6 +291,11 @@ class grp_ptr_data_map {
       return trie_loc + (node_id / nodes_per_ptr_block3) * bytes_per_ptr_block3;
     }
 
+    uint32_t get_ptr_byts_words(uint32_t node_id) {
+      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block3) * ptr_lkup_tbl_ptr_width;
+      return gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
+    }
+
     uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
       uint32_t ptr_bit_count;
       uint8_t *t = get_ptr_block_t(node_id, ptr_bit_count);
@@ -347,12 +354,14 @@ class grp_ptr_data_map {
     uint32_t max_len;
     static_dict_fwd *dict_obj;
     static_dict_fwd *col_trie;
+    static_dict_fwd **word_tries;
     gen::int_bv_reader col_trie_int_bv;
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
       grp_data = NULL;
       col_trie = NULL;
+      word_tries = NULL;
     }
 
     ~grp_ptr_data_map() {
@@ -360,6 +369,12 @@ class grp_ptr_data_map {
         delete [] grp_data;
       if (col_trie != NULL)
         delete col_trie;
+      if (word_tries != NULL) {
+        for (int i = 0; i < group_count; i++) {
+          delete word_tries[i];
+        }
+        delete word_tries;
+      }
     }
 
     bool exists() {
@@ -403,10 +418,17 @@ class grp_ptr_data_map {
       } else {
         group_count = *grp_data_loc;
         code_lookup_tbl = grp_data_loc + 2;
-        uint8_t *grp_data_idx_start = code_lookup_tbl + 512;
+        uint8_t *grp_data_idx_start = code_lookup_tbl + (data_type == 'w' ? 0 : 512);
         grp_data = new uint8_t*[group_count];
-        for (int i = 0; i < group_count; i++)
-          grp_data[i] = data_loc + gen::read_uint32(grp_data_idx_start + i * 4);
+        if (data_type == 'w')
+          word_tries = new static_dict_fwd*[group_count];
+        for (int i = 0; i < group_count; i++) {
+          grp_data[i] = (data_type == 'w' ? grp_data_loc : data_loc);
+          grp_data[i] += gen::read_uint32(grp_data_idx_start + i * 4);
+          if (data_type == 'w') {
+            word_tries[i] = dict_obj->new_instance(grp_data[i]);
+          }
+        }
         int _start_bits = start_bits;
         for (int i = 1; i <= grp_idx_limit; i++) {
           idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
@@ -434,6 +456,23 @@ class grp_ptr_data_map {
         cv.bm_mask <<= 1;
       } while (cv.node_id < node_count);
       return false;
+    }
+
+    uint8_t *get_words_loc(uint32_t node_id, uint32_t *p_ptr_byt_count = NULL) {
+      uint32_t ptr_byt_count = UINT32_MAX;
+      if (p_ptr_byt_count == NULL)
+        p_ptr_byt_count = &ptr_byt_count;
+      if (*p_ptr_byt_count == UINT32_MAX)
+        *p_ptr_byt_count = get_ptr_byts_words(node_id);
+      uint8_t *w = ptrs_loc + *p_ptr_byt_count;
+      int skip_count = node_id % nodes_per_bv_block3;
+      while (skip_count--) {
+        int8_t vlen;
+        uint32_t count = gen::read_fvint32(w, vlen);
+        w += vlen;
+        w += count;
+      }
+      return w;
     }
 
     uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = NULL, uint8_t *p_grp_no = NULL) {
@@ -548,6 +587,24 @@ class grp_ptr_data_map {
             } break;
           }
           break;
+        case 'w': {
+          uint8_t *line_loc = get_words_loc(node_id, p_ptr_bit_count);
+          int8_t vlen;
+          uint32_t line_byt_len = gen::read_fvint32(line_loc, vlen);
+          line_loc += vlen;
+          int line_len = 0;
+          uint8_t *out_buf = (uint8_t *) ret_val;
+          while (line_byt_len > 0) {
+            uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
+            line_loc += vlen;
+            line_byt_len -= vlen;
+            vlen--;
+            int word_len;
+            word_tries[vlen]->reverse_lookup(trie_leaf_id, &word_len, out_buf + line_len);
+            line_len += word_len;
+          }
+          *in_size_out_value_len = line_len;
+        } break;
         case 't':
           return get_col_trie_val(node_id, in_size_out_value_len, ret_val);
         case 'd':

@@ -94,7 +94,7 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       null_count++;
       val = NULL;
       val_len = 0;
-    } else if (exp_col_type == LPDT_TEXT) {
+    } else if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_WORDS) {
       val = sqlite3_column_text(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
     } else if (exp_col_type == LPDT_BIN) {
@@ -338,7 +338,7 @@ int main(int argc, char* argv[]) {
           }
         }
       } else
-      if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN) {
+      if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN || exp_col_type == LPDT_WORDS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         int sql_val_len = sqlite3_column_bytes(stmt, i);
         uint8_t val_buf[sql_val_len + 1]; // todo: allocate max_len
@@ -349,11 +349,16 @@ int main(int argc, char* argv[]) {
             // NULL value
           } else {
             val_buf[val_len] = '\0';
-            if (val_len != sql_val_len)
-              std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << val_buf << ": " << val_len << ": " << sql_val_len << std::endl;
-            else {
-              if (memcmp(sql_val, val_buf, val_len) != 0)
-                std::cout << "Val not maching: " << node_id << ", " << col_val_idx << " - " << sql_val << ": " << val_buf << std::endl;
+            if (val_len != sql_val_len) {
+              std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << ": " << val_len << ": " << sql_val_len << std::endl;
+              std::cout << "Expected: " << sql_val << std::endl;
+              std::cout << "Found: " << val_buf << std::endl;
+            } else {
+              if (memcmp(sql_val, val_buf, val_len) != 0) {
+                std::cout << "Val not maching: " << node_id << ", " << col_val_idx << std::endl;
+                std::cout << "Expected: " << sql_val << std::endl;
+                std::cout << "Found: " << val_buf << std::endl;
+              }
             }
           }
         }
