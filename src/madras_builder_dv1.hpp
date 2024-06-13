@@ -1719,7 +1719,6 @@ class builder : public builder_fwd {
         word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", false, false);
         word_tries[i]->fp = fp;
       }
-      int line_count = 0;
       for (int i = 0; i < word_positions->size(); i++) {
         uint32_t wp = word_positions->at(i);
         uint8_t *word_info = (*words)[wp];
@@ -1727,8 +1726,6 @@ class builder : public builder_fwd {
         gen::combi_freq *cf = &word_freq_vec[fp];
         uint8_t *word = (*words)[cf->pos];
         word_tries[cf->grp]->insert(word, cf->len, nullptr, 0, fp);
-        if (word_info[4] == 1)
-          line_count++;
       }
       std::vector<uint32_t> idx_sizes;
       uint32_t total_trie_size = 0;
@@ -1737,44 +1734,57 @@ class builder : public builder_fwd {
         idx_sizes.push_back(trie_size);
         total_trie_size += trie_size;
         uint32_t leaf_id = 0;
-        leopard::node_set_handler cur_ns(word_tries[i]->memtrie.all_node_sets, 1);
-        for (uint32_t cur_ns_idx = 1; cur_ns_idx < word_tries[i]->memtrie.all_node_sets.size(); cur_ns_idx++) {
-          cur_ns.set_pos(cur_ns_idx);
-          leopard::node cur_node = cur_ns.first_node();
-          for (int k = 0; k <= cur_ns.last_node_idx(); k++) {
-            uint32_t col_val_pos = cur_node.get_col_val();
-            if (cur_node.get_flags() & NFLAG_LEAF) {
-              // printf("%u, %u\n", col_val_pos, leaf_id);
-              gen::combi_freq *cf = &word_freq_vec[col_val_pos];
-              cf->ptr = leaf_id++;
-            }
-            cur_node.next();
+        leopard::node_iterator ni(word_tries[i]->memtrie.all_node_sets);
+        leopard::node n = ni.next();
+        while (n != nullptr) {
+          uint32_t col_val_pos = n.get_col_val();
+          if (n.get_flags() & NFLAG_LEAF) {
+            // printf("%u, %u\n", col_val_pos, leaf_id);
+            gen::combi_freq *cf = &word_freq_vec[col_val_pos];
+            cf->ptr = leaf_id++;
           }
+          n = ni.next();
         }
       }
+      // 00 - word ptrs with given length
+      // 01 - NULL
+      // 10 - Empty
+      // 11 - refer to previous pos
       byte_vec ptrs;
       byte_vec line_ptrs;
       byte_vec ptr_lkup_tbl;
       int line_no = 0;
-      for (int i = 0; i < word_positions->size(); i++) {
-        uint32_t wp = word_positions->at(i);
-        uint8_t *word_info = (*words)[wp];
-        uint32_t fp = gen::read_uint32(word_info);
-        gen::combi_freq *cf = &word_freq_vec[fp];
-        gen::append_vint32(line_ptrs, cf->ptr, cf->grp + 1);
-        if (word_info[4] == 1) {
-          if ((line_no % nodes_per_bv_block3) == 0) {
-            gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+      leopard::node_iterator ni(memtrie.all_node_sets);
+      leopard::node n = ni.next();
+      while (n != nullptr) {
+        if (n.get_flags() & NFLAG_LEAF) {
+          uint32_t col_val_pos = n.get_col_val();
+          if (col_val_pos < 3) {
+            if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
+              gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+            ptrs.push_back('\0');
+            n = ni.next();
+            line_no++;
+            continue;
           }
-          gen::append_fvint32(ptrs, line_ptrs.size());
+          col_val_pos -= 3;
+          uint8_t *word_info;
+          do {
+            uint32_t wp = word_positions->at(col_val_pos);
+            word_info = (*words)[wp];
+            uint32_t fp = gen::read_uint32(word_info);
+            gen::combi_freq *cf = &word_freq_vec[fp];
+            gen::append_vint32(line_ptrs, cf->ptr, cf->grp + 1);
+            col_val_pos++;
+          } while (word_info[4] == 0);
+          if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
+            gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+          gen::append_ovint32(ptrs, line_ptrs.size(), 2, '\xC0');
           ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
           line_ptrs.clear();
           line_no++;
         }
-      }
-      if (line_ptrs.size() > 0) {
-        gen::append_fvint32(ptrs, line_ptrs.size());
-        ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
+        n = ni.next();
       }
       gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
       uint32_t ptr_lkup_tbl_ptr_width = 4;
@@ -1783,7 +1793,7 @@ class builder : public builder_fwd {
       fputc(LPDT_WORDS, fp); // encoding type
       fputc(0, fp); // flags
       uint32_t hdr_size = 8 * 4 + 4;
-      uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_count, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
+      uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
       uint32_t ptr_lookup_tbl_loc = hdr_size;
       uint32_t grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       uint32_t two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
@@ -1851,6 +1861,12 @@ class builder : public builder_fwd {
       if (encoding_type == 'w') {
         uint32_t val_size = build_words();
         gen::gen_printf("Total val size: %u\n", val_size);
+        if (memtrie.cur_col_idx > 0) {
+          uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
+          val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
+        }
+        memtrie.prev_val_size = val_size;
+        return val_size;
       }
       if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
         gen::gen_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (memtrie.no_primary_trie ? 0 : 1) + 2]);

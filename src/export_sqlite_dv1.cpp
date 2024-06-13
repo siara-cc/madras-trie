@@ -300,8 +300,10 @@ int main(int argc, char* argv[]) {
   sqlite3_reset(stmt);
   int64_t ins_seq_id = 0;
   uint8_t *key = new uint8_t[sd.max_key_len];
+  uint32_t ptr_count[column_count];
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
+  memset(ptr_count, '\xFF', sizeof(uint32_t) * column_count);
   memset(int_sums, '\0', sizeof(int64_t) * column_count);
   memset(dbl_sums, '\0', sizeof(double) * column_count);
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -343,7 +345,7 @@ int main(int argc, char* argv[]) {
         int sql_val_len = sqlite3_column_bytes(stmt, i);
         uint8_t val_buf[sql_val_len + 1]; // todo: allocate max_len
         int val_len = sql_val_len + 1;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf, &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len == -1 && sql_val == NULL) {
             // NULL value
@@ -355,7 +357,7 @@ int main(int argc, char* argv[]) {
               std::cout << "Found: " << val_buf << std::endl;
             } else {
               if (memcmp(sql_val, val_buf, val_len) != 0) {
-                std::cout << "Val not maching: " << node_id << ", " << col_val_idx << std::endl;
+                std::cout << "Val not matching: " << node_id << ", " << col_val_idx << std::endl;
                 std::cout << "Expected: " << sql_val << std::endl;
                 std::cout << "Found: " << val_buf << std::endl;
               }
@@ -366,7 +368,7 @@ int main(int argc, char* argv[]) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
         int val_len = 8;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val, &ptr_count[col_val_idx]);
         if (is_success) {
           int64_t i64 = *((int64_t *) val);
           if (i64 != sql_val)

@@ -389,7 +389,7 @@ class grp_ptr_data_map {
       node_count = _node_count;
 
       ptr_lkup_tbl_ptr_width = *data_loc;
-      if (ptr_lkup_tbl_ptr_width == 10)
+      if (ptr_lkup_tbl_ptr_width == 10 || ptr_lkup_tbl_ptr_width == 4)
         ptr_lkup_tbl_mask = 0xFFFFFFFF;
       else
         ptr_lkup_tbl_mask = 0x00FFFFFF;
@@ -465,12 +465,15 @@ class grp_ptr_data_map {
       if (*p_ptr_byt_count == UINT32_MAX)
         *p_ptr_byt_count = get_ptr_byts_words(node_id);
       uint8_t *w = ptrs_loc + *p_ptr_byt_count;
+      // printf("%u\n", *p_ptr_byt_count);
       int skip_count = node_id % nodes_per_bv_block3;
       while (skip_count--) {
         int8_t vlen;
         uint32_t count = gen::read_fvint32(w, vlen);
         w += vlen;
         w += count;
+        *p_ptr_byt_count += vlen;
+        *p_ptr_byt_count += count;
       }
       return w;
     }
@@ -588,15 +591,22 @@ class grp_ptr_data_map {
           }
           break;
         case 'w': {
-          uint8_t *line_loc = get_words_loc(node_id, p_ptr_bit_count);
+          uint8_t *line_loc = (*p_ptr_bit_count == UINT32_MAX ? get_words_loc(node_id, p_ptr_bit_count) : ptrs_loc + *p_ptr_bit_count);
+          if ((*line_loc & 0xC0) == 0) {
+            (*p_ptr_bit_count)++;
+            *in_size_out_value_len = -1;
+            return;
+          }
           int8_t vlen;
-          uint32_t line_byt_len = gen::read_fvint32(line_loc, vlen);
+          uint32_t line_byt_len = gen::read_ovint32(line_loc, vlen, 2);
           line_loc += vlen;
+          *p_ptr_bit_count += vlen;
           int line_len = 0;
           uint8_t *out_buf = (uint8_t *) ret_val;
           while (line_byt_len > 0) {
             uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
             line_loc += vlen;
+            *p_ptr_bit_count += vlen;
             line_byt_len -= vlen;
             vlen--;
             int word_len;
@@ -606,9 +616,9 @@ class grp_ptr_data_map {
           *in_size_out_value_len = line_len;
         } break;
         case 't':
-          return get_col_trie_val(node_id, in_size_out_value_len, ret_val);
+          get_col_trie_val(node_id, in_size_out_value_len, ret_val);
         case 'd':
-          return get_delta_val(node_id, in_size_out_value_len, ret_val);
+          get_delta_val(node_id, in_size_out_value_len, ret_val);
       }
     }
 
