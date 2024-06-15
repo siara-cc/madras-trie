@@ -617,8 +617,10 @@ class grp_ptr_data_map {
         } break;
         case 't':
           get_col_trie_val(node_id, in_size_out_value_len, ret_val);
+          break;
         case 'd':
           get_delta_val(node_id, in_size_out_value_len, ret_val);
+          break;
       }
     }
 

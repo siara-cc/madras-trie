@@ -343,9 +343,9 @@ int main(int argc, char* argv[]) {
       if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN || exp_col_type == LPDT_WORDS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         int sql_val_len = sqlite3_column_bytes(stmt, i);
-        uint8_t val_buf[sql_val_len + 1]; // todo: allocate max_len
-        int val_len = sql_val_len + 1;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf, &ptr_count[col_val_idx]);
+        int val_len = sd.get_max_val_len(col_val_idx) + 1;
+        uint8_t val_buf[val_len];
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf); //, &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len == -1 && sql_val == NULL) {
             // NULL value
