@@ -356,6 +356,7 @@ class grp_ptr_data_map {
     static_dict_fwd *col_trie;
     static_dict_fwd **word_tries;
     gen::int_bv_reader col_trie_int_bv;
+    std::vector<uint8_t> prev_val;
 
     grp_ptr_data_map() {
       dict_buf = trie_loc = NULL;
@@ -591,10 +592,18 @@ class grp_ptr_data_map {
           }
           break;
         case 'w': {
-          uint8_t *line_loc = (*p_ptr_bit_count == UINT32_MAX ? get_words_loc(node_id, p_ptr_bit_count) : ptrs_loc + *p_ptr_bit_count);
-          if ((*line_loc & 0xC0) == 0) {
+          uint8_t *line_loc = (p_ptr_bit_count == nullptr || *p_ptr_bit_count == UINT32_MAX ?
+                            get_words_loc(node_id, p_ptr_bit_count) : ptrs_loc + *p_ptr_bit_count);
+          uint8_t val_type = (*line_loc & 0xC0);
+          if (val_type == 0x40 || val_type == 0x80) {
             (*p_ptr_bit_count)++;
-            *in_size_out_value_len = -1;
+            *in_size_out_value_len = (val_type == 0x40 ? -1 : -2);
+            return;
+          }
+          if (val_type == 0x00) {
+            (*p_ptr_bit_count)++;
+            *in_size_out_value_len = prev_val.size();
+            memcpy(ret_val, prev_val.data(), prev_val.size());
             return;
           }
           int8_t vlen;
@@ -614,6 +623,8 @@ class grp_ptr_data_map {
             line_len += word_len;
           }
           *in_size_out_value_len = line_len;
+          prev_val.clear();
+          gen::append_byte_vec(prev_val, out_buf, line_len);
         } break;
         case 't':
           get_col_trie_val(node_id, in_size_out_value_len, ret_val);

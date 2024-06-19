@@ -1690,6 +1690,12 @@ class builder : public builder_fwd {
       return col_trie_size;
     }
 
+    typedef struct {
+      uint32_t ptr_pos;
+      uint32_t limit;
+      uint32_t cmp;
+    } ptr_seq;
+
     uint32_t build_words() {
       gen::byte_blocks *words = memtrie.wm.get_words();
       std::vector<uint32_t> *word_positions = memtrie.wm.get_word_positions();
@@ -1729,44 +1735,62 @@ class builder : public builder_fwd {
           n = ni.next();
         }
       }
-      // 00 - word ptrs ovint
-      // 010 - NULL so many times
-      // 011 - Empty so many times
-      // 10 - Repeat previous so many times
-      // 11 - refer to previous pos - len+pos
-      //    - 1 byte  - 2/4 + 3/8
-      //    - 2 bytes - 32 + 128
-      //    - 3 bytes - 32 + 16384
-      //    - 4 bytes - 32 + 2097152
+      // 11 - word ptrs ovint
+      // 01 - NULL so many times
+      // 10 - Empty so many times
+      // 00 - Repeat previous so many times
       byte_vec ptrs;
       byte_vec line_ptrs;
       byte_vec ptr_lkup_tbl;
+      std::vector<ptr_seq> ptr_pos;
       int line_no = 0;
+      int rpt_count = 0;
+      int tot_rpt_count = 0;
+      size_t last_line_sz = 0;
       leopard::node_iterator ni(memtrie.all_node_sets);
       leopard::node n = ni.next();
       while (n != nullptr) {
         if (n.get_flags() & NFLAG_LEAF) {
           uint32_t col_val_pos = n.get_col_val();
           if (col_val_pos < 3) {
+            rpt_count = 0;
             if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
               gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
-            ptrs.push_back('\0');
+            ptrs.push_back(col_val_pos == 1 ? '\x40' : '\x80');
             n = ni.next();
             line_no++;
             continue;
           }
           col_val_pos -= 3;
           uint8_t *word_info;
+          uint32_t last_line_end = 0;
           do {
             uint32_t wp = word_positions->at(col_val_pos);
             word_info = (*words)[wp];
             uint32_t fp = gen::read_uint32(word_info);
             gen::combi_freq *cf = &word_freq_vec[fp];
+            last_line_end = line_ptrs.size();
             gen::append_vint32(line_ptrs, cf->ptr, cf->grp + 1);
             col_val_pos++;
           } while (word_info[4] == 0);
           if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
             gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
+          else {
+            if (last_line_sz == line_ptrs.size() && memcmp(line_ptrs.data(),
+                  ptrs.data() + ptrs.size() - line_ptrs.size() - rpt_count,
+                  line_ptrs.size()) == 0) {
+              rpt_count++;
+              tot_rpt_count++;
+              ptrs.push_back('\0');
+              line_ptrs.clear();
+              n = ni.next();
+              line_no++;
+              continue;
+            }
+          }
+          rpt_count = 0;
+          last_line_sz = line_ptrs.size();
+          uint32_t start_pos = ptrs.size();
           gen::append_ovint32(ptrs, line_ptrs.size(), 2, '\xC0');
           ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
           line_ptrs.clear();
@@ -1774,6 +1798,8 @@ class builder : public builder_fwd {
         }
         n = ni.next();
       }
+      printf("Rpt count: %d\n", tot_rpt_count);
+      clock_t t = clock();
       gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
       uint32_t ptr_lkup_tbl_ptr_width = 4;
       fputc(ptr_lkup_tbl_ptr_width, fp);
