@@ -7,13 +7,13 @@ L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
 
-opt: CXXFLAGS += -g -O2 -funroll-loops -DNDEBUG
+opt: CXXFLAGS += -g -O3 -funroll-loops -DNDEBUG
 opt: run_tests
 
 debug: CXXFLAGS += -g -O0 -fno-inline
 debug: run_tests
 
-release: CXXFLAGS += -O2 -fno-inline
+release: CXXFLAGS += -O3 -fno-inline
 release: run_tests
 
 clean:

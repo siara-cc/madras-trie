@@ -10,5 +10,10 @@ a.out*
 *.rst
 *.val
 *.mdx
+tex/*.pdf
+tex/*.log
+tex/*.gz
+tex/*.out
+tex/*.aux
 test*
 /export_sqlite*

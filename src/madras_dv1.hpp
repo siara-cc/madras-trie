@@ -92,13 +92,14 @@ class dict_lookup_ctx {
 class static_dict_fwd {
   public:
     int key_count;
+    uint16_t max_tail_len;
     virtual ~static_dict_fwd() {
     }
     virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
     virtual void map_from_memory(uint8_t *mem) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) = 0;
-    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL) = 0;
+    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, dict_iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
 };
 
 #define DCT_INSERT_AFTER -2
@@ -193,7 +194,7 @@ struct ctx_vars {
     }
   }
   void init_cv_nid0(uint8_t *trie_loc) {
-    if (trie_loc == NULL)
+    if (trie_loc == nullptr)
       return;
     t = trie_loc;
     read_flags();
@@ -201,7 +202,7 @@ struct ctx_vars {
     ptr_bit_count = 0;
   }
   void init_cv_from_node_id(uint8_t *trie_loc) {
-    if (trie_loc == NULL)
+    if (trie_loc == nullptr)
       return;
     t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
     if (node_id % nodes_per_bv_block3) {
@@ -222,6 +223,7 @@ class grp_ptr_data_map {
     uint8_t idx_step_bits;
     int8_t grp_idx_limit;
     uint8_t group_count;
+    uint8_t inner_trie_start_grp;
     uint8_t *grp_data_loc;
     uint32_t two_byte_data_count;
     uint32_t idx2_ptr_count;
@@ -355,31 +357,40 @@ class grp_ptr_data_map {
     static_dict_fwd *dict_obj;
     static_dict_fwd *col_trie;
     static_dict_fwd **word_tries;
+    static_dict_fwd **inner_tries;
     gen::int_bv_reader col_trie_int_bv;
     std::vector<uint8_t> prev_val;
 
     grp_ptr_data_map() {
-      dict_buf = trie_loc = NULL;
-      grp_data = NULL;
-      col_trie = NULL;
-      word_tries = NULL;
+      dict_buf = trie_loc = nullptr;
+      grp_data = nullptr;
+      col_trie = nullptr;
+      word_tries = nullptr;
+      inner_tries = nullptr;
     }
 
     ~grp_ptr_data_map() {
-      if (grp_data != NULL)
+      if (grp_data != nullptr)
         delete [] grp_data;
-      if (col_trie != NULL)
+      if (col_trie != nullptr)
         delete col_trie;
-      if (word_tries != NULL) {
+      if (word_tries != nullptr) {
         for (int i = 0; i < group_count; i++) {
           delete word_tries[i];
         }
         delete word_tries;
       }
+      if (inner_tries != nullptr) {
+        for (int i = inner_trie_start_grp; i < group_count; i++) {
+          if (inner_tries[i] != nullptr)
+            delete inner_tries[i];
+        }
+        delete inner_tries;
+      }
     }
 
     bool exists() {
-      return dict_buf != NULL;
+      return dict_buf != nullptr;
     }
 
     void init(uint8_t *_dict_buf, static_dict_fwd *_dict_obj, uint8_t *_trie_loc, uint8_t *data_loc, uint32_t _node_count, bool is_tail) {
@@ -412,23 +423,27 @@ class grp_ptr_data_map {
       two_byte_data_loc = data_loc + gen::read_uint32(data_loc + 28);
       idx2_ptrs_map_loc = data_loc + gen::read_uint32(data_loc + 32);
 
-      col_trie = NULL;
+      col_trie = nullptr;
       if (encoding_type == 't' && !is_tail) {
         col_trie = dict_obj->new_instance(grp_data_loc);
         col_trie_int_bv.init(ptrs_loc, ptr_lkup_tbl_ptr_width);
       } else {
         group_count = *grp_data_loc;
+        inner_trie_start_grp = grp_data_loc[1];
         code_lookup_tbl = grp_data_loc + 2;
         uint8_t *grp_data_idx_start = code_lookup_tbl + (data_type == 'w' ? 0 : 512);
-        grp_data = new uint8_t*[group_count];
+        grp_data = new uint8_t*[group_count]();
+        inner_tries = new static_dict_fwd*[group_count]();
         if (data_type == 'w')
-          word_tries = new static_dict_fwd*[group_count];
+          word_tries = new static_dict_fwd*[group_count]();
         for (int i = 0; i < group_count; i++) {
           grp_data[i] = (data_type == 'w' ? grp_data_loc : data_loc);
           grp_data[i] += gen::read_uint32(grp_data_idx_start + i * 4);
           if (data_type == 'w') {
             word_tries[i] = dict_obj->new_instance(grp_data[i]);
           }
+          if (*(grp_data[i]) != 0)
+            inner_tries[i] = dict_obj->new_instance(grp_data[i]);
         }
         int _start_bits = start_bits;
         for (int i = 1; i <= grp_idx_limit; i++) {
@@ -459,9 +474,9 @@ class grp_ptr_data_map {
       return false;
     }
 
-    uint8_t *get_words_loc(uint32_t node_id, uint32_t *p_ptr_byt_count = NULL) {
+    uint8_t *get_words_loc(uint32_t node_id, uint32_t *p_ptr_byt_count = nullptr) {
       uint32_t ptr_byt_count = UINT32_MAX;
-      if (p_ptr_byt_count == NULL)
+      if (p_ptr_byt_count == nullptr)
         p_ptr_byt_count = &ptr_byt_count;
       if (*p_ptr_byt_count == UINT32_MAX)
         *p_ptr_byt_count = get_ptr_byts_words(node_id);
@@ -479,12 +494,12 @@ class grp_ptr_data_map {
       return w;
     }
 
-    uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = NULL, uint8_t *p_grp_no = NULL) {
+    uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = nullptr, uint8_t *p_grp_no = nullptr) {
       uint8_t grp_no = 0;
-      if (p_grp_no == NULL)
+      if (p_grp_no == nullptr)
         p_grp_no = &grp_no;
       uint32_t ptr_bit_count = UINT32_MAX;
-      if (p_ptr_bit_count == NULL)
+      if (p_ptr_bit_count == nullptr)
         p_ptr_bit_count = &ptr_bit_count;
       if (*p_ptr_bit_count == UINT32_MAX)
         *p_ptr_bit_count = get_ptr_bit_count_val(node_id);
@@ -498,7 +513,7 @@ class grp_ptr_data_map {
       if (*p_grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(*p_grp_no, ptr);
       if (ptr == 0)
-        return NULL;
+        return nullptr;
       return grp_data[*p_grp_no] + ptr;
     }
 
@@ -516,7 +531,7 @@ class grp_ptr_data_map {
       do {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
-          if (val_loc != NULL)
+          if (val_loc != nullptr)
             col_val += gen::read_svint60(val_loc);
         }
         bm_mask <<= 1;
@@ -539,8 +554,8 @@ class grp_ptr_data_map {
       col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val);
     }
 
-    void get_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = NULL) {
-      if (ret_val == NULL || in_size_out_value_len == NULL)
+    void get_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
+      if (ret_val == nullptr || in_size_out_value_len == nullptr)
         return;
       uint8_t *val_loc;
       int val_len = 0;
@@ -549,7 +564,7 @@ class grp_ptr_data_map {
       switch (encoding_type) {
         case 'u':
           val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-          if (val_loc == NULL) {
+          if (val_loc == nullptr) {
             *in_size_out_value_len = -1;
             return;
           }
@@ -667,6 +682,12 @@ class grp_ptr_data_map {
     uint8_t get_first_byte(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       uint8_t *tail = grp_data[grp_no];
+      if (*tail != 0) {
+        uint8_t tail_byte_str[dict_obj->max_tail_len];
+        int tail_byte_len;
+        inner_tries[grp_no]->reverse_lookup(tail_ptr, &tail_byte_len, tail_byte_str, nullptr, nullptr, true, false);
+        return *tail_byte_str; //[tail_byte_len - 1];
+      }
       tail += tail_ptr;
       uint8_t first_byte = *tail;
       if (first_byte >= 32)
@@ -684,6 +705,12 @@ class grp_ptr_data_map {
     //const int max_tailset_len = 129;
     void get_tail_str(gen::byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
       uint8_t *tail = grp_data[grp_no];
+      if (*tail != 0) {
+        int tail_str_len;
+        inner_tries[grp_no]->reverse_lookup(tail_ptr, &tail_str_len, ret.data(), nullptr, nullptr, false, false);
+        ret.set_length(tail_str_len);
+        return;
+      }
       ret.clear();
       uint8_t *t = tail + tail_ptr;
       if (*t < 32) {
@@ -856,7 +883,7 @@ class bv_lookup_tbl {
       do {
         block--;
         cur_count = gen::read_uint32(lt_rank_loc + block * 7);
-      } while (cur_count >= target_count);
+      } while (cur_count >= target_count && block > 0);
       node_id = block * nodes_per_bv_block;
       uint8_t *bv3 = lt_rank_loc + block * 7 + 4;
       int pos3;
@@ -1027,7 +1054,6 @@ class static_dict : public static_dict_fwd {
     uint32_t common_node_count;
     uint32_t cache_count;
     uint32_t bv_block_count;
-    uint16_t max_tail_len;
     uint16_t max_level;
     uint8_t *common_nodes_loc;
     uint8_t *cache_loc;
@@ -1068,9 +1094,9 @@ class static_dict : public static_dict_fwd {
 
     void init_vars() {
 
-      dict_buf = NULL;
-      val_buf = NULL;
-      val_map = NULL;
+      dict_buf = nullptr;
+      val_buf = nullptr;
+      val_map = nullptr;
       is_mmapped = false;
       last_exit_loc = 0;
       to_release_dict_buf = true;
@@ -1085,11 +1111,11 @@ class static_dict : public static_dict_fwd {
     virtual ~static_dict() {
       if (is_mmapped)
         map_unmap();
-      if (dict_buf != NULL) {
+      if (dict_buf != nullptr) {
         if (to_release_dict_buf)
           free(dict_buf);
       }
-      if (val_map != NULL) {
+      if (val_map != nullptr) {
         delete [] val_map;
       }
     }
@@ -1158,7 +1184,7 @@ class static_dict : public static_dict_fwd {
       int fd = open(filename, O_RDONLY);
       if (fd < 0) {
         perror("open: ");
-        return NULL;
+        return nullptr;
       }
       fstat(fd, &buf);
       sz = buf.st_size;
@@ -1166,7 +1192,7 @@ class static_dict : public static_dict_fwd {
       if (map_buf == MAP_FAILED) {
         perror("mmap: ");
         close(fd);
-        return NULL;
+        return nullptr;
       }
       close(fd);
       return map_buf;
@@ -1193,7 +1219,7 @@ class static_dict : public static_dict_fwd {
 //         return;
 //       }
 // #endif
-      dict_buf = NULL;
+      dict_buf = nullptr;
       is_mmapped = false;
     }
 
@@ -1277,8 +1303,8 @@ class static_dict : public static_dict_fwd {
       return t;
     }
 
-    bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = NULL) {
-      if (key == NULL) {
+    bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = nullptr) {
+      if (key == nullptr) {
         node_id = 0;
         return trie_loc[32] == 0xFF;
       }
@@ -1287,7 +1313,7 @@ class static_dict : public static_dict_fwd {
         return trie_loc[33] == 0xFF;
       }
       int cmp = 0;
-      if (pcmp == NULL)
+      if (pcmp == nullptr)
         pcmp = &cmp;
       int key_pos = 0;
       node_id = 2;
@@ -1370,7 +1396,7 @@ class static_dict : public static_dict_fwd {
       return false;
     }
 
-    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = NULL) {
+    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = nullptr) {
       val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
       return true;
     }
@@ -1442,7 +1468,7 @@ class static_dict : public static_dict_fwd {
       cv.init_cv_from_node_id(trie_loc);
     }
 
-    int next(dict_iter_ctx& ctx, uint8_t *key_buf, uint8_t *val_buf = NULL, int *val_buf_len = NULL) {
+    int next(dict_iter_ctx& ctx, uint8_t *key_buf, uint8_t *val_buf = nullptr, int *val_buf_len = nullptr) {
       ctx_vars cv;
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
@@ -1538,22 +1564,21 @@ class static_dict : public static_dict_fwd {
       return leaf_lt.rank(node_id);
     }
 
-    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL) {
+    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) {
       leaf_id++;
       uint32_t node_id;
       leaf_lt.select(node_id, leaf_id);
       node_id--;
-      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, in_size_out_value_len, ret_val);
+      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, in_size_out_value_len, ret_val, 0, nullptr, return_first_byte, to_reverse);
     }
 
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = NULL, void *ret_val = NULL, int cmp = 0, dict_iter_ctx *ctx = NULL) {
+    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, dict_iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) {
       ctx_vars cv;
-      uint8_t key_str_buf[max_key_len];
-      gen::byte_str key_str(key_str_buf, max_key_len);
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
+      int key_len = 0;
       cv.node_id = node_id;
-      if (ret_val != NULL && val_map[0].exists())
+      if (ret_val != nullptr && val_map[0].exists())
         val_map[0].get_val(cv.node_id, in_size_out_value_len, ret_val);
       if (node_id == 0) {
         *in_size_out_key_len = -1; // unconditional?
@@ -1572,28 +1597,35 @@ class static_dict : public static_dict_fwd {
         cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block3);
         cv.ptr_bit_count = UINT32_MAX;
         tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
-        if (ctx != NULL) {
+        if (return_first_byte) {
+          *ret_key = cv.tail[cv.tail.length() - 1];
+          *in_size_out_key_len = 1;
+          return true;
+        }
+        if (ctx != nullptr) {
           if ((cv.bm_mask & cv.bm_leaf) && (cmp == 0 || (cmp - 1 == cv.tail.length())) && !ctx->last_leaf_set) {
             ctx->last_leaf_node_id = cv.node_id;
-            ctx->last_leaf_len_offset = key_str.length();
+            ctx->last_leaf_len_offset = key_len;
             ctx->last_leaf_set = true;
           }
         }
         for (int i = cv.tail.length() - 1; i >= 0; i--)
-          key_str.append(cv.tail[i]);
-        if (ctx != NULL)
+          ret_key[key_len++] = cv.tail[i];
+        if (ctx != nullptr)
           insert_into_ctx(*ctx, cv);
         cmp = 0;
         uint32_t term_count = term_lt.rank(cv.node_id);
         child_lt.select(cv.node_id, term_count);
       } while (cv.node_id > 2);
-      int key_pos = 0;
-      for (int i = key_str.length() - 1; i >= 0; i--) {
-        ret_key[key_pos++] = key_str[i];
-        if (ctx != NULL)
-          ctx->key[ctx->key_len++] = key_str[i];
+      *in_size_out_key_len = key_len;
+      if (key_len > 1 && to_reverse) {
+        int i = key_len / 2;
+        while (i--) {
+          uint8_t b = ret_key[i];
+          ret_key[i] = ret_key[key_len - i - 1];
+          ret_key[key_len - i - 1] = b;
+        }
       }
-      *in_size_out_key_len = key_str.length();
       return true;
     }
 
@@ -1607,7 +1639,7 @@ class static_dict : public static_dict_fwd {
         int key_len;
         // TODO: set last_key_len
       ctx.cur_idx = 0;
-      reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, NULL, NULL, cmp, &ctx);
+      reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, nullptr, nullptr, cmp, &ctx);
       ctx.cur_idx--;
         // for (int i = 0; i < ctx.key_len; i++)
         //   printf("%c", ctx.key[i]);

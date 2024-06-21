@@ -252,7 +252,7 @@ int main(int argc, char* argv[]) {
   std::string out_file = argv[1];
   out_file += ".mdx";
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
-      col_types.c_str(), col_encodings.c_str(), true, key_col_idx == 0);
+      col_types.c_str(), col_encodings.c_str(), (madras_dv1::bldr_options) {true, key_col_idx == 0, true});
   mb.set_print_enabled();
   mb.open_file();
 
@@ -353,12 +353,12 @@ int main(int argc, char* argv[]) {
             val_buf[val_len] = '\0';
             if (val_len != sql_val_len) {
               std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << ": " << val_len << ": " << sql_val_len << std::endl;
-              std::cout << "Expected: " << sql_val << std::endl;
+              std::cout << "Expected: " << (sql_val == nullptr ? "NULL" : (const char *) sql_val) << std::endl;
               std::cout << "Found: " << val_buf << std::endl;
             } else {
               if (memcmp(sql_val, val_buf, val_len) != 0) {
                 std::cout << "Val not matching: " << node_id << ", " << col_val_idx << std::endl;
-                std::cout << "Expected: " << sql_val << std::endl;
+                std::cout << "Expected: " << (sql_val == nullptr ? "NULL" : (const char *) sql_val) << std::endl;
                 std::cout << "Found: " << val_buf << std::endl;
               }
             }
