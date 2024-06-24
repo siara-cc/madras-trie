@@ -10,6 +10,7 @@ a.out*
 *.rst
 *.val
 *.mdx
+*.bin
 tex/*.pdf
 tex/*.log
 tex/*.gz

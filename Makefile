@@ -3,7 +3,7 @@ CXXFLAGS = -pthread -march=native
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I./src
-L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz
+L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lcds
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
 

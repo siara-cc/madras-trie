@@ -1039,6 +1039,8 @@ class bv_lookup_tbl {
       //     block_count++;
       //   bit_loc++;
       //   bm_mask <<= 1;
+      // }
+      // node_id += bit_loc;
     }
 
 };

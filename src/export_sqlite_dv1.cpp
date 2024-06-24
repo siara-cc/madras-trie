@@ -49,12 +49,12 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int s
         }
       }
     }
-    const void *val = NULL;
+    const void *val = nullptr;
     int val_len = 8;
     int64_t s64;
     double dbl;
     if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
-      val = NULL;
+      val = nullptr;
       val_len = 0;
     } else if (exp_col_type == LPDT_TEXT) {
       val = sqlite3_column_text(stmt, sql_col_idx);
@@ -92,7 +92,7 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     double dbl;
     if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
       null_count++;
-      val = NULL;
+      val = nullptr;
       val_len = 0;
     } else if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_WORDS) {
       val = sqlite3_column_text(stmt, sql_col_idx);
@@ -122,7 +122,7 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       break;
     ins_seq_id++;
   }
-  printf("NULL count: %d, 0 count: %d\n", null_count, zero_count);
+  printf("nullptr count: %d, 0 count: %d\n", null_count, zero_count);
 }
 
 int main(int argc, char* argv[]) {
@@ -184,7 +184,7 @@ int main(int argc, char* argv[]) {
     table_name = arg_sel_or_tbl;
   }
 
-  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_col_names, NULL);
+  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_col_names, nullptr);
   if (rc != SQLITE_OK) {
     std::cerr << "SQL error: " << sqlite3_errmsg(db) << std::endl;
     sqlite3_close(db);
@@ -241,7 +241,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+  rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
   if (rc != SQLITE_OK) {
     std::cerr << "SQL error: " << sqlite3_errmsg(db) << std::endl;
     sqlite3_finalize(stmt_col_names);
@@ -314,7 +314,7 @@ int main(int argc, char* argv[]) {
       int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
       int key_len;
       bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
-      if (sql_key == NULL && key_len == -1) {
+      if (sql_key == nullptr && key_len == -1) {
         // Ok
       } else if (key_len != sql_key_len)
         std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
@@ -347,18 +347,20 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[val_len];
         bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf, &ptr_count[col_val_idx]);
         if (is_success) {
-          if (val_len == -1 && sql_val == NULL) {
-            // NULL value
+          if (val_len == -1 && sql_val == nullptr) {
+            // nullptr value
+          } else if (val_len == -2 && (sql_val == nullptr || sql_val_len == 0)) {
+            // empty value
           } else {
             val_buf[val_len] = '\0';
             if (val_len != sql_val_len) {
               std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << ": " << val_len << ": " << sql_val_len << std::endl;
-              std::cout << "Expected: " << (sql_val == nullptr ? "NULL" : (const char *) sql_val) << std::endl;
+              std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
               std::cout << "Found: " << val_buf << std::endl;
             } else {
               if (memcmp(sql_val, val_buf, val_len) != 0) {
                 std::cout << "Val not matching: " << node_id << ", " << col_val_idx << std::endl;
-                std::cout << "Expected: " << (sql_val == nullptr ? "NULL" : (const char *) sql_val) << std::endl;
+                std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
                 std::cout << "Found: " << val_buf << std::endl;
               }
             }
