@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
 
   int column_count = sqlite3_column_count(stmt_col_names);
   const char *storage_types = argv[4];
-  if (column_count < strlen(storage_types)) {
+  if (column_count > strlen(storage_types)) {
     std::cerr << "Storage types not specified for all columns" << std::endl;
     sqlite3_finalize(stmt_col_names);
     sqlite3_close(db);
@@ -332,7 +332,7 @@ int main(int argc, char* argv[]) {
       if (sqlite3_column_type(stmt, i) == SQLITE_NULL) {
         uint8_t val_buf[sd.max_val_len];
         int val_len = 8;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len != -1) {
             val_buf[val_len] = 0;
@@ -345,14 +345,15 @@ int main(int argc, char* argv[]) {
         int sql_val_len = sqlite3_column_bytes(stmt, i);
         int val_len = sd.get_max_val_len(col_val_idx) + 1;
         uint8_t val_buf[val_len];
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf, &ptr_count[col_val_idx]);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len == -1 && sql_val == nullptr) {
             // nullptr value
           } else if (val_len == -2 && (sql_val == nullptr || sql_val_len == 0)) {
             // empty value
           } else {
-            val_buf[val_len] = '\0';
+            if (val_len > 0)
+              val_buf[val_len] = '\0';
             if (val_len != sql_val_len) {
               std::cout << "Val len mismatch: " << node_id << ", " << col_val_idx << " - " << ": " << val_len << ": " << sql_val_len << std::endl;
               std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
@@ -370,7 +371,7 @@ int main(int argc, char* argv[]) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
         int val_len = 8;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val, &ptr_count[col_val_idx]);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
         if (is_success) {
           int64_t i64 = *((int64_t *) val);
           if (i64 != sql_val)
@@ -384,7 +385,7 @@ int main(int argc, char* argv[]) {
         double sql_val = leopard::cmn::round(sqlite3_column_double(stmt, i), exp_col_type);
         uint8_t val[16];
         int val_len;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val);
+        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
         if (is_success) {
           double dbl_val = *((double *) val);
           if (dbl_val != sql_val)

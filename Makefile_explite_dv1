@@ -2,7 +2,7 @@ C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I./src
-L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd
+L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd -lcds
 M_FLAGS = -mbmi2 -mpopcnt
 
 opt: CXXFLAGS += -O3 -funroll-loops -DNDEBUG

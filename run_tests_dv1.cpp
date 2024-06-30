@@ -25,13 +25,21 @@ int main(int argc, char *argv[]) {
   if (argc > 2)
    what = atoi(argv[2]);
 
+  const char *data_types = nullptr;
+  if (argc > 3)
+    data_types = argv[3];
+
+  const char *encoding = nullptr;
+  if (argc > 4)
+    encoding = argv[4];
+
   madras_dv1::builder *sb;
   if (what == 0)
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tttt", "uuuu");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, data_types == nullptr ? "tttt" : data_types, encoding == nullptr ? "uuuu" : encoding);
   else if (what == 1) // Process only key
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, data_types == nullptr ? "t" : data_types, encoding == nullptr ? "u" : encoding);
   else if (what == 2) // Insert key as value to compare trie and prefix coding
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, data_types == nullptr ? "tt" : data_types, encoding == nullptr ? "uu" : encoding);
   sb->set_print_enabled(true);
   vector<uint8_t *> lines;
 

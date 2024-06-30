@@ -1181,40 +1181,6 @@ class tail_val_maps {
       tail_ptrs.build_freq_codes();
       tail_ptrs.show_freq_codes();
 
-      std::vector<freq_grp> *fgs = &tail_ptrs.get_freq_grps();
-      size_t ptr_bit_count = 0;
-      for (int i = 1; i < fgs->size(); i++) {
-        freq_grp *fg = tail_ptrs.get_freq_grp(i);
-        ptr_bit_count += (fg->grp_log2 * fg->freq_count);
-      }
-      int cur_ptr_bit = 0;
-      cds_static::BitString bsp(ptr_bit_count);
-      leopard::node_iterator ni(all_node_sets, 0);
-      leopard::node cur_node = ni.next();
-      while (cur_node != nullptr) {
-        if (cur_node.get_flags() & NFLAG_TAIL) {
-          freq_grp_ptrs_data *tail_ptrs = get_tail_grp_ptrs();
-          leopard::uniq_info *ti = (*get_uniq_tails_rev())[cur_node.get_tail()];
-          uint32_t ptr = ti->ptr;
-          freq_grp *fg = tail_ptrs->get_freq_grp(ti->grp_no);
-          int node_val_bits = 8 - fg->code_len;
-          ptr >>= node_val_bits;
-          if (fg->grp_log2 > 0) {
-            int start_bit = fg->grp_log2;
-            while (start_bit-- > 0) {
-              if (ptr & (1 << start_bit))
-                bsp.setBit(cur_ptr_bit, true);
-              cur_ptr_bit++;
-            }
-          }
-        }
-        cur_node = ni.next();
-      }
-      ofstream ofsp("tail_ptrs_rrr.bin");
-      cds_static::BitSequenceRRR bsr3p(bsp, 64);
-      bsr3p.save(ofsp);
-      ofsp.close();
-
       gen::print_time_taken(t, "Time taken for build_tail_maps(): ");
 
     }
@@ -1246,6 +1212,11 @@ class tail_val_maps {
         while (freq_idx < uniq_vals_freq.size()) {
           leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
           freq_idx++;
+          if (ti->flags & LPDU_NULL) {
+            if (freq_idx < uniq_vals_freq.size())
+              prev_ti = uniq_vals_freq[freq_idx];
+            continue;
+          }
           int cmp = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
           cmp--;
           if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
@@ -1361,8 +1332,11 @@ class tail_val_maps {
             if (ti->len > pfx_set_max)
               pfx_set_max = ti->len * 2;
             cur_limit = val_ptrs.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            val_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
+            val_ptrs.update_current_grp(grp_no, ti->flags & LPDU_NULL ? 0 : ti->len + 1, ti->freq_count);
+            if (ti->flags & LPDU_NULL)
+              ti->ptr = 0;
+            else
+              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
@@ -1833,7 +1807,7 @@ class builder : public builder_fwd {
         cur_node.set_col_val(col_trie_node_id);
       }
       byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
-      int bit_len = ceil(log2(max_node_id));
+      int bit_len = ceil(log2(max_node_id + 1));
       tail_vals.get_val_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Col trie bit_len: %d [log(%u)]\n", bit_len, max_node_id);
       gen::int_bit_vector int_bv(val_ptrs, bit_len, memtrie.node_count);
@@ -2156,11 +2130,6 @@ class builder : public builder_fwd {
       byte_vec64.push_back(cur_node.get_byte()); // empty
       if (cur_node.get_flags() & NFLAG_LEAF)
         bm_leaf |= 2;
-      FILE *fpl = fopen("leaf_bm.txt", "wb+");
-      FILE *fpt = fopen("term_bm.txt", "wb+");
-      FILE *fpc = fopen("child_bm.txt", "wb+");
-      FILE *fpp = fopen("ptr_bm.txt", "wb+");
-      byte_vec child_cbv;
       cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t node_byte, cur_node_flags;
@@ -2174,33 +2143,6 @@ class builder : public builder_fwd {
         //dump_ptr(&cur_node, node_count);
         if (node_count && (node_count % 64) == 0) {
           append_flags(trie, bm_leaf, bm_term, bm_child, bm_ptr);
-          // fwrite(trie.data() + trie.size() - 32, 8, 1, fpl);
-          // fwrite(trie.data() + trie.size() - 24, 8, 1, fpt);
-          // fwrite(trie.data() + trie.size() - 16, 8, 1, fpc);
-          // fwrite(trie.data() + trie.size() - 8, 8, 1, fpp);
-          // 0xxxxxxx - normal bits
-          // 100xxxyy - 8 to 
-          // int ct01 = 0;
-          // for (int i = 0; i < 64; i++) {
-          //   if (bm_child & fp_mask) {
-          //     ct01++;
-          //     cptr_mask <<= 1;
-          //     continue;
-          //   }
-          // }
-          uint64_t fp_mask = 1UL;
-          for (int i = 0; i < 64; i++) {
-            fputc(bm_leaf & fp_mask ? '1' : '0', fpl);
-            fputc(bm_term & fp_mask ? '1' : '0', fpt);
-            fputc(bm_child & fp_mask ? '1' : '0', fpc);
-            fputc(bm_ptr & fp_mask ? '1' : '0', fpp);
-            if (bm_term & fp_mask) bst.setBit(node_count - 64 + i, true);
-            if (bm_child & fp_mask) bsc.setBit(node_count - 64 + i, true);
-            if (bm_leaf & fp_mask) bsl.setBit(node_count - 64 + i, true);
-            if (bm_ptr & fp_mask) bsp.setBit(node_count - 64 + i, true);
-            fp_mask <<= 1;
-          }
-          fputc('\n', fpl); fputc('\n', fpt); fputc('\n', fpc); fputc('\n', fpp);
           append_byte_vec(trie, byte_vec64);
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
           bm_mask = 1UL;
@@ -2244,22 +2186,6 @@ class builder : public builder_fwd {
       for (int i = 0; i < 8; i++) {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
       }
-      ofstream ofst("term_rrr.bin");
-      ofstream ofsc("child_rrr.bin");
-      ofstream ofsl("leaf_rrr.bin");
-      ofstream ofsp("ptr_rrr.bin");
-      cds_static::BitSequenceRRR bsr3t(bst, 64);
-      cds_static::BitSequenceRRR bsr3c(bsc, 64);
-      cds_static::BitSequenceRRR bsr3l(bsl, 64);
-      cds_static::BitSequenceRRR bsr3p(bsp, 64);
-      bsr3t.save(ofst);
-      bsr3c.save(ofsc);
-      bsr3l.save(ofsl);
-      bsr3p.save(ofsp);
-      ofst.close();
-      ofsc.close();
-      ofsl.close();
-      ofsp.close();
       gen::gen_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
       tail_vals.get_tail_grp_ptrs()->build(node_count, memtrie.all_node_sets, freq_grp_ptrs_data::get_tails_info_fn, 
               memtrie.uniq_tails_rev, true, opts.no_primary_trie, 'u');
@@ -2309,6 +2235,11 @@ class builder : public builder_fwd {
     }
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
+      if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", (madras_dv1::bldr_options) {true, false, true});
+        col_trie_builder->fp = fp;
+        memtrie.col_trie = &col_trie_builder->memtrie;
+      }
       return memtrie.insert(key, key_len, val, val_len, val_pos);
     }
 

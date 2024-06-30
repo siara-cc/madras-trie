@@ -554,6 +554,38 @@ class grp_ptr_data_map {
       col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val);
     }
 
+    void convert_back(uint8_t *val_loc, void *ret_val, int& ret_len) {
+      ret_len = 8;
+      switch (data_type) {
+        case DCT_S64_INT: {
+          int64_t i64 = gen::read_svint60(val_loc);
+          memcpy(ret_val, &i64, sizeof(int64_t));
+        } break;
+        case DCT_S64_DEC1 ... DCT_S64_DEC9: {
+          int64_t i64 = gen::read_svint60(val_loc);
+          double dbl = static_cast<double>(i64);
+          dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
+          *((double *)ret_val) = dbl;
+        } break;
+        case DCT_U64_INT: {
+          uint64_t u64 = gen::read_svint61(val_loc);
+          *((uint64_t *) ret_val) = u64;
+        } break;
+        case DCT_U64_DEC1 ... DCT_U64_DEC9: {
+          uint64_t u64 = gen::read_svint61(val_loc);
+          double dbl = static_cast<double>(u64);
+          dbl /= gen::pow10(data_type - DCT_U64_DEC1 + 1);
+          *((double *)ret_val) = dbl;
+        } break;
+        case DCT_U15_DEC1 ... DCT_U15_DEC2: {
+          uint64_t u64 = gen::read_svint15(val_loc);
+          double dbl = static_cast<double>(u64);
+          dbl /= gen::pow10(data_type - DCT_U15_DEC1 + 1);
+          *((double *)ret_val) = dbl;
+        } break;
+      }
+    }
+
     void get_val(uint32_t node_id, int *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       if (ret_val == nullptr || in_size_out_value_len == nullptr)
         return;
@@ -578,32 +610,8 @@ class grp_ptr_data_map {
               *in_size_out_value_len = val_len;
               memcpy(ret_val, val_str.data(), val_len);
             } break;
-            case DCT_S64_INT: {
-              int64_t i64 = gen::read_svint60(val_loc);
-              memcpy(ret_val, &i64, sizeof(int64_t));
-            } break;
-            case DCT_S64_DEC1 ... DCT_S64_DEC9: {
-              int64_t i64 = gen::read_svint60(val_loc);
-              double dbl = static_cast<double>(i64);
-              dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
-              *((double *)ret_val) = dbl;
-            } break;
-            case DCT_U64_INT: {
-              uint64_t u64 = gen::read_svint61(val_loc);
-              *((uint64_t *) ret_val) = u64;
-            } break;
-            case DCT_U64_DEC1 ... DCT_U64_DEC9: {
-              uint64_t u64 = gen::read_svint61(val_loc);
-              double dbl = static_cast<double>(u64);
-              dbl /= gen::pow10(data_type - DCT_U64_DEC1 + 1);
-              *((double *)ret_val) = dbl;
-            } break;
-            case DCT_U15_DEC1 ... DCT_U15_DEC2: {
-              uint64_t u64 = gen::read_svint15(val_loc);
-              double dbl = static_cast<double>(u64);
-              dbl /= gen::pow10(data_type - DCT_U15_DEC1 + 1);
-              *((double *)ret_val) = dbl;
-            } break;
+            default:
+              convert_back(val_loc, ret_val, *in_size_out_value_len);
           }
           break;
         case 'w': {
@@ -643,6 +651,10 @@ class grp_ptr_data_map {
         } break;
         case 't':
           get_col_trie_val(node_id, in_size_out_value_len, ret_val);
+          if (*in_size_out_value_len == -1)
+            return;
+          if (data_type != DCT_TEXT && data_type != DCT_BIN)
+            convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
           break;
         case 'd':
           get_delta_val(node_id, in_size_out_value_len, ret_val);
