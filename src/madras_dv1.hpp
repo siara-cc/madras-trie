@@ -22,6 +22,15 @@
 
 namespace madras_dv1 {
 
+#if defined(__GNUC__) || defined(__clang__)
+#define PACKED_STRUCT __attribute__((packed))
+#elif defined(_MSC_VER)
+#define PACKED_STRUCT
+#pragma pack(push, 1)
+#else
+#define PACKED_STRUCT
+#endif
+
 class dict_iter_ctx {
   public:
     int32_t cur_idx;
@@ -145,7 +154,7 @@ class static_dict_fwd {
 #define nodes_per_bv_block3 64
 #define bytes_per_bv_block3 96
 
-struct cache {
+struct fwd_cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
@@ -155,6 +164,20 @@ struct cache {
   uint8_t child_node_id3;
   uint8_t node_byte;
 };
+
+struct PACKED_STRUCT rev_cache {
+  uint8_t parent_node_id1;
+  uint8_t parent_node_id2;
+  uint8_t parent_node_id3;
+  uint8_t child_node_id1;
+  uint8_t child_node_id2;
+  uint8_t child_node_id3;
+};
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+#undef PACKED_STRUCT
 
 struct min_pos_stats {
   uint8_t min_b;
@@ -320,7 +343,7 @@ class grp_ptr_data_map {
 
     uint32_t read_extra_ptr(uint32_t& ptr_bit_count, int bits_left) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
-      uint8_t bits_occu = (ptr_bit_count % 8);
+      int bits_occu = (ptr_bit_count % 8);
       ptr_bit_count += bits_left;
       bits_left += (bits_occu - 8);
       uint64_t ret = *ptr_loc++ & (0xFF >> bits_occu);
@@ -328,7 +351,7 @@ class grp_ptr_data_map {
         ret = (ret << 8) | *ptr_loc++;
         bits_left -= 8;
       }
-      ret >>= (bits_left * -1);
+      ret >>= (bits_left * -1); // crude but avoids branching
       return ret;
     }
 
@@ -668,7 +691,9 @@ class grp_ptr_data_map {
       grp_no = *lookup_tbl_ptr & 0x0F;
       uint8_t code_len = *lookup_tbl_ptr >> 4;
       uint8_t node_val_bits = 8 - code_len;
-      uint32_t ptr = node_byte & ((1 << node_val_bits) - 1);
+      node_byte <<= code_len; // Lose the code
+      node_byte >>= code_len;
+      uint32_t ptr = node_byte; // & ((1 << node_val_bits) - 1);
       if (bit_len > 0) {
         if (ptr_bit_count == UINT32_MAX)
           ptr_bit_count = get_ptr_bit_count_tail(node_id);
@@ -1021,6 +1046,7 @@ class bv_lookup_tbl {
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
       uint64_t bm;
       gen::read_uint64(t + bm_pos, bm);
+
       // int remaining = target_count - block_count - 1;
       // uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
       // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
@@ -1066,11 +1092,13 @@ class static_dict : public static_dict_fwd {
     bool is_mmapped;
 
     uint32_t common_node_count;
-    uint32_t cache_count;
+    uint32_t fwd_cache_count;
+    uint32_t rev_cache_count;
     uint32_t bv_block_count;
     uint16_t max_level;
     uint8_t *common_nodes_loc;
-    uint8_t *cache_loc;
+    uint8_t *fwd_cache_loc;
+    uint8_t *rev_cache_loc;
     uint8_t *term_lt_loc;
     uint8_t *child_lt_loc;
     uint8_t *leaf_lt_loc;
@@ -1115,8 +1143,10 @@ class static_dict : public static_dict_fwd {
       last_exit_loc = 0;
       to_release_dict_buf = true;
 
-      max_key_len = max_tail_len = max_level = cache_count = 0;
-      cache_loc = sec_cache_loc = term_select_lkup_loc = term_lt_loc = 0;
+      max_key_len = max_tail_len = max_level = 0;
+      fwd_cache_count = rev_cache_count = 0;
+      fwd_cache_loc = rev_cache_loc = sec_cache_loc = nullptr;
+      term_select_lkup_loc = term_lt_loc = 0;
       child_select_lkup_loc = child_lt_loc = leaf_select_lkup_loc = 0;
       leaf_lt_loc = trie_loc = 0;
 
@@ -1156,19 +1186,21 @@ class static_dict : public static_dict_fwd {
         max_key_len = gen::read_uint32(dict_buf + 30);
         max_tail_len = gen::read_uint16(dict_buf + 38) + 1;
         max_level = gen::read_uint16(dict_buf + 40);
-        cache_count = gen::read_uint32(dict_buf + 42);
-        memcpy(&min_stats, dict_buf + 46, 4);
-        cache_loc = dict_buf + gen::read_uint32(dict_buf + 50);
-        sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 54);
+        fwd_cache_count = gen::read_uint32(dict_buf + 42);
+        rev_cache_count = gen::read_uint32(dict_buf + 46);
+        memcpy(&min_stats, dict_buf + 50, 4);
+        fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 54);
+        rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 58);
+        sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
 
-        term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 58);
-        term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 62);
-        child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 66);
-        child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 70);
-        leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
-        leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
+        term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 66);
+        term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 70);
+        child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
+        child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
+        leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
+        leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
 
-        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 82);
+        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 90);
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
         trie_loc = tails_loc + tail_size;
@@ -1274,11 +1306,11 @@ class static_dict : public static_dict_fwd {
 
     int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id) {
       uint8_t key_byte = key[key_pos];
-      uint32_t cache_mask = cache_count - 1;
-      cache *cche0 = (cache *) cache_loc;
+      uint32_t cache_mask = fwd_cache_count - 1;
+      fwd_cache *cche0 = (fwd_cache *) fwd_cache_loc;
       do {
         uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
-        cache *cche = cche0 + cache_idx;
+        fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (node_id == cache_node_id) {
           if (cche->node_byte == key_byte) {
@@ -1309,11 +1341,12 @@ class static_dict : public static_dict_fwd {
 
     uint8_t *get_t(uint32_t node_id, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint64_t& bm_mask) {
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
-      if (node_id % nodes_per_bv_block3) {
+      uint32_t node_id_rem = node_id % nodes_per_bv_block3;
+      if (node_id_rem) {
         t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        t += (node_id % nodes_per_bv_block3);
+        t += node_id_rem;
       }
-      bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block3));
+      bm_mask = (bm_init_mask << node_id_rem);
       return t;
     }
 
@@ -1603,6 +1636,7 @@ class static_dict : public static_dict_fwd {
         return true;
       }
       cv.node_id++;
+      uint32_t cache_mask = rev_cache_count - 1;
       do {
         cv.node_id--;
         cv.t = trie_loc + cv.node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
@@ -1628,8 +1662,24 @@ class static_dict : public static_dict_fwd {
         if (ctx != nullptr)
           insert_into_ctx(*ctx, cv);
         cmp = 0;
-        uint32_t term_count = term_lt.rank(cv.node_id);
-        child_lt.select(cv.node_id, term_count);
+        bool do_select = (rev_cache_count == 0);
+        if (!do_select) {
+          rev_cache *cche0 = (rev_cache *) rev_cache_loc;
+          uint32_t cache_idx = cv.node_id & cache_mask;
+          rev_cache *cche = cche0 + cache_idx;
+          uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
+          if (cv.node_id == cache_node_id) {
+            // printf("Child node id: %u, ", cv.node_id);
+            cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
+            // printf("Cache parent: %u, ", c_node_id);
+          } else
+            do_select = true;
+        }
+        if (do_select) {
+          uint32_t term_count = term_lt.rank(cv.node_id);
+          child_lt.select(cv.node_id, term_count);
+          // printf("Actual parent: %u\n", cv.node_id);
+        }
       } while (cv.node_id > 2);
       *in_size_out_key_len = key_len;
       if (key_len > 1 && to_reverse) {

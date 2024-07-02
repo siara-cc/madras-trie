@@ -252,7 +252,8 @@ int main(int argc, char* argv[]) {
   std::string out_file = argv[1];
   out_file += ".mdx";
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
-      col_types.c_str(), col_encodings.c_str(), (madras_dv1::bldr_options) {true, key_col_idx == 0, true});
+      col_types.c_str(), col_encodings.c_str(), 0,
+      (madras_dv1::bldr_options) {true, key_col_idx == 0, true, true, false});
   mb.set_print_enabled();
   mb.open_file();
 
