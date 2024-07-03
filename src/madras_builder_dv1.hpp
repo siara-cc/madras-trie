@@ -50,6 +50,7 @@ struct bldr_options {
   bool need_fwd_cache;
   bool need_rev_cache;
   bool need_dart;
+  bool dessicate;
 };
 
 struct tail_token {
@@ -84,7 +85,6 @@ struct trie_parts {
   uint32_t child_select_lt_sz;
   uint32_t leaf_select_lt_sz;
   uint32_t dummy_loc;
-  uint32_t common_node_loc;
   uint32_t fwd_cache_loc;
   uint32_t rev_cache_loc;
   uint32_t sec_cache_loc;
@@ -1517,7 +1517,6 @@ typedef struct {
 class builder : public builder_fwd {
 
   private:
-    uint32_t common_node_count;
     bool no_primary_trie;
     std::vector<bldr_fwd_cache> fwd_cache_vec;
     std::vector<bldr_rev_cache> rev_cache_vec;
@@ -1576,7 +1575,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, false, false})
+        bldr_options _opts = {true, false, true, true, false, false, false})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -1593,7 +1592,6 @@ class builder : public builder_fwd {
       memset(column_types, '*', _column_count);
       memcpy(column_types, _column_types, gen::min(strlen(_column_types), _column_count));
       set_names(_names, _column_types, column_encoding);
-      common_node_count = 0;
       //art_tree_init(&at);
       memtrie.set_print_enabled(gen::is_gen_print_enabled);
       fp = NULL;
@@ -1800,7 +1798,7 @@ class builder : public builder_fwd {
       int words_grp_count = memtrie.wm.grp_count;
       builder *word_tries[words_grp_count];
       for (int i = 0; i < words_grp_count; i++) {
-        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, (madras_dv1::bldr_options) {false, false, false, false, true, false});
+        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, (madras_dv1::bldr_options) {false, false, false, false, true, false, false});
         word_tries[i]->fp = fp;
       }
       for (int i = 0; i < word_positions->size(); i++) {
@@ -2037,7 +2035,7 @@ class builder : public builder_fwd {
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
         col_trie_builder->fp = fp;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
@@ -2050,7 +2048,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
       ret->fp = fp;
       return ret;
     }
@@ -2196,7 +2194,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2379,9 +2377,12 @@ class builder : public builder_fwd {
         tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
         tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
+        if (opts.dessicate) {
+          tp.term_bvlt_sz = tp.child_bvlt_sz = tp.leaf_bvlt_sz = 0;
+          tp.term_select_lt_sz = tp.child_select_lt_sz = tp.leaf_select_lt_sz = 0;
+        }
 
-        tp.common_node_loc = tp.dummy_loc + 0;
-        tp.fwd_cache_loc = tp.common_node_loc + ceil(common_node_count * 1.5);
+        tp.fwd_cache_loc = tp.dummy_loc;
         tp.rev_cache_loc = tp.fwd_cache_loc + tp.fwd_cache_size;
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
         tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
@@ -2409,6 +2410,11 @@ class builder : public builder_fwd {
                 tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz +
                 tp.names_sz + tp.col_val_table_sz;
       tp.total_idx_size += trie_data_ptr_size();
+
+      if (opts.dessicate) {
+        tp.term_select_lkup_loc = tp.term_bv_loc = tp.child_bv_loc = 0;
+        tp.leaf_select_lkup_loc = tp.leaf_bv_loc = tp.child_select_lkup_loc = 0;
+      }
 
       gen::print_time_taken(t, "Time taken for build(): ");
 
@@ -2455,7 +2461,7 @@ class builder : public builder_fwd {
 
       gen::write_uint32(memtrie.node_count, fp);
       gen::write_uint32(tp.dummy_loc, fp);
-      gen::write_uint32(common_node_count, fp);
+      gen::write_uint32(memtrie.node_set_count, fp);
       gen::write_uint32(memtrie.key_count, fp);
       gen::write_uint32(memtrie.max_key_len, fp);
       gen::write_uint32(memtrie.max_val_len, fp);
@@ -2481,15 +2487,19 @@ class builder : public builder_fwd {
         write_rev_cache(rev_cache_vec, fp);
         if (tp.sec_cache_size > 0)
           write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
-        write_bv_select_lt(BV_TERM, fp);
-        write_bv_rank_lt(BV_TERM, fp);
-        write_bv_rank_lt(BV_CHILD, fp);
+        if (!opts.dessicate) {
+          write_bv_select_lt(BV_TERM, fp);
+          write_bv_rank_lt(BV_TERM, fp);
+          write_bv_rank_lt(BV_CHILD, fp);
+        }
 
         write_trie_tail_ptrs_data(fp);
 
-        write_bv_select_lt(BV_LEAF, fp);
-        write_bv_rank_lt(BV_LEAF, fp);
-        write_bv_select_lt(BV_CHILD, fp);
+        if (!opts.dessicate) {
+          write_bv_select_lt(BV_LEAF, fp);
+          write_bv_rank_lt(BV_LEAF, fp);
+          write_bv_select_lt(BV_CHILD, fp);
+        }
       }
 
       if (column_count > (opts.no_primary_trie ? 0 : 1))
@@ -2514,10 +2524,12 @@ class builder : public builder_fwd {
 
     void write_kv(const char *filename = NULL) {
       write_trie(filename);
-      uint32_t val_size = 0;
+      memtrie.prev_val_size = 0;
+      if (column_count == 1 && !no_primary_trie)
+        return;
       char encoding_type = column_encoding[memtrie.cur_col_idx + (opts.no_primary_trie ? 0 : 1)];
       if (memtrie.all_vals->size() > 2 || encoding_type == 't' || encoding_type == 'w') { // TODO: What if column contains only NULL and ""
-        val_size = build_and_write_col_val();
+        memtrie.prev_val_size = build_and_write_col_val();
       }
     }
 
@@ -2547,6 +2559,10 @@ class builder : public builder_fwd {
     }
 
     void write_final_val_table() {
+      if (column_count == 1 && !no_primary_trie) {
+        close_file();
+        return;
+      }
       fseek(fp, tp.col_val_table_loc, SEEK_SET);
       write_col_val_table(fp);
       int val_count = column_count - (opts.no_primary_trie ? 0 : 1);

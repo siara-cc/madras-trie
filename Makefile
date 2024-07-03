@@ -16,6 +16,9 @@ debug: run_tests
 release: CXXFLAGS += -O3 -fno-inline
 release: run_tests
 
+asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer
+asan: run_tests
+
 clean:
 	rm run_tests
 	rm -rf run_tests.dSYM

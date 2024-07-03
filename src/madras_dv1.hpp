@@ -826,13 +826,13 @@ class grp_ptr_data_map {
           return;
         while (*t++ > 31)
           len_left++;
+        t--;
         if (*t == '\0')
           return;
         ret.clear();
-        t--;
       }
       uint8_t len_len = 0;
-      uint32_t pfx_len = read_len(t + 1, len_len);
+      uint32_t pfx_len = read_len(t, len_len);
       uint8_t *t_end = t;
       uint8_t byt;
       do {

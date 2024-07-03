@@ -212,7 +212,7 @@ int main(int argc, char *argv[]) {
         if (memcmp(key, key_buf, key_len) != 0)
           printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
         if (what == 2 && memcmp(key, val_buf, val_len) != 0)
-          printf("2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+          printf("n2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
         if (what == 0 && memcmp(val, val_buf, val_len) != 0)
           printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
       }
@@ -232,7 +232,7 @@ int main(int argc, char *argv[]) {
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
-        printf("2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+        printf("g2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
         printf("key: [%.*s], val: [%.*s]\n", out_key_len, key, out_val_len, val_buf);
     } else
