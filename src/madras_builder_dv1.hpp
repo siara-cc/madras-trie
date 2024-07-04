@@ -142,6 +142,7 @@ class freq_grp_ptrs_data {
     int start_bits;
     char enc_type;
     bool no_primary_trie;
+    bool dessicate;
     uint8_t idx_ptr_size;
     uint8_t ptr_lkup_tbl_ptr_width;
     uint32_t next_idx;
@@ -371,9 +372,10 @@ class freq_grp_ptrs_data {
       return (leopard::uniq_info *) info_vec[cur_node->get_col_val()];
     }
     void build(uint32_t node_count, byte_ptr_vec& all_node_sets, get_info_fn get_info_func,
-          std::vector<leopard::uniq_info *>& info_vec, bool is_tail, bool no_pt,
+          std::vector<leopard::uniq_info *>& info_vec, bool is_tail, bool no_pt, bool dessicat,
           char encoding_type = 'u', int col_trie_size = 0) {
       no_primary_trie = no_pt;
+      dessicate = dessicat;
       enc_type = encoding_type;
       if (encoding_type != 't') {
         ptr_lkup_tbl_ptr_width = 9;
@@ -384,8 +386,12 @@ class freq_grp_ptrs_data {
       ptr_lookup_tbl_loc = 8 * 4 + 4;
       if (encoding_type == 't')
         ptr_lookup_tbl_sz = 0;
-      else
-        ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
+      else {
+        if (dessicate)
+          ptr_lookup_tbl_sz = 0;
+        else
+          ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
+      }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       if (encoding_type == 't') {
         two_byte_count = two_byte_data_loc = idx2_ptr_count = idx2_ptrs_map_loc = 0;
@@ -399,6 +405,8 @@ class freq_grp_ptrs_data {
         grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
         grp_data_size = get_hdr_size() + get_data_size();
       }
+      if (dessicate)
+        ptr_lookup_tbl_loc = 0;
     }
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
       for (int i = 0; i < 256; i++) {
@@ -508,10 +516,12 @@ class freq_grp_ptrs_data {
         ptrs.push_back(0);
         last_byte_bits = 8;
       }
-      if (ptr_lkup_tbl_ptr_width == 10)
-        gen::append_uint32(bit_count, ptr_lookup_tbl);
-      else
-        gen::append_uint24(bit_count, ptr_lookup_tbl);
+      if (!dessicate) {
+        if (ptr_lkup_tbl_ptr_width == 10)
+          gen::append_uint32(bit_count, ptr_lookup_tbl);
+        else
+          gen::append_uint24(bit_count, ptr_lookup_tbl);
+      }
       leopard::node_iterator ni(all_node_sets, (no_primary_trie ? 1 : 0));
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -545,13 +555,17 @@ class freq_grp_ptrs_data {
           block_ptrs.clear();
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
-          for (int j = 0; j < 3; j++)
-            gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+          if (!dessicate) {
+            for (int j = 0; j < 3; j++)
+              gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+          }
           bit_count += bit_counts[3];
-          if (ptr_lkup_tbl_ptr_width == 10)
-            gen::append_uint32(bit_count, ptr_lookup_tbl);
-          else
-            gen::append_uint24(bit_count, ptr_lookup_tbl);
+          if (!dessicate) {
+            if (ptr_lkup_tbl_ptr_width == 10)
+              gen::append_uint32(bit_count, ptr_lookup_tbl);
+            else
+              gen::append_uint24(bit_count, ptr_lookup_tbl);
+          }
           bit_count4 = 0;
           pos4 = 0;
           memset(bit_counts, '\0', 8);
@@ -580,15 +594,19 @@ class freq_grp_ptrs_data {
         append_blk_ptrs(block_ptrs);
       if (!is_tail)
         append_ptr_bits(0x00, 8); // read beyond protection
-      for (int j = 0; j < 3; j++)
-        gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+      if (!dessicate) {
+        for (int j = 0; j < 3; j++)
+          gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+      }
       bit_count += bit_counts[3];
-      if (ptr_lkup_tbl_ptr_width == 10)
-        gen::append_uint32(bit_count, ptr_lookup_tbl);
-      else
-        gen::append_uint24(bit_count, ptr_lookup_tbl);
-      for (int j = 0; j < 3; j++)
-        gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+      if (!dessicate) {
+        if (ptr_lkup_tbl_ptr_width == 10)
+          gen::append_uint32(bit_count, ptr_lookup_tbl);
+        else
+          gen::append_uint24(bit_count, ptr_lookup_tbl);
+        for (int j = 0; j < 3; j++)
+          gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+      }
     }
     void write_ptrs_data(char data_type, char encoding_type, uint8_t flags, bool is_tail, FILE *fp) {
       fputc(ptr_lkup_tbl_ptr_width, fp);
@@ -1982,7 +2000,7 @@ class builder : public builder_fwd {
           freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
           val_ptrs->set_max_len(col_trie_builder->memtrie.max_key_len);
           val_ptrs->build(memtrie.node_count, memtrie.all_node_sets, freq_grp_ptrs_data::get_vals_info_fn, 
-              memtrie.uniq_vals_fwd, false, opts.no_primary_trie, encoding_type, col_trie_size);
+              memtrie.uniq_vals_fwd, false, opts.no_primary_trie, opts.dessicate, encoding_type, col_trie_size);
         } else {
           leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
           uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
@@ -2014,7 +2032,7 @@ class builder : public builder_fwd {
 
           freq_grp_ptrs_data *val_ptrs = tail_vals.get_val_grp_ptrs();
           val_ptrs->build(memtrie.node_count, memtrie.all_node_sets, freq_grp_ptrs_data::get_vals_info_fn, 
-              memtrie.uniq_vals_fwd, false, opts.no_primary_trie, encoding_type);
+              memtrie.uniq_vals_fwd, false, opts.no_primary_trie, opts.dessicate, encoding_type);
         }
       }
       uint32_t val_size = write_col_val();
@@ -2141,7 +2159,7 @@ class builder : public builder_fwd {
       }
       gen::gen_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
       tail_vals.get_tail_grp_ptrs()->build(node_count, memtrie.all_node_sets, freq_grp_ptrs_data::get_tails_info_fn, 
-              memtrie.uniq_tails_rev, true, opts.no_primary_trie, 'u');
+              memtrie.uniq_tails_rev, true, opts.no_primary_trie, opts.dessicate, 'u');
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       end_loc = (4 + tail_size + trie.size());
       gen::print_time_taken(t, "Time taken for build_trie(): ");

@@ -466,6 +466,87 @@ class grp_ptr_data_map {
           idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
           _start_bits += idx_step_bits;
         }
+        if (ptr_lookup_tbl_loc == data_loc) {
+          create_ptr_lt(is_tail);
+        }
+      }
+
+    }
+
+    void create_ptr_lt(bool is_tail) {
+      uint32_t node_id = 0;
+      uint32_t bit_count = 0;
+      uint32_t bit_count4 = 0;
+      uint32_t ptr_bit_count = 0;
+      int pos4 = 0;
+      uint16_t bit_counts[4];
+      memset(bit_counts, '\0', 8);
+      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      ptr_lookup_tbl_loc = lt_pos;
+      uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      uint8_t *t = trie_loc;
+      if (ptr_lkup_tbl_ptr_width == 10) {
+        gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
+      } else {
+        gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
+      }
+      do {
+        if ((node_id % nodes_per_bv_block3) == 0) {
+          bm_mask = bm_init_mask;
+          if (dict_obj->key_count > 0)
+            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+        }
+        if (node_id && (node_id % nodes_per_ptr_block3) == 0) {
+          if (bit_count4 > 65535)
+            std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count3 > 65k" << std::endl;
+          bit_counts[pos4] = bit_count4;
+          pos4++;
+        }
+        if (node_id && (node_id % nodes_per_ptr_block) == 0) {
+          for (int j = 0; j < 3; j++) {
+            gen::copy_uint16(bit_counts[j], lt_pos);
+            lt_pos += 2;
+          }
+          bit_count += bit_counts[3];
+          if (ptr_lkup_tbl_ptr_width == 10) {
+            gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
+          } else {
+            gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
+          }
+          bit_count4 = 0;
+          pos4 = 0;
+          memset(bit_counts, '\0', 8);
+        }
+        if (is_tail) {
+          if (bm_mask & bm_ptr) {
+            bit_count4 += code_lookup_tbl[*t * 2];
+          }
+        } else {
+          if (bm_mask & bm_leaf || dict_obj->key_count == 0) {
+            uint8_t code = read_ptr_bits8(node_id, ptr_bit_count);
+            ptr_bit_count += code_lookup_tbl[code * 2];
+            bit_count4 += code_lookup_tbl[code * 2];
+          }
+        }
+        t++;
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      for (int j = 0; j < 3; j++) {
+        gen::copy_uint16(bit_counts[j], lt_pos);
+        lt_pos += 2;
+      }
+      bit_count += bit_counts[3];
+      if (ptr_lkup_tbl_ptr_width == 10) {
+        gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
+      } else {
+        gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
+      }
+      for (int j = 0; j < 3; j++) {
+        gen::copy_uint16(bit_counts[j], lt_pos);
+        lt_pos += 2;
       }
     }
 
