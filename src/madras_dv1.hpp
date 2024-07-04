@@ -18,6 +18,7 @@
 #endif
 #include <stdint.h>
 
+#include "common.hpp"
 #include "../../ds_common/src/gen.hpp"
 
 namespace madras_dv1 {
@@ -148,11 +149,6 @@ class static_dict_fwd {
 #define DCT_U15_DEC2 'Z'
 
 #define bm_init_mask 0x0000000000000001UL
-#define sel_divisor 512
-#define nodes_per_bv_block 256
-#define bytes_per_bv_block 384
-#define nodes_per_bv_block3 64
-#define bytes_per_bv_block3 96
 
 struct fwd_cache {
   uint8_t parent_node_id1;
@@ -301,9 +297,6 @@ class grp_ptr_data_map {
       return ptr_bit_count;
     }
 
-    #define nodes_per_ptr_block 256
-    #define nodes_per_ptr_block3 64
-    #define bytes_per_ptr_block3 96
     uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block) * ptr_lkup_tbl_ptr_width;
       ptr_bit_count = gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
@@ -876,17 +869,142 @@ class bv_lookup_tbl {
     uint8_t *lt_sel_loc;
     uint8_t *lt_rank_loc;
     uint32_t node_count;
+    uint32_t node_set_count;
+    uint32_t key_count;
     uint8_t *trie_loc;
     int bm_pos;
+    bool lt_given;
+    int lt_type;
   public:
     bv_lookup_tbl() {
+      lt_given = true;
     }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, uint8_t *_trie_loc, int _bm_pos) {
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, uint32_t _node_set_count, uint32_t _key_count, uint8_t *_trie_loc, int _bm_pos, int _lt_type) {
       lt_rank_loc = _lt_rank_loc;
       lt_sel_loc = _lt_sel_loc;
       node_count = _node_count;
+      node_set_count = _node_set_count;
+      key_count = _key_count;
       trie_loc = _trie_loc;
       bm_pos = _bm_pos;
+      lt_type = _lt_type;
+      lt_given = true;
+      if (lt_rank_loc == nullptr) {
+        lt_given = false;
+        create_rank_lt_from_trie();
+        create_select_lt_from_trie();
+      }
+    }
+    ~bv_lookup_tbl() {
+      if (!lt_given) {
+        delete [] lt_rank_loc;
+        delete [] lt_sel_loc;
+      }
+    }
+    uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
+      if (node_id && (node_id % nodes_per_bv_block) == 0) {
+        memcpy(lt_pos, buf3, 3); lt_pos += 3;
+        gen::copy_uint32(count, lt_pos); lt_pos += 4;
+        count3 = 0;
+        memset(buf3, 0, 3);
+        pos3 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
+        buf3[pos3] = count3;
+        //count3 = 0;
+        pos3++;
+      }
+      return lt_pos;
+    }
+    void create_rank_lt_from_trie() {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t count = 0;
+      uint32_t count3 = 0;
+      uint8_t buf3[3];
+      uint8_t pos3 = 0;
+      memset(buf3, 0, 3);
+      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      lt_rank_loc = lt_pos;
+      uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      ctx_vars::read_flags(trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3,
+          bm_leaf, bm_term, bm_child, bm_ptr);
+      gen::copy_uint32(0, lt_pos); lt_pos += 4;
+      do {
+        if ((node_id % nodes_per_bv_block3) == 0) {
+          bm_mask = bm_init_mask;
+          ctx_vars::read_flags(trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3,
+              bm_leaf, bm_term, bm_child, bm_ptr);
+        }
+        lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
+        uint32_t ct;
+        switch (lt_type) {
+          case BV_LT_TYPE_TERM:
+            ct = (bm_mask & bm_term ? 1 : 0);
+            break;
+          case BV_LT_TYPE_CHILD:
+            ct = (bm_mask & bm_child ? 1 : 0);
+            break;
+          case BV_LT_TYPE_LEAF:
+            ct = (bm_mask & bm_leaf ? 1 : 0);
+            break;
+        }
+        count += ct;
+        count3 += ct;
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+      // extra (guard)
+      gen::copy_uint32(count, lt_pos); lt_pos += 4;
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+    }
+    void create_select_lt_from_trie() {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t sel_count = 0;
+      uint32_t prev_val = 0;
+      uint32_t lt_size = (lt_type == BV_LT_TYPE_LEAF ?
+          gen::get_lkup_tbl_size2(key_count, sel_divisor, 3) :
+          gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3));
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      lt_sel_loc = lt_pos;
+      uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      ctx_vars::read_flags(trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3,
+          bm_leaf, bm_term, bm_child, bm_ptr);
+      gen::copy_uint24(0, lt_pos); lt_pos += 3;
+      do {
+        if ((node_id % nodes_per_bv_block3) == 0) {
+          bm_mask = bm_init_mask;
+          ctx_vars::read_flags(trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3,
+              bm_leaf, bm_term, bm_child, bm_ptr);
+        }
+        bool node_qualifies_for_select = false;
+        switch (lt_type) {
+          case BV_LT_TYPE_TERM:
+            node_qualifies_for_select = (bm_mask & bm_term ? true : false);
+            break;
+          case BV_LT_TYPE_CHILD:
+            node_qualifies_for_select = (bm_mask & bm_child ? true : false);
+            break;
+          case BV_LT_TYPE_LEAF:
+            node_qualifies_for_select = (bm_mask & bm_leaf ? true : false);
+            break;
+        }
+        if (node_qualifies_for_select) {
+          if (sel_count && (sel_count % sel_divisor) == 0) {
+            uint32_t val_to_write = node_id / nodes_per_bv_block;
+            gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
+            if (val_to_write > (1 << 24))
+              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+            prev_val = val_to_write;
+          }
+          sel_count++;
+        }
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      gen::copy_uint24(node_count / nodes_per_bv_block, lt_pos);
     }
     int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first < last) {
@@ -1091,12 +1209,10 @@ class static_dict : public static_dict_fwd {
     size_t val_size;
     bool is_mmapped;
 
-    uint32_t common_node_count;
+    uint32_t node_set_count;
     uint32_t fwd_cache_count;
     uint32_t rev_cache_count;
-    uint32_t bv_block_count;
     uint16_t max_level;
-    uint8_t *common_nodes_loc;
     uint8_t *fwd_cache_loc;
     uint8_t *rev_cache_loc;
     uint8_t *term_lt_loc;
@@ -1174,8 +1290,7 @@ class static_dict : public static_dict_fwd {
       names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
       val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
       node_count = gen::read_uint32(dict_buf + 14);
-      bv_block_count = node_count / nodes_per_bv_block;
-      common_node_count = gen::read_uint32(dict_buf + 22);
+      node_set_count = gen::read_uint32(dict_buf + 22);
       key_count = gen::read_uint32(dict_buf + 26);
       names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
       column_encoding = names_start + gen::read_uint16(names_loc);
@@ -1199,16 +1314,23 @@ class static_dict : public static_dict_fwd {
         child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
         leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
         leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
-
         uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 90);
+
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
         trie_loc = tails_loc + tail_size;
         tail_map.init(dict_buf, this, trie_loc, tails_loc, node_count, true);
 
-        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, trie_loc, 8);
-        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, trie_loc, 16);
-        leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, trie_loc, 0);
+        if (term_select_lkup_loc == dict_buf) term_select_lkup_loc = nullptr;
+        if (term_lt_loc == dict_buf) term_lt_loc = nullptr;
+        if (child_select_lkup_loc == dict_buf) child_select_lkup_loc = nullptr;
+        if (child_lt_loc == dict_buf) child_lt_loc = nullptr;
+        if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
+        if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
+
+        leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, 0, BV_LT_TYPE_LEAF);
+        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, 8, BV_LT_TYPE_TERM);
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, 16, BV_LT_TYPE_CHILD);
       }
 
       if (val_count > 0) {

@@ -12,6 +12,7 @@ a.out*
 *.mdx
 *.bin
 *.msa
+*.ods#
 tex/*.pdf
 tex/*.log
 tex/*.gz

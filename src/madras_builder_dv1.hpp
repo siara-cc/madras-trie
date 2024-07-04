@@ -13,6 +13,7 @@
 #include <math.h>
 #include <time.h>
 
+#include "common.hpp"
 #include "../../leopard-trie/src/leopard.hpp"
 
 #include "../../ds_common/src/bv.hpp"
@@ -35,10 +36,6 @@ namespace madras_dv1 {
 #define MDX_PREFIXES 0x03
 #define MDX_HAS_PREFIX 0x04
 #define MDX_HAS_CHILD 0x10
-
-#define nodes_per_bv_block3 64
-#define nodes_per_bv_block 256
-#define sel_divisor 512
 
 typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uint8_t *> byte_ptr_vec;
@@ -373,8 +370,6 @@ class freq_grp_ptrs_data {
     static leopard::uniq_info *get_vals_info_fn(leopard::node *cur_node, std::vector<leopard::uniq_info *>& info_vec) {
       return (leopard::uniq_info *) info_vec[cur_node->get_col_val()];
     }
-    #define nodes_per_ptr_block 256
-    #define nodes_per_ptr_block3 64
     void build(uint32_t node_count, byte_ptr_vec& all_node_sets, get_info_fn get_info_func,
           std::vector<leopard::uniq_info *>& info_vec, bool is_tail, bool no_pt,
           char encoding_type = 'u', int col_trie_size = 0) {
@@ -1575,7 +1570,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, false, false, false})
+        bldr_options _opts = {true, false, true, true, false, false, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2048,7 +2043,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, true});
       ret->fp = fp;
       return ret;
     }
@@ -2194,7 +2189,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, true});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2338,9 +2333,6 @@ class builder : public builder_fwd {
       }
     }
 
-    #define BV_LEAF 1
-    #define BV_CHILD 2
-    #define BV_TERM 3
     uint32_t build() {
 
       clock_t t = clock();
@@ -2488,17 +2480,17 @@ class builder : public builder_fwd {
         if (tp.sec_cache_size > 0)
           write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
         if (!opts.dessicate) {
-          write_bv_select_lt(BV_TERM, fp);
-          write_bv_rank_lt(BV_TERM, fp);
-          write_bv_rank_lt(BV_CHILD, fp);
+          write_bv_select_lt(BV_LT_TYPE_TERM, fp);
+          write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
+          write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
         }
 
         write_trie_tail_ptrs_data(fp);
 
         if (!opts.dessicate) {
-          write_bv_select_lt(BV_LEAF, fp);
-          write_bv_rank_lt(BV_LEAF, fp);
-          write_bv_select_lt(BV_CHILD, fp);
+          write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
+          write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
+          write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
         }
       }
 
@@ -2593,14 +2585,14 @@ class builder : public builder_fwd {
     }
 
     void write_bv_rank_lt(int which, FILE *fp) {
-      uint32_t node_id = (which == BV_LEAF ? 0 : 2);
+      uint32_t node_id = (which == BV_LT_TYPE_LEAF ? 0 : 2);
       uint32_t count = 0;
       uint32_t count3 = 0;
       uint8_t buf3[3];
       uint8_t pos3 = 0;
       memset(buf3, 0, 3);
       gen::write_uint32(0, fp);
-      leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LEAF ? 0 : 1));
+      leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LT_TYPE_LEAF ? 0 : 1));
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
@@ -2609,13 +2601,13 @@ class builder : public builder_fwd {
         write_bv3(node_id, count, count3, buf3, pos3, fp);
         uint32_t ct;
         switch (which) {
-          case BV_TERM:
+          case BV_LT_TYPE_TERM:
             ct = (cur_node_flags & NFLAG_TERM ? 1 : 0);
             break;
-          case BV_CHILD:
+          case BV_LT_TYPE_CHILD:
             ct = (cur_node_flags & NFLAG_CHILD ? 1 : 0);
             break;
-          case BV_LEAF:
+          case BV_LT_TYPE_LEAF:
             ct = (cur_node_flags & NFLAG_LEAF ? 1 : 0);
             break;
         }
@@ -2658,22 +2650,22 @@ class builder : public builder_fwd {
 
     bool node_qualifies_for_select(leopard::node *cur_node, uint8_t cur_node_flags, int which) {
       switch (which) {
-        case BV_TERM:
+        case BV_LT_TYPE_TERM:
           return (cur_node_flags & NFLAG_TERM) > 0;
-        case BV_LEAF:
+        case BV_LT_TYPE_LEAF:
           return (cur_node_flags & NFLAG_LEAF) > 0;
-        case BV_CHILD:
+        case BV_LT_TYPE_CHILD:
           return (cur_node_flags & NFLAG_CHILD) > 0;
       }
       return false;
     }
 
     void write_bv_select_lt(int which, FILE *fp) {
-      uint32_t node_id = (which == BV_LEAF ? 0 : 2);
+      uint32_t node_id = (which == BV_LT_TYPE_LEAF ? 0 : 2);
       uint32_t sel_count = 0;
       uint32_t prev_val = 0;
       gen::write_uint24(0, fp);
-      leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LEAF ? 0 : 1));
+      leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LT_TYPE_LEAF ? 0 : 1));
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
