@@ -253,6 +253,7 @@ class grp_ptr_data_map {
     uint8_t *dict_buf;
     uint8_t *trie_loc;
     uint32_t node_count;
+    bool was_ptr_lt_given;
 
     int idx_map_arr[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     uint8_t *idx2_ptrs_map_loc;
@@ -383,6 +384,7 @@ class grp_ptr_data_map {
       col_trie = nullptr;
       word_tries = nullptr;
       inner_tries = nullptr;
+      was_ptr_lt_given = true;
     }
 
     ~grp_ptr_data_map() {
@@ -403,6 +405,8 @@ class grp_ptr_data_map {
         }
         delete inner_tries;
       }
+      if (!was_ptr_lt_given)
+        delete [] ptr_lookup_tbl_loc;
     }
 
     bool exists() {
@@ -439,6 +443,7 @@ class grp_ptr_data_map {
       two_byte_data_loc = data_loc + gen::read_uint32(data_loc + 28);
       idx2_ptrs_map_loc = data_loc + gen::read_uint32(data_loc + 32);
 
+      was_ptr_lt_given = true;
       col_trie = nullptr;
       if (encoding_type == 't' && !is_tail) {
         col_trie = dict_obj->new_instance(grp_data_loc);
@@ -468,6 +473,7 @@ class grp_ptr_data_map {
         }
         if (ptr_lookup_tbl_loc == data_loc) {
           create_ptr_lt(is_tail);
+          was_ptr_lt_given = false;
         }
       }
 
@@ -500,7 +506,7 @@ class grp_ptr_data_map {
         }
         if (node_id && (node_id % nodes_per_ptr_block3) == 0) {
           if (bit_count4 > 65535)
-            std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count3 > 65k" << std::endl;
+            printf("UNEXPECTED: PTR_LOOKUP_TBL bit_count3 > 65k\n");
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
@@ -1450,24 +1456,24 @@ class static_dict : public static_dict_fwd {
 
     void map_file_to_mem(const char *filename) {
       dict_buf = map_file(filename, dict_size);
-//       int len_will_need = (dict_size >> 2);
-//       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
-// #ifndef _WIN32
-//       mlock(dict_buf, len_will_need);
-// #endif
+      //       int len_will_need = (dict_size >> 2);
+      //       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
+      // #ifndef _WIN32
+      //       mlock(dict_buf, len_will_need);
+      // #endif
       load_into_vars();
       is_mmapped = true;
     }
 
     void map_unmap() {
-// #ifndef _WIN32
-//       munlock(dict_buf, dict_size >> 2);
-//       int err = munmap(dict_buf, dict_size);
-//       if(err != 0){
-//         printf("UnMapping dict_buf Failed\n");
-//         return;
-//       }
-// #endif
+      // #ifndef _WIN32
+      //       munlock(dict_buf, dict_size >> 2);
+      //       int err = munmap(dict_buf, dict_size);
+      //       if(err != 0){
+      //         printf("UnMapping dict_buf Failed\n");
+      //         return;
+      //       }
+      // #endif
       dict_buf = nullptr;
       is_mmapped = false;
     }
@@ -1491,10 +1497,10 @@ class static_dict : public static_dict_fwd {
       fread(dict_buf, dict_size, 1, fp);
       fclose(fp);
 
-//       int len_will_need = (dict_size >> 1);
-// #ifndef _WIN32
-//       mlock(dict_buf, len_will_need);
-// #endif
+      // int len_will_need = (dict_size >> 1);
+      // #ifndef _WIN32
+      //       mlock(dict_buf, len_will_need);
+      // #endif
       //madvise(dict_buf, len_will_need, MADV_WILLNEED);
       //madvise(dict_buf + len_will_need, dict_size - len_will_need, MADV_RANDOM);
 
@@ -1508,6 +1514,8 @@ class static_dict : public static_dict_fwd {
     }
 
     int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id) {
+      if (fwd_cache_count == 0)
+        return -1;
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = fwd_cache_count - 1;
       fwd_cache *cche0 = (fwd_cache *) fwd_cache_loc;
@@ -2006,6 +2014,3 @@ class static_dict : public static_dict_fwd {
 
 }
 #endif
-
-// find_longest_match
-// binary keys

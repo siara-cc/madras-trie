@@ -41,12 +41,16 @@ int main(int argc, char *argv[]) {
   int row_count = dict_reader.key_count;
   if (row_count == 0)
     row_count = dict_reader.node_count;
+  else {
+    printf("This utility only for mdx with no primary trie\n");
+    return 1;
+  }
   char data_type = dict_reader.get_column_type(column_idx);
   printf("Row count: %d, Col type: %c, name: %s\n", row_count,
     dict_reader.get_column_type(column_idx), dict_reader.get_column_name(column_idx));
   if (data_type == 't' || data_type == '*') {
-    //uint8_t val[dict_reader.get_max_val_len(column_idx)];
-    uint8_t val[1000]; // get_max_val_len not working for trie columns
+    uint8_t val[dict_reader.get_max_val_len(column_idx)];
+    //uint8_t val[1000]; // get_max_val_len not working for trie columns
     int val_len;
     int64_t sum = 0;
     for (int i = 0; i < row_count; i++) {
