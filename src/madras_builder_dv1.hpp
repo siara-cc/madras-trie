@@ -697,8 +697,13 @@ class freq_grp_ptrs_data {
         int len;
         fg->code = (uint8_t) _huffman.get_code(i - 1, len);
         fg->code_len = len;
-        if (i <= idx_limit || i >= inner_trie_start_grp) {
+        if (i <= idx_limit) {
           fg->grp_log2 = ceil(log2(fg->grp_limit));
+        } else if (inner_trie_start_grp > 0 && i >= inner_trie_start_grp && !is_val) {
+          if (fg->count < fg->grp_limit)
+            fg->grp_log2 = ceil(log2(fg->count));
+          else
+            fg->grp_log2 = ceil(log2(fg->grp_limit));
         } else {
           fg->grp_log2 = ceil(log2(fg->grp_size));
         }
@@ -1530,7 +1535,6 @@ typedef struct {
 class builder : public builder_fwd {
 
   private:
-    bool no_primary_trie;
     std::vector<bldr_fwd_cache> fwd_cache_vec;
     std::vector<bldr_rev_cache> rev_cache_vec;
     //dfox uniq_basix_map;
@@ -1588,7 +1592,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, false, false, false, true})
+        bldr_options _opts = {true, false, true, true, false, true, false})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2061,7 +2065,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, true});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
       ret->fp = fp;
       return ret;
     }
@@ -2207,7 +2211,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, true});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2535,7 +2539,7 @@ class builder : public builder_fwd {
     void write_kv(const char *filename = NULL) {
       write_trie(filename);
       memtrie.prev_val_size = 0;
-      if (column_count == 1 && !no_primary_trie)
+      if (column_count == 1 && !opts.no_primary_trie)
         return;
       char encoding_type = column_encoding[memtrie.cur_col_idx + (opts.no_primary_trie ? 0 : 1)];
       if (memtrie.all_vals->size() > 2 || encoding_type == 't' || encoding_type == 'w') { // TODO: What if column contains only NULL and ""
@@ -2569,7 +2573,7 @@ class builder : public builder_fwd {
     }
 
     void write_final_val_table() {
-      if (column_count == 1 && !no_primary_trie) {
+      if (column_count == 1 && !opts.no_primary_trie) {
         close_file();
         return;
       }

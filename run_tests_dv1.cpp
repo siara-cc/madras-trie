@@ -207,13 +207,13 @@ int main(int argc, char *argv[]) {
     if (is_sorted) {
       out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
       if (out_key_len != key_len)
-        printf("Len mismatch: [%.*s], %d, %d, %d\n", key_len, key, key_len, out_key_len, val_len);
+        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", key_len, key, out_key_len, key_buf, key_len, out_key_len, out_val_len);
       else {
         if (memcmp(key, key_buf, key_len) != 0)
-          printf("Key mismatch: [%.*s], [%.*s]\n", key_len, key, out_key_len, key_buf);
-        if (what == 2 && memcmp(key, val_buf, val_len) != 0)
-          printf("n2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
-        if (what == 0 && memcmp(val, val_buf, val_len) != 0)
+          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", key_len, key, out_key_len, key_buf);
+        if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
+          printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
+        if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)
           printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
       }
     }
@@ -222,17 +222,19 @@ int main(int argc, char *argv[]) {
     bool is_found = dict_reader.lookup(key, key_len, node_id);
     if (!is_found)
       std::cout << "Lookup fail: " << line << std::endl;
-    uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
-    bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
-    key_buf[out_key_len] = 0;
-    if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
-      printf("Reverse lookup fail - expected: [%s], actual: [%.*s]\n", key, key_len, key_buf);
+    else {
+      uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
+      bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
+      key_buf[out_key_len] = 0;
+      if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
+        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", key, key_len, key_buf);
+    }
 
     success = dict_reader.get(key, key_len, &out_val_len, val_buf, node_id);
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
-        printf("g2:Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
         printf("key: [%.*s], val: [%.*s]\n", out_key_len, key, out_val_len, val_buf);
     } else

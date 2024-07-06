@@ -253,25 +253,31 @@ int main(int argc, char* argv[]) {
   out_file += ".mdx";
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
       col_types.c_str(), col_encodings.c_str(), 0,
-      (madras_dv1::bldr_options) {true, key_col_idx == 0, true, true, false, true, true});
+      (madras_dv1::bldr_options) {true, key_col_idx == 0, true, true, false, true, false});
   mb.set_print_enabled();
   mb.open_file();
 
   int exp_col_idx = 0;
+  bool first_kv_written = false;
+  bool key_exported = false;
   for (int i = 0; i < column_count; i++) {
     if (storage_types[i] == '-' || i == (key_col_idx - 1))
       continue;
-    if (exp_col_idx == 0 && key_col_idx != 0) {
+    if (!key_exported && key_col_idx != 0) {
       export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i],
               key_col_idx, storage_types[key_col_idx - 1], row_count);
       mb.write_kv();
+      key_exported = true;
+      first_kv_written = true;
     } else {
       mb.reset_for_next_col();
       export_column(mb, stmt, i, exp_col_idx, storage_types[i], row_count);
-      if (exp_col_idx == 0)
-        mb.write_kv();
-      else
+      if (first_kv_written)
         mb.build_and_write_col_val();
+      else {
+        mb.write_kv();
+        first_kv_written = true;
+      }
     }
     sqlite3_reset(stmt);
     exp_col_idx++;
