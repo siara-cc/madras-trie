@@ -125,10 +125,10 @@ class builder_fwd {
     virtual builder_fwd *new_instance() = 0;
     virtual bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) = 0;
     virtual uint32_t build() = 0;
-    virtual void write_trie(const char *filename = NULL) = 0;
+    virtual uint32_t write_trie(const char *filename = NULL) = 0;
 };
 
-#define step_bits_idx 3
+#define step_bits_idx 1
 #define step_bits_rest 3
 class freq_grp_ptrs_data {
   private:
@@ -1114,7 +1114,7 @@ class tail_val_maps {
         }
         freq_grp *fg = tail_ptrs.get_freq_grp(tail_ptrs.inner_trie_start_grp + it_idx);
         fg->grp_size = trie_size;
-        printf("Inner Trie size:\t%u\n", trie_size);
+        //printf("Inner Trie size:\t%u\n", trie_size);
       }
 
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
@@ -1592,7 +1592,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, false, true, false})
+        bldr_options _opts = {true, false, true, false, false, true, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2065,7 +2065,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, true});
       ret->fp = fp;
       return ret;
     }
@@ -2176,7 +2176,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       fwrite(trie.data(), trie.size(), 1, fp);
-      return 0;
+      return tail_size + trie.size() + 4;
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val) {
       uint32_t val_fp_offset = 0;
@@ -2211,7 +2211,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, true});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2389,7 +2389,7 @@ class builder : public builder_fwd {
         tp.child_bvlt_sz = tp.term_bvlt_sz;
         tp.leaf_bvlt_sz = tp.term_bvlt_sz;
         tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
-        tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
+        tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count - 1, sel_divisor, 3);
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
         if (opts.dessicate) {
           tp.term_bvlt_sz = tp.child_bvlt_sz = tp.leaf_bvlt_sz = 0;
@@ -2446,7 +2446,7 @@ class builder : public builder_fwd {
         throw errno;
     }
 
-    void write_trie(const char *filename = NULL) {
+    uint32_t write_trie(const char *filename = NULL) {
 
       if (tp.names_loc == 0)
         build();
@@ -2533,6 +2533,8 @@ class builder : public builder_fwd {
 
       gen::print_time_taken(t, "Time taken for write_trie(): ");
       gen::gen_printf("Idx size: %u\n", tp.total_idx_size);
+
+      return tp.total_idx_size;
 
     }
 

@@ -1052,7 +1052,7 @@ class bv_lookup_tbl {
       uint32_t prev_val = 0;
       uint32_t lt_size = (lt_type == BV_LT_TYPE_LEAF ?
           gen::get_lkup_tbl_size2(key_count, sel_divisor, 3) :
-          gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3));
+          gen::get_lkup_tbl_size2(node_set_count - (lt_type == BV_LT_TYPE_CHILD ? 1 : 0), sel_divisor, 3));
       uint8_t *lt_pos = new uint8_t[lt_size];
       lt_sel_loc = lt_pos;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
