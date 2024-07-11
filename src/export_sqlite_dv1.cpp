@@ -75,13 +75,17 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int s
     if (ins_seq_id >= row_count)
       break;
     ins_seq_id++;
+    if ((ins_seq_id % 100000) == 0) {
+      std::cout << ".";
+      std::flush(std::cout);
+    }
   }
+  std::cout << std::endl;
 }
 
 void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     int sql_col_idx, int exp_col_idx, int exp_col_type, int row_count) {
   int rc;
-  const char *null_val = "";
   int64_t ins_seq_id = 0;
   int null_count = 0;
   int zero_count = 0;
@@ -121,8 +125,12 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
     if (ins_seq_id >= row_count)
       break;
     ins_seq_id++;
+    if ((ins_seq_id % 100000) == 0) {
+      std::cout << ".";
+      std::flush(std::cout);
+    }
   }
-  printf("nullptr count: %d, 0 count: %d\n", null_count, zero_count);
+  printf("\nNullptr count: %d, 0 count: %d", null_count, zero_count);
 }
 
 int main(int argc, char* argv[]) {
@@ -409,7 +417,7 @@ int main(int argc, char* argv[]) {
   }
   printf("Totals:");
   for (int i = 0; i < sd_col_count; i++) {
-    printf(" %s: ", sd.get_column_name(i));
+    printf(" %s:", sd.get_column_name(i));
     if (int_sums[i] != 0)
       printf(" %lld", int_sums[i]);
     if (dbl_sums[i] != 0)

@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
   int line_len = 0;
   uint8_t *line = gen::extract_line(file_buf, line_len, file_stat.st_size);
   do {
-    if (prev_line_len != line_len || strncmp((const char *) line, (const char *) prev_line, prev_line_len) != 0) {
+    if (gen::compare(line, line_len, prev_line, prev_line_len) != 0) {
       uint8_t *key = line;
       int key_len = line_len;
       uint8_t *val = line;

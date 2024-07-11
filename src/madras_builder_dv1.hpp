@@ -128,7 +128,7 @@ class builder_fwd {
     virtual uint32_t write_trie(const char *filename = NULL) = 0;
 };
 
-#define step_bits_idx 1
+#define step_bits_idx 3
 #define step_bits_rest 3
 class freq_grp_ptrs_data {
   private:
@@ -266,6 +266,7 @@ class freq_grp_ptrs_data {
       while (grp_no >= grp_data.size()) {
         byte_vec data;
         data.push_back(0);
+        data.push_back(1);
         grp_data.push_back(data);
       }
       return grp_data[grp_no];
@@ -350,7 +351,7 @@ class freq_grp_ptrs_data {
       for (int i = 0; i < grp_data.size(); i++)
         data_size += grp_data[i].size();
       for (int i = 0; i < inner_tries.size(); i++)
-        data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;;
+        data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       return data_size;
     }
     uint32_t get_ptrs_size() {
@@ -1180,14 +1181,14 @@ class tail_val_maps {
         while (freq_idx < uniq_vals_freq.size()) {
           leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
           freq_idx++;
-          if (ti->flags & LPDU_NULL) {
+          if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY) {
             if (freq_idx < uniq_vals_freq.size())
               prev_ti = uniq_vals_freq[freq_idx];
             continue;
           }
           int cmp = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
           cmp--;
-          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
+          if (cmp == ti->len || cmp > 1) { // (freq_idx >= cumu_freq_idx && cmp > 1)) {
             ti->flags |= (cmp == ti->len ? MDX_PREFIX_FULL : MDX_PREFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
@@ -1300,9 +1301,11 @@ class tail_val_maps {
             if (ti->len > pfx_set_max)
               pfx_set_max = ti->len * 2;
             cur_limit = val_ptrs.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            val_ptrs.update_current_grp(grp_no, ti->flags & LPDU_NULL ? 0 : ti->len + 1, ti->freq_count);
+            val_ptrs.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
             if (ti->flags & LPDU_NULL)
               ti->ptr = 0;
+            else if (ti->flags & LPDU_EMPTY)
+              ti->ptr = 1;
             else
               ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
           }
@@ -1376,6 +1379,9 @@ class tail_val_maps {
         vi->grp_no = grp_no;
         if (vi->flags & LPDU_NULL) {
           vi->ptr = 0;
+          len_plus_len = 0;
+        } else if (vi->flags & LPDU_EMPTY) {
+          vi->ptr = 1;
           len_plus_len = 0;
         } else {
           vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals[vi->pos], vi->len, data_type);
@@ -1592,7 +1598,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, false, false, true, true})
+        bldr_options _opts = {true, false, true, true, false, true, false})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -1993,7 +1999,7 @@ class builder : public builder_fwd {
         memtrie.prev_val_size = val_size;
         return val_size;
       }
-      if (memtrie.all_vals->size() > 2 || encoding_type == 't') {
+      if (memtrie.cur_seq_idx > 0 || encoding_type == 't') {
         gen::gen_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (opts.no_primary_trie ? 0 : 1) + 2]);
         char data_type = column_types[memtrie.cur_col_idx + (opts.no_primary_trie ? 0 : 1)];
         gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
@@ -2065,7 +2071,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, true});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
       ret->fp = fp;
       return ret;
     }
@@ -2211,7 +2217,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, true});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2389,7 +2395,9 @@ class builder : public builder_fwd {
         tp.child_bvlt_sz = tp.term_bvlt_sz;
         tp.leaf_bvlt_sz = tp.term_bvlt_sz;
         tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
-        tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count - 1, sel_divisor, 3);
+        tp.child_select_lt_sz = 6;
+        if (memtrie.node_set_count > 1)
+          tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count - 1, sel_divisor, 3);
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
         if (opts.dessicate) {
           tp.term_bvlt_sz = tp.child_bvlt_sz = tp.leaf_bvlt_sz = 0;
@@ -2463,6 +2471,8 @@ class builder : public builder_fwd {
       if (fp == NULL)
         open_file();
 
+      size_t ftell_diff = ftell(fp);
+
       fputc(0xA5, fp); // magic byte
       fputc(0x01, fp); // version 1.0
       fputc(0, fp); // reserved
@@ -2497,24 +2507,47 @@ class builder : public builder_fwd {
       gen::write_uint32(tp.trie_tail_ptrs_data_loc, fp);
 
       if (!opts.no_primary_trie) {
+if (tp.fwd_cache_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: Fwd cache size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.fwd_cache_loc, ftell(fp) - ftell_diff, trie_level);
         write_fwd_cache(fwd_cache_vec, fp);
+if (tp.rev_cache_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: Rev cache size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.rev_cache_loc, ftell(fp) - ftell_diff, trie_level);
         write_rev_cache(rev_cache_vec, fp);
+if (tp.sec_cache_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: Sec cache size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.sec_cache_loc, ftell(fp) - ftell_diff, trie_level);
         if (tp.sec_cache_size > 0)
           write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
         if (!opts.dessicate) {
+if (tp.term_select_lkup_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: term_select size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.term_select_lkup_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_select_lt(BV_LT_TYPE_TERM, fp);
+if (tp.term_bv_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: term_bv_loc size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.term_bv_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
+if (tp.child_bv_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: child_bv_loc size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.child_bv_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
         }
 
+if (tp.trie_tail_ptrs_data_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: ttpd_sz size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.trie_tail_ptrs_data_loc, ftell(fp) - ftell_diff, trie_level);
         write_trie_tail_ptrs_data(fp);
 
         if (!opts.dessicate) {
+if (tp.leaf_select_lkup_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: leaf_select size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.leaf_select_lkup_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
+if (tp.leaf_bv_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: leaf_bv_loc size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.leaf_bv_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
+if (tp.child_select_lkup_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: child_select_lkup_loc size not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.child_select_lkup_loc, ftell(fp) - ftell_diff, trie_level);
           write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
         }
       }
+
+if (tp.names_loc != ftell(fp) - ftell_diff)
+  printf("WARNING: names_loc not matching: %u, %lu, %d -----------------------------------------------------------------------------------------------------------\n", tp.names_loc, ftell(fp) - ftell_diff, trie_level);
 
       if (column_count > (opts.no_primary_trie ? 0 : 1))
         val_table[0] = tp.col_val_loc0;
@@ -2533,6 +2566,10 @@ class builder : public builder_fwd {
 
       gen::print_time_taken(t, "Time taken for write_trie(): ");
       gen::gen_printf("Idx size: %u\n", tp.total_idx_size);
+
+      ftell_diff = ftell(fp) - ftell_diff;
+      if (tp.total_idx_size != ftell_diff)
+        printf("WARNING: Trie size not matching: %lu, %d -----------------------------------------------------------------------------------------------------------\n", ftell_diff, trie_level);
 
       return tp.total_idx_size;
 
@@ -2585,6 +2622,9 @@ class builder : public builder_fwd {
       gen::gen_printf("Val count: %d, tbl:", val_count);
       for (int i = 0; i < val_count; i++)
         gen::gen_printf(" %u", val_table[i]);
+      gen::gen_printf("\nCol sizes:");
+      for (int i = 1; i < val_count; i++)
+        gen::gen_printf(" %u", val_table[i] - val_table[i - 1]);
       gen::gen_printf("\nTotal size: %u\n", val_table[memtrie.cur_col_idx] + memtrie.prev_val_size);
       close_file();
     }

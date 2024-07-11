@@ -703,6 +703,10 @@ class grp_ptr_data_map {
             *in_size_out_value_len = -1;
             return;
           }
+          if (val_loc - grp_data[grp_no] == 1) {
+            *in_size_out_value_len = 0;
+            return;
+          }
           *in_size_out_value_len = 8;
           switch (data_type) {
             case DCT_TEXT: case DCT_BIN: {
@@ -723,7 +727,7 @@ class grp_ptr_data_map {
           uint8_t val_type = (*line_loc & 0xC0);
           if (val_type == 0x40 || val_type == 0x80) {
             (*p_ptr_bit_count)++;
-            *in_size_out_value_len = (val_type == 0x40 ? -1 : -2);
+            *in_size_out_value_len = (val_type == 0x40 ? -1 : 0);
             return;
           }
           if (val_type == 0x00) {
@@ -1050,9 +1054,16 @@ class bv_lookup_tbl {
       uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
       uint32_t sel_count = 0;
       uint32_t prev_val = 0;
-      uint32_t lt_size = (lt_type == BV_LT_TYPE_LEAF ?
-          gen::get_lkup_tbl_size2(key_count, sel_divisor, 3) :
-          gen::get_lkup_tbl_size2(node_set_count - (lt_type == BV_LT_TYPE_CHILD ? 1 : 0), sel_divisor, 3));
+      uint32_t lt_size = 0;
+      if (lt_type == BV_LT_TYPE_LEAF)
+        lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
+      else if (lt_type == BV_LT_TYPE_CHILD) {
+        lt_size = 0;
+        if (node_set_count > 1)
+          lt_size = gen::get_lkup_tbl_size2(node_set_count - 1, sel_divisor, 3);
+      } else
+        lt_size = gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3);
+
       uint8_t *lt_pos = new uint8_t[lt_size];
       lt_sel_loc = lt_pos;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
@@ -1741,11 +1752,13 @@ class static_dict : public static_dict_fwd {
         if (cv.node_id == 1 && trie_byte == 0xFF) {
           if (val_count > 0)
             val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          update_ctx(ctx, cv);
           return -1; // null
         }
         if (cv.node_id == 2 && trie_byte == 0xFF) {
           if (val_count > 0)
             val_map[0].get_val(cv.node_id, val_buf_len, val_buf);
+          update_ctx(ctx, cv);
           return 0; // empty
         }
       }
@@ -1762,7 +1775,7 @@ class static_dict : public static_dict_fwd {
             if ((cv.bm_mask & cv.bm_child) == 0) {
               while (cv.bm_mask & cv.bm_term) {
                 if (ctx.cur_idx == 0)
-                  return -1;
+                  return -2;
                 pop_from_ctx(ctx, cv);
                 cv.read_flags_block_begin();
               }
