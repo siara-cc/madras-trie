@@ -48,6 +48,7 @@ struct bldr_options {
   bool need_rev_cache;
   bool need_dart;
   bool dessicate;
+  bool sort_nodes_on_freq;
 };
 
 struct tail_token {
@@ -132,6 +133,7 @@ class builder_fwd {
 #define step_bits_rest 3
 class freq_grp_ptrs_data {
   private:
+    int max_code_len;
     std::vector<freq_grp> freq_grp_vec;
     std::vector<byte_vec> grp_data;
     byte_vec ptrs;
@@ -145,6 +147,7 @@ class freq_grp_ptrs_data {
     bool dessicate;
     uint8_t idx_ptr_size;
     uint8_t ptr_lkup_tbl_ptr_width;
+    uint16_t code_lt_size;
     uint32_t next_idx;
     uint32_t ptr_lookup_tbl_sz;
     uint32_t ptr_lookup_tbl_loc;
@@ -168,6 +171,7 @@ class freq_grp_ptrs_data {
         delete inner_tries[i];
     }
     void reset() {
+      max_code_len = 0;
       freq_grp_vec.resize(0);
       grp_data.resize(0);
       ptrs.resize(0);
@@ -344,7 +348,7 @@ class freq_grp_ptrs_data {
       return last_byte_bits;
     }
     uint32_t get_hdr_size() {
-      return 514 + grp_data.size() * 4 + inner_tries.size() * 4;
+      return 2 + code_lt_size + grp_data.size() * 4 + inner_tries.size() * 4;
     }
     uint32_t get_data_size() {
       uint32_t data_size = 0;
@@ -394,6 +398,7 @@ class freq_grp_ptrs_data {
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
+      code_lt_size = 0;
       if (encoding_type == 't') {
         two_byte_count = two_byte_data_loc = idx2_ptr_count = idx2_ptrs_map_loc = 0;
         grp_data_loc = grp_ptrs_loc + ptrs.size();
@@ -404,19 +409,22 @@ class freq_grp_ptrs_data {
         idx2_ptr_count = get_idx2_ptrs_count();
         idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
         grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
+        code_lt_size = 3 + pow(2, max_code_len) * 2;
+        //printf("Max code len: %u, code lt size: %u\n", max_code_len, code_lt_size);
         grp_data_size = get_hdr_size() + get_data_size();
       }
       if (dessicate)
         ptr_lookup_tbl_loc = 0;
     }
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
-      for (int i = 0; i < 256; i++) {
+      int code_lt_count = pow(2, max_code_len);
+      for (int i = 0; i < code_lt_count; i++) {
         uint8_t code_i = i;
         bool code_found = false;
         for (int j = 1; j < freq_grp_vec.size(); j++) {
           uint8_t code_len = freq_grp_vec[j].code_len;
           uint8_t code = freq_grp_vec[j].code;
-          if ((code_i >> (8 - code_len)) == code) {
+          if ((code_i >> (max_code_len - code_len)) == code) {
             int bit_len = freq_grp_vec[j].grp_log2;
             fputc(bit_len, fp);
             fputc((j - 1) | (code_len << 4), fp);
@@ -431,7 +439,8 @@ class freq_grp_ptrs_data {
         }
       }
     }
-    void write_grp_data(uint32_t offset, bool is_tail, FILE* fp) {
+    void write_grp_data(bool is_tail, FILE* fp) {
+      uint32_t offset = grp_data_loc + code_lt_size + 2;
       int grp_count = grp_data.size() + inner_tries.size();
       fputc(grp_count, fp);
       if (inner_trie_start_grp > 0) {
@@ -439,6 +448,8 @@ class freq_grp_ptrs_data {
         //fputc(freq_grp_vec[grp_count].grp_log2, fp);
       } else
         fputc(0, fp);
+      gen::write_uint16(code_lt_size, fp);
+      fputc(8 - max_code_len, fp); // shift_len
       write_code_lookup_tbl(is_tail, fp);
       uint32_t total_data_size = 0;
       for (int i = 0; i < grp_data.size(); i++) {
@@ -631,7 +642,7 @@ class freq_grp_ptrs_data {
         //fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
         fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
-        write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
+        write_grp_data(is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
       }
       gen::gen_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Total size: %u\n",
         get_data_size(), get_ptrs_size(), ptr_lookup_tbl_sz, get_idx2_ptrs_map()->size(), get_total_size());
@@ -674,6 +685,7 @@ class freq_grp_ptrs_data {
       gen::gen_printf("Idx:%d,It:%d\t%u\t%u\t%u\t\t\t%u\n", idx_limit, inner_trie_start_grp, sums[0], sums[1], sums[2], sums[3]);
     }
     void build_freq_codes(bool is_val = false) {
+      max_code_len = 0;
       if (freq_grp_vec.size() == 1) {
         for (int i = 1; i < freq_grp_vec.size(); i++) {
           freq_grp *fg = &freq_grp_vec[i];
@@ -698,6 +710,8 @@ class freq_grp_ptrs_data {
         int len;
         fg->code = (uint8_t) _huffman.get_code(i - 1, len);
         fg->code_len = len;
+        if (len > max_code_len)
+          max_code_len = len;
         if (i <= idx_limit) {
           fg->grp_log2 = ceil(log2(fg->grp_limit));
         } else if (inner_trie_start_grp > 0 && i >= inner_trie_start_grp && !is_val) {
@@ -718,6 +732,7 @@ class freq_grp_ptrs_data {
         }
         tot_ptr_bit_count += (fg->grp_log2 * fg->freq_count);
       }
+      //max_code_len = 8;
       if (tot_ptr_bit_count > 4294967296LL)
         std::cout << "WARNING: ptr_bit_cout > 4gb" << std::endl;
     }
@@ -910,7 +925,7 @@ class tail_val_maps {
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
     #define inner_trie_min_size 131072
-    #define sfx_set_max_dflt 64
+    #define sfx_set_max_dflt 128
     void build_tail_maps(byte_ptr_vec& all_node_sets, uint32_t tot_freq_count, uint32_t _max_len) {
 
       FILE *fp;
@@ -944,7 +959,7 @@ class tail_val_maps {
           freq_idx++;
           int cmp = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
           cmp--;
-          if (cmp == ti->len || cmp > 1) { // (freq_idx >= cumu_freq_idx && cmp > 1)) {
+          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
             ti->flags |= (cmp == ti->len ? MDX_SUFFIX_FULL : MDX_SUFFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
@@ -1598,8 +1613,8 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, false, true, false})
-        : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie),
+        bldr_options _opts = {true, false, true, true, true, true, false, false})
+        : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
       trie_level = _trie_level;
@@ -2100,10 +2115,6 @@ class builder : public builder_fwd {
       uint32_t node_count = 2;
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
-      cds_static::BitString bst(memtrie.node_count + 3);
-      cds_static::BitString bsc(memtrie.node_count + 3);
-      cds_static::BitString bsl(memtrie.node_count + 3);
-      cds_static::BitString bsp(memtrie.node_count + 3);
       byte_vec64.push_back(cur_node.get_byte()); // null
       if (cur_node.get_flags() & NFLAG_LEAF)
         bm_leaf |= 1;
@@ -2372,11 +2383,6 @@ class builder : public builder_fwd {
       if (!opts.no_primary_trie) {
         memtrie.sort_node_sets();
         tp.min_stats = make_min_positions();
-
-        // if (memtrie.all_vals->size() == 0) {
-        //   val_count = 0;
-        //   memtrie.value_count = 0;
-        // }
 
         if (trie_level > 0) {
           opts.need_fwd_cache = false;

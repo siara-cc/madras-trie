@@ -13,6 +13,7 @@ a.out*
 *.bin
 *.msa
 *.ods#
+*.trace
 tex/*.pdf
 tex/*.log
 tex/*.gz
