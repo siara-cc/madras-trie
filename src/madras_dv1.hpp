@@ -23,15 +23,6 @@
 
 namespace madras_dv1 {
 
-#if defined(__GNUC__) || defined(__clang__)
-#define PACKED_STRUCT __attribute__((packed))
-#elif defined(_MSC_VER)
-#define PACKED_STRUCT
-#pragma pack(push, 1)
-#else
-#define PACKED_STRUCT
-#endif
-
 class dict_iter_ctx {
   public:
     int32_t cur_idx;
@@ -79,23 +70,6 @@ class dict_iter_ctx {
       last_leaf_set = false;
       last_leaf_node_id = -1;
       last_leaf_len_offset = 0;
-    }
-};
-
-class dict_lookup_ctx {
-  public:
-    uint32_t last_leaf_node_id;
-    uint32_t last_node_id;
-    uint16_t last_leaf_key_len;
-    uint16_t last_key_len;
-    uint16_t last_cmp;
-    uint8_t *key;
-    dict_lookup_ctx(int _max_key_len) {
-      memset(this, '\0', sizeof(*this));
-      key = new uint8_t[_max_key_len];
-    }
-    ~dict_lookup_ctx() {
-      delete [] key;
     }
 };
 
@@ -149,31 +123,6 @@ class static_dict_fwd {
 #define DCT_U15_DEC2 'Z'
 
 #define bm_init_mask 0x0000000000000001UL
-
-struct fwd_cache {
-  uint8_t parent_node_id1;
-  uint8_t parent_node_id2;
-  uint8_t parent_node_id3;
-  uint8_t node_offset;
-  uint8_t child_node_id1;
-  uint8_t child_node_id2;
-  uint8_t child_node_id3;
-  uint8_t node_byte;
-};
-
-struct PACKED_STRUCT rev_cache {
-  uint8_t parent_node_id1;
-  uint8_t parent_node_id2;
-  uint8_t parent_node_id3;
-  uint8_t child_node_id1;
-  uint8_t child_node_id2;
-  uint8_t child_node_id3;
-};
-#if defined(_MSC_VER)
-#pragma pack(pop)
-#endif
-
-#undef PACKED_STRUCT
 
 struct min_pos_stats {
   uint8_t min_b;
@@ -248,7 +197,6 @@ class grp_ptr_data_map {
     uint32_t idx2_ptr_count;
     uint8_t *two_byte_data_loc;
     uint8_t *code_lookup_tbl;
-    uint16_t code_lt_size;
     uint8_t **grp_data;
 
     uint8_t *dict_buf;
@@ -262,57 +210,60 @@ class grp_ptr_data_map {
     uint32_t idx_ptr_mask;
     uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
       int idx_map_start = idx_map_arr[grp_no];
+      //ptr = gen::read_uint24(idx2_ptrs_map_loc + idx_map_start + ptr * 3);
       ptr = gen::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
       return ptr;
     }
 
-    uint32_t scan_ptr_bits_tail(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
-      uint64_t bm_mask = bm_init_mask;
+    uint32_t scan_ptr_bits_tail(uint32_t node_id, uint32_t ptr_bit_count) {
+      uint32_t trie_offset = (node_id / nodes_per_bv_block3) * bytes_per_bv_block3;
+      uint8_t *t = trie_loc + trie_offset;
+      int offset = 0;
+      if (nodes_per_bv_block3 != nodes_per_ptr_block3)
+        offset = (node_id % nodes_per_bv_block3) / nodes_per_ptr_block3 * nodes_per_ptr_block3;
+      uint64_t bm_mask = bm_init_mask << offset;
       uint64_t bm_ptr;
-      t = gen::read_uint64(t + 24, bm_ptr);
-      uint8_t *t_upto = t + (node_id % 64);
-      uint8_t *code_lt = code_lookup_tbl;
-      int shift_len = *code_lt++;
+      t = gen::read_uint64(t + 24, bm_ptr) + offset;
+      uint8_t *t_upto = t + (node_id % nodes_per_ptr_block3);
       while (t < t_upto) {
         if (bm_ptr & bm_mask)
-          ptr_bit_count += code_lt[(*t >> shift_len) * 2];
+          ptr_bit_count += code_lookup_tbl[*t * 2];
         bm_mask <<= 1;
         t++;
       }
       return ptr_bit_count;
     }
 
-    uint32_t scan_ptr_bits_val(uint32_t node_id, uint8_t *t, uint32_t ptr_bit_count) {
-      uint64_t bm_mask = bm_init_mask;
+    uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
+      int offset = 0;
+      if (nodes_per_bv_block3 != nodes_per_ptr_block3)
+        offset = (node_id % nodes_per_bv_block3) / nodes_per_ptr_block3 * nodes_per_ptr_block3;
+      uint64_t bm_mask = bm_init_mask << offset;
       uint64_t bm_leaf = UINT64_MAX;
-      if (dict_obj->key_count > 0) {
-        gen::read_uint64(t, bm_leaf);
-        t += 32;
-      }
-      uint8_t *t_upto = t + (node_id % 64);
-      uint8_t *code_lt = code_lookup_tbl;
-      int shift_len = *code_lt++;
-      while (t < t_upto) {
+      if (dict_obj->key_count > 0)
+        gen::read_uint64(trie_loc + node_id / nodes_per_bv_block3 * bytes_per_bv_block3, bm_leaf);
+      uint32_t start_node_id = node_id / nodes_per_ptr_block3 * nodes_per_ptr_block3;
+      while (start_node_id < node_id) {
         if (bm_leaf & bm_mask) {
-          uint8_t code = read_ptr_bits8(node_id, ptr_bit_count);
-          ptr_bit_count += code_lt[(code >> shift_len) * 2];
+          uint8_t code = read_ptr_bits8(ptr_bit_count);
+          ptr_bit_count += code_lookup_tbl[code * 2];
         }
         bm_mask <<= 1;
-        t++;
+        start_node_id++;
       }
       return ptr_bit_count;
     }
 
-    uint8_t *get_ptr_block_t(uint32_t node_id, uint32_t& ptr_bit_count) {
+    uint32_t get_ptr_block_t(uint32_t node_id) {
       uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block) * ptr_lkup_tbl_ptr_width;
-      ptr_bit_count = gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
+      uint32_t ptr_bit_count = gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
       int pos = (node_id / nodes_per_ptr_block3) % 4;
       if (pos) {
         pos--;
         uint8_t *ptr3 = block_ptr + (ptr_lkup_tbl_ptr_width - 6) + pos * 2;
         ptr_bit_count += gen::read_uint16(ptr3);
       }
-      return trie_loc + (node_id / nodes_per_ptr_block3) * bytes_per_ptr_block3;
+      return ptr_bit_count;
     }
 
     uint32_t get_ptr_byts_words(uint32_t node_id) {
@@ -321,18 +272,16 @@ class grp_ptr_data_map {
     }
 
     uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
-      uint32_t ptr_bit_count;
-      uint8_t *t = get_ptr_block_t(node_id, ptr_bit_count);
-      return scan_ptr_bits_tail(node_id, t, ptr_bit_count);
+      uint32_t ptr_bit_count = get_ptr_block_t(node_id);
+      return scan_ptr_bits_tail(node_id, ptr_bit_count);
     }
 
     uint32_t get_ptr_bit_count_val(uint32_t node_id) {
-      uint32_t ptr_bit_count;
-      uint8_t *t = get_ptr_block_t(node_id, ptr_bit_count);
-      return scan_ptr_bits_val(node_id, t, ptr_bit_count);
+      uint32_t ptr_bit_count = get_ptr_block_t(node_id);
+      return scan_ptr_bits_val(node_id, ptr_bit_count);
     }
 
-    uint8_t read_ptr_bits8(uint32_t node_id, uint32_t& ptr_bit_count) {
+    uint8_t read_ptr_bits8(uint32_t& ptr_bit_count) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_filled = (ptr_bit_count % 8);
       uint8_t ret = (*ptr_loc++ << bits_filled);
@@ -457,10 +406,7 @@ class grp_ptr_data_map {
         group_count = *grp_data_loc;
         inner_trie_start_grp = grp_data_loc[1];
         code_lookup_tbl = grp_data_loc + 2;
-        code_lt_size = gen::read_uint16(code_lookup_tbl) - 2;
-        code_lookup_tbl += 2;
-        uint8_t *grp_data_idx_start = code_lookup_tbl + (data_type == 'w' ? 0 : code_lt_size);
-        //printf("Code lt size: %u, shift_len: %d\n", code_lt_size, *code_lookup_tbl);
+        uint8_t *grp_data_idx_start = code_lookup_tbl + (data_type == 'w' ? 0 : 512);
         grp_data = new uint8_t*[group_count]();
         inner_tries = new static_dict_fwd*[group_count]();
         if (data_type == 'w')
@@ -501,8 +447,6 @@ class grp_ptr_data_map {
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       bm_mask = bm_init_mask << node_id;
       uint8_t *t = trie_loc;
-      uint8_t *code_lt = code_lookup_tbl;
-      int shift_len = *code_lt++;
       if (ptr_lkup_tbl_ptr_width == 10) {
         gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
       } else {
@@ -537,13 +481,13 @@ class grp_ptr_data_map {
         }
         if (is_tail) {
           if (bm_mask & bm_ptr) {
-            bit_count4 += code_lt[(*t >> shift_len) * 2];
+            bit_count4 += code_lookup_tbl[*t * 2];
           }
         } else {
           if (bm_mask & bm_leaf || dict_obj->key_count == 0) {
-            uint8_t code = read_ptr_bits8(node_id, ptr_bit_count);
-            ptr_bit_count += code_lt[(code >> shift_len) * 2];
-            bit_count4 += code_lt[(code >> shift_len) * 2];
+            uint8_t code = read_ptr_bits8(ptr_bit_count);
+            ptr_bit_count += code_lookup_tbl[code * 2];
+            bit_count4 += code_lookup_tbl[code * 2];
           }
         }
         t++;
@@ -616,10 +560,8 @@ class grp_ptr_data_map {
         p_ptr_bit_count = &ptr_bit_count;
       if (*p_ptr_bit_count == UINT32_MAX)
         *p_ptr_bit_count = get_ptr_bit_count_val(node_id);
-      uint8_t code = read_ptr_bits8(node_id, *p_ptr_bit_count);
-      uint8_t *lookup_tbl_ptr = code_lookup_tbl;
-      int shift_len = *lookup_tbl_ptr++;
-      lookup_tbl_ptr += ((code >> shift_len) * 2);
+      uint8_t code = read_ptr_bits8(*p_ptr_bit_count);
+      uint8_t *lookup_tbl_ptr = code_lookup_tbl + code * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       *p_grp_no = *lookup_tbl_ptr & 0x0F;
       uint8_t code_len = *lookup_tbl_ptr >> 4;
@@ -782,9 +724,7 @@ class grp_ptr_data_map {
     }
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
-      uint8_t *lookup_tbl_ptr = code_lookup_tbl;
-      int shift_len = *lookup_tbl_ptr++;
-      lookup_tbl_ptr += ((node_byte >> shift_len) * 2);
+      uint8_t *lookup_tbl_ptr = code_lookup_tbl + node_byte * 2;
       uint8_t bit_len = *lookup_tbl_ptr++;
       grp_no = *lookup_tbl_ptr & 0x0F;
       uint8_t code_len = *lookup_tbl_ptr >> 4;
@@ -803,15 +743,11 @@ class grp_ptr_data_map {
       return ptr;
     }
 
-    void get_tail_str(gen::byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t max_tail_len, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no, bool is_ptr) {
+    void get_tail_str(gen::byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       ret.clear();
-      if (!is_ptr) {
-        ret.append(node_byte);
-        return;
-      }
       //ptr_bit_count = UINT32_MAX;
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
-      get_tail_str(ret, tail_ptr, grp_no, max_tail_len);
+      get_tail_str(ret, tail_ptr, grp_no);
     }
 
     uint8_t get_first_byte(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
@@ -838,7 +774,7 @@ class grp_ptr_data_map {
     }
 
     //const int max_tailset_len = 129;
-    void get_tail_str(gen::byte_str& ret, uint32_t tail_ptr, uint8_t grp_no, int max_tailset_len) {
+    void get_tail_str(gen::byte_str& ret, uint32_t tail_ptr, uint8_t grp_no) {
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
         int tail_str_len;
@@ -874,15 +810,15 @@ class grp_ptr_data_map {
         byt = *t--;
       } while (byt > 31 && t >= tail);
       t += 2;
-      uint8_t prev_str_buf[max_tailset_len];
-      gen::byte_str prev_str(prev_str_buf, max_tailset_len);
+      uint8_t prev_str_buf[ret.get_limit()];
+      gen::byte_str prev_str(prev_str_buf, ret.get_limit());
       byt = *t++;
       while (byt != 0) {
         prev_str.append(byt);
         byt = *t++;
       }
-      uint8_t last_str_buf[max_tailset_len];
-      gen::byte_str last_str(last_str_buf, max_tailset_len);
+      uint8_t last_str_buf[ret.get_limit()];
+      gen::byte_str last_str(last_str_buf, ret.get_limit());
       while (t < t_end) {
         byt = *t++;
         while (byt > 31) {
@@ -1067,7 +1003,6 @@ class bv_lookup_tbl {
     void create_select_lt_from_trie() {
       uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
       uint32_t sel_count = 0;
-      uint32_t prev_val = 0;
       uint32_t lt_size = 0;
       if (lt_type == BV_LT_TYPE_LEAF)
         lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
@@ -1109,7 +1044,6 @@ class bv_lookup_tbl {
             gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
             if (val_to_write > (1 << 24))
               gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
-            prev_val = val_to_write;
           }
           sel_count++;
         }
@@ -1183,6 +1117,7 @@ class bv_lookup_tbl {
       uint64_t bm;
       gen::read_uint64(t + bm_pos, bm);
       uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block3);
+      // return rank + __popcountdi2(bm & (mask - 1));
       return rank + __builtin_popcountll(bm & (mask - 1));
     }
     const uint8_t bit_count[256] = {
@@ -1586,6 +1521,7 @@ class static_dict : public static_dict_fwd {
     }
 
     bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = nullptr) {
+      #ifndef MDX_NO_NULLS
       if (key == nullptr) {
         node_id = 0;
         return trie_loc[32] == 0xFF;
@@ -1594,6 +1530,7 @@ class static_dict : public static_dict_fwd {
         node_id = 1;
         return trie_loc[33] == 0xFF;
       }
+      #endif
       int cmp = 0;
       if (pcmp == nullptr)
         pcmp = &cmp;
@@ -1623,6 +1560,7 @@ class static_dict : public static_dict_fwd {
             bm_mask = bm_init_mask;
             t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
           }
+          #ifndef MDX_NO_DART
           if ((bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
             uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
             uint32_t old_node_id = node_id;
@@ -1635,15 +1573,17 @@ class static_dict : public static_dict_fwd {
             }
             continue;
           }
+          #endif
           uint8_t node_byte = trie_byte = *t++;
-          if (bm_mask & bm_ptr) {
+          if (bm_mask & bm_ptr)
             trie_byte = tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
-          }
+          #ifndef MDX_IN_ORDER
           if (key_byte != trie_byte) {
-            if (bm_mask & bm_term) {
-              last_exit_loc = t - dict_buf;
+          #else
+          if (key_byte > trie_byte) {
+          #endif
+            if (bm_mask & bm_term)
               return false;
-            }
             bm_mask <<= 1;
             node_id++;
           } else
@@ -1653,28 +1593,22 @@ class static_dict : public static_dict_fwd {
           *pcmp = 0;
           uint32_t tail_len = 1;
           if (bm_mask & bm_ptr) {
-            tail_map.get_tail_str(tail_str, tail_ptr, grp_no, max_tail_len);
+            tail_map.get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
             *pcmp = gen::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
           }
           key_pos += tail_len;
           if (key_pos < key_len && (*pcmp == 0 || abs(*pcmp) - 1 == tail_len)) {
-            if ((bm_mask & bm_child) == 0) {
-              last_exit_loc = t - dict_buf;
+            if ((bm_mask & bm_child) == 0)
               return false;
-            }
             find_child(node_id, child_lt.rank(node_id) + 1);
             continue;
           }
-          if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask)) {
-            last_exit_loc = 0;
+          if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask))
             return true;
-          }
         }
-        last_exit_loc = t - dict_buf;
         return false;
       } while (node_id < node_count);
-      last_exit_loc = t - dict_buf;
       return false;
     }
 
@@ -1800,7 +1734,12 @@ class static_dict : public static_dict_fwd {
               continue;
             }
           } else {
-            tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
+            if (cv.bm_mask & cv.bm_ptr)
+              tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no);
+            else {
+              cv.tail.clear();
+              cv.tail.append(*cv.t);
+            }
             update_ctx(ctx, cv);
             memcpy(key_buf, ctx.key, ctx.key_len);
             if (val_count > 0)
@@ -1812,7 +1751,12 @@ class static_dict : public static_dict_fwd {
         ctx.to_skip_first_leaf = false;
         if (cv.bm_mask & cv.bm_child) {
           cv.child_count++;
-          tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
+          if (cv.bm_mask & cv.bm_ptr)
+            tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no);
+          else {
+            cv.tail.clear();
+            cv.tail.append(*cv.t);
+          }
           update_ctx(ctx, cv);
           find_child(cv.node_id, cv.child_count);
           cv.child_count = child_lt.rank(cv.node_id);
@@ -1864,6 +1808,7 @@ class static_dict : public static_dict_fwd {
       cv.node_id = node_id;
       if (ret_val != nullptr && val_map[0].exists())
         val_map[0].get_val(cv.node_id, in_size_out_value_len, ret_val);
+      #ifndef MDX_NO_NULLS
       if (node_id == 0) {
         *in_size_out_key_len = -1; // unconditional?
         return true;
@@ -1872,6 +1817,7 @@ class static_dict : public static_dict_fwd {
         *in_size_out_key_len = 0; // unconditional?
         return true;
       }
+      #endif
       cv.node_id++;
       uint32_t cache_mask = rev_cache_count - 1;
       do {
@@ -1881,7 +1827,12 @@ class static_dict : public static_dict_fwd {
         cv.t += cv.node_id % 64;
         cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block3);
         cv.ptr_bit_count = UINT32_MAX;
-        tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, max_tail_len, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no, cv.bm_mask & cv.bm_ptr);
+        if (cv.bm_mask & cv.bm_ptr)
+          tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no);
+        else {
+          cv.tail.clear();
+          cv.tail.append(*cv.t);
+        }
         if (return_first_byte) {
           *ret_key = cv.tail[cv.tail.length() - 1];
           *in_size_out_key_len = 1;
