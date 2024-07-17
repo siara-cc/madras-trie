@@ -166,8 +166,8 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < lines.size(); i++) {
     line = lines[i];
     line_len = strlen((const char *) line);
-    if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
-      continue;
+    // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
+    //   continue;
     prev_line = line;
     prev_line_len = line_len;
     // if (line.compare("don't think there's anything wrong") == 0)
@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
     //   val_len = (line_len > 6 ? 7 : line_len);
     // }
 
-    if (is_sorted) {
+    if (is_sorted && !sb->opts.sort_nodes_on_freq) {
       out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
       if (out_key_len != key_len)
         printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", key_len, key, out_key_len, key_buf, key_len, out_key_len, out_val_len);

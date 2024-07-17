@@ -792,15 +792,16 @@ class grp_ptr_data_map {
           ret.append(*t++);
         return;
       }
-      uint8_t byt = *t++;
+      uint8_t byt = *t;
       while (byt > 31) {
+        t++;
         ret.append(byt);
-        byt = *t++;
+        byt = *t;
       }
       if (byt == 0)
         return;
       uint8_t len_len = 0;
-      uint32_t sfx_len = read_len(t - 1, len_len);
+      uint32_t sfx_len = read_len(t, len_len);
       uint8_t *t_end = tail + tail_ptr;
       t = t_end;
       do {
@@ -820,17 +821,18 @@ class grp_ptr_data_map {
       uint8_t last_str_buf[ret.get_limit()];
       gen::byte_str last_str(last_str_buf, ret.get_limit());
       while (t < t_end) {
-        byt = *t++;
+        last_str.clear();
+        byt = *t;
         while (byt > 31) {
+          t++;
           last_str.append(byt);
-          byt = *t++;
+          byt = *t;
         }
-        uint32_t prev_sfx_len = read_len(t - 1, len_len);
+        uint32_t prev_sfx_len = read_len(t, len_len);
         last_str.append(prev_str.data() + prev_str.length()-prev_sfx_len, prev_sfx_len);
         t += len_len;
         prev_str.clear();
         prev_str.append(last_str.data(), last_str.length());
-        last_str.clear();
       }
       ret.append(prev_str.data() + prev_str.length()-sfx_len, sfx_len);
     }
@@ -1353,6 +1355,8 @@ class static_dict : public static_dict_fwd {
         fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 54);
         rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 58);
         sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
+        if (sec_cache_loc == dict_buf)
+          sec_cache_loc = nullptr;
 
         term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 66);
         term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 70);
@@ -1478,8 +1482,9 @@ class static_dict : public static_dict_fwd {
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = fwd_cache_count - 1;
       fwd_cache *cche0 = (fwd_cache *) fwd_cache_loc;
+      int times = MDX_CACHE_TIMES;
+      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
       do {
-        uint32_t cache_idx = (node_id ^ (node_id << 5) ^ key_byte) & cache_mask;
         fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (node_id == cache_node_id) {
@@ -1488,6 +1493,8 @@ class static_dict : public static_dict_fwd {
             if (key_pos < key_len) {
               node_id = gen::read_uint24(&cche->child_node_id1);
               key_byte = key[key_pos];
+              cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+              times = MDX_CACHE_TIMES;
               continue;
             }
             node_id += cche->node_offset;
@@ -1496,16 +1503,17 @@ class static_dict : public static_dict_fwd {
             gen::read_uint64(t, bm_leaf);
             uint64_t bm_mask = (bm_init_mask << (node_id % 64));
             if (bm_leaf & bm_mask) {
-              last_exit_loc = 0;
               return 0;
             } else {
-              last_exit_loc = t - dict_buf;
               return -1;
             }
           }
         }
-        break;
-      } while (1);
+        cache_idx <<= MDX_CACHE_SHIFT;
+        cache_idx ^= node_id;
+        cache_idx ^= key_byte;
+        cache_idx &= cache_mask;
+      } while (--times);
       return -1;
     }
 
@@ -1561,7 +1569,7 @@ class static_dict : public static_dict_fwd {
             t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
           }
           #ifndef MDX_NO_DART
-          if ((bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
+          if (sec_cache_loc != nullptr && (bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
             uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
             uint32_t old_node_id = node_id;
             node_id += min_offset;
@@ -1854,14 +1862,22 @@ class static_dict : public static_dict_fwd {
         if (!do_select) {
           rev_cache *cche0 = (rev_cache *) rev_cache_loc;
           uint32_t cache_idx = cv.node_id & cache_mask;
-          rev_cache *cche = cche0 + cache_idx;
-          uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
-          if (cv.node_id == cache_node_id) {
-            // printf("Child node id: %u, ", cv.node_id);
-            cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
-            // printf("Cache parent: %u, ", c_node_id);
-          } else
-            do_select = true;
+          int times = MDX_CACHE_TIMES;
+          do {
+            do_select = false;
+            rev_cache *cche = cche0 + cache_idx;
+            uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
+            if (cv.node_id == cache_node_id) {
+              // printf("Child node id: %u, ", cv.node_id);
+              cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
+              // printf("Cache parent: %u, ", c_node_id);
+              break;
+            } else
+              do_select = true;
+            cache_idx <<= MDX_CACHE_SHIFT;
+            cache_idx ^= cv.node_id;
+            cache_idx &= cache_mask;
+          } while (--times);
         }
         if (do_select) {
           uint32_t term_count = term_lt.rank(cv.node_id);

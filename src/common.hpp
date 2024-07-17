@@ -12,22 +12,25 @@ namespace madras_dv1 {
 #define PACKED_STRUCT
 #endif
 
+#define MDX_CACHE_TIMES 3
+#define MDX_CACHE_SHIFT 5
+
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
 #define nodes_per_bv_block3 64
 #define bytes_per_bv_block3 96
 
-#define nodes_per_ptr_block 64
-#define nodes_per_ptr_block3 16
-#define bytes_per_ptr_block3 24
+// #define nodes_per_ptr_block 64
+// #define nodes_per_ptr_block3 16
+// #define bytes_per_ptr_block3 24
 
 // #define nodes_per_ptr_block 128
 // #define nodes_per_ptr_block3 32
 // #define bytes_per_ptr_block3 48
 
-// #define nodes_per_ptr_block 256
-// #define nodes_per_ptr_block3 64
-// #define bytes_per_ptr_block3 96
+#define nodes_per_ptr_block 256
+#define nodes_per_ptr_block3 64
+#define bytes_per_ptr_block3 96
 
 #define sel_divisor 256
 
