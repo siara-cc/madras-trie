@@ -28,6 +28,10 @@ namespace madras_dv1 {
 // #define nodes_per_ptr_block3 32
 // #define bytes_per_ptr_block3 48
 
+// #define nodes_per_ptr_block 256
+// #define nodes_per_ptr_block3 64
+// #define bytes_per_ptr_block3 96
+
 #define nodes_per_ptr_block 256
 #define nodes_per_ptr_block3 64
 #define bytes_per_ptr_block3 96

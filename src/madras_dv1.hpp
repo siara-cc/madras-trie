@@ -18,7 +18,7 @@
 #endif
 #include <stdint.h>
 
-#include "common.hpp"
+#include "common_dv1.hpp"
 #include "../../ds_common/src/gen.hpp"
 
 namespace madras_dv1 {
@@ -183,9 +183,10 @@ struct ctx_vars {
 
 class grp_ptr_data_map {
   private:
-    uint8_t ptr_lkup_tbl_ptr_width;
-    uint8_t *ptr_lookup_tbl_loc;
-    uint32_t ptr_lkup_tbl_mask;
+    uint32_t ptr_lt_ptr_width;
+    uint32_t ptr_lt_blk_width;
+    uint8_t *ptr_lt_loc;
+    uint32_t ptr_lt_mask;
     uint8_t *ptrs_loc;
     uint8_t start_bits;
     uint8_t idx_step_bits;
@@ -255,20 +256,20 @@ class grp_ptr_data_map {
     }
 
     uint32_t get_ptr_block_t(uint32_t node_id) {
-      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block) * ptr_lkup_tbl_ptr_width;
-      uint32_t ptr_bit_count = gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
-      int pos = (node_id / nodes_per_ptr_block3) % 4;
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width;
+      uint32_t ptr_bit_count = gen::read_uintx(block_ptr, ptr_lt_mask);
+      int pos = (node_id / nodes_per_ptr_block3) % (nodes_per_ptr_block / nodes_per_ptr_block3);
       if (pos) {
         pos--;
-        uint8_t *ptr3 = block_ptr + (ptr_lkup_tbl_ptr_width - 6) + pos * 2;
+        uint8_t *ptr3 = block_ptr + ptr_lt_ptr_width + pos * 2;
         ptr_bit_count += gen::read_uint16(ptr3);
       }
       return ptr_bit_count;
     }
 
     uint32_t get_ptr_byts_words(uint32_t node_id) {
-      uint8_t *block_ptr = ptr_lookup_tbl_loc + (node_id / nodes_per_ptr_block3) * ptr_lkup_tbl_ptr_width;
-      return gen::read_uintx(block_ptr, ptr_lkup_tbl_mask);
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block3) * ptr_lt_ptr_width;
+      return gen::read_uintx(block_ptr, ptr_lt_mask);
     }
 
     uint32_t get_ptr_bit_count_tail(uint32_t node_id) {
@@ -360,7 +361,7 @@ class grp_ptr_data_map {
         delete inner_tries;
       }
       if (!was_ptr_lt_given)
-        delete [] ptr_lookup_tbl_loc;
+        delete [] ptr_lt_loc;
     }
 
     bool exists() {
@@ -374,16 +375,17 @@ class grp_ptr_data_map {
       trie_loc = _trie_loc;
       node_count = _node_count;
 
-      ptr_lkup_tbl_ptr_width = *data_loc;
-      if (ptr_lkup_tbl_ptr_width == 10 || ptr_lkup_tbl_ptr_width == 4)
-        ptr_lkup_tbl_mask = 0xFFFFFFFF;
+      ptr_lt_ptr_width = *data_loc;
+      if (ptr_lt_ptr_width == 4)
+        ptr_lt_mask = 0xFFFFFFFF;
       else
-        ptr_lkup_tbl_mask = 0x00FFFFFF;
+        ptr_lt_mask = 0x00FFFFFF;
+      ptr_lt_blk_width = (ptr_lt_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block3 - 1) * 2);
       data_type = data_loc[1];
       encoding_type = data_loc[2];
       flags = data_loc[3];
       max_len = gen::read_uint32(data_loc + 4);
-      ptr_lookup_tbl_loc = data_loc + gen::read_uint32(data_loc + 8);
+      ptr_lt_loc = data_loc + gen::read_uint32(data_loc + 8);
       grp_data_loc = data_loc + gen::read_uint32(data_loc + 12);
       two_byte_data_count = gen::read_uint32(data_loc + 16);
       idx2_ptr_count = gen::read_uint32(data_loc + 20);
@@ -401,7 +403,7 @@ class grp_ptr_data_map {
       col_trie = nullptr;
       if (encoding_type == 't' && !is_tail) {
         col_trie = dict_obj->new_instance(grp_data_loc);
-        col_trie_int_bv.init(ptrs_loc, ptr_lkup_tbl_ptr_width);
+        col_trie_int_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
         group_count = *grp_data_loc;
         inner_trie_start_grp = grp_data_loc[1];
@@ -425,7 +427,7 @@ class grp_ptr_data_map {
           idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * idx2_ptr_size;
           _start_bits += idx_step_bits;
         }
-        if (ptr_lookup_tbl_loc == data_loc) {
+        if (ptr_lt_loc == data_loc) {
           create_ptr_lt(is_tail);
           was_ptr_lt_given = false;
         }
@@ -439,15 +441,17 @@ class grp_ptr_data_map {
       uint32_t bit_count4 = 0;
       uint32_t ptr_bit_count = 0;
       int pos4 = 0;
-      uint16_t bit_counts[4];
-      memset(bit_counts, '\0', 8);
-      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
+      int u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block3);
+      u16_arr_count--;
+      uint16_t bit_counts[u16_arr_count + 1];
+      memset(bit_counts, '\0', u16_arr_count * 2 + 2);
+      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lt_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block3 - 1) * 2);
       uint8_t *lt_pos = new uint8_t[lt_size];
-      ptr_lookup_tbl_loc = lt_pos;
+      ptr_lt_loc = lt_pos;
       uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
       bm_mask = bm_init_mask << node_id;
       uint8_t *t = trie_loc;
-      if (ptr_lkup_tbl_ptr_width == 10) {
+      if (ptr_lt_ptr_width == 4) {
         gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
       } else {
         gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
@@ -465,12 +469,12 @@ class grp_ptr_data_map {
           pos4++;
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
-          for (int j = 0; j < 3; j++) {
+          for (int j = 0; j < u16_arr_count; j++) {
             gen::copy_uint16(bit_counts[j], lt_pos);
             lt_pos += 2;
           }
-          bit_count += bit_counts[3];
-          if (ptr_lkup_tbl_ptr_width == 10) {
+          bit_count += bit_counts[u16_arr_count];
+          if (ptr_lt_ptr_width == 4) {
             gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
           } else {
             gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
@@ -494,17 +498,17 @@ class grp_ptr_data_map {
         node_id++;
         bm_mask <<= 1;
       } while (node_id < node_count);
-      for (int j = 0; j < 3; j++) {
+      for (int j = 0; j < u16_arr_count; j++) {
         gen::copy_uint16(bit_counts[j], lt_pos);
         lt_pos += 2;
       }
-      bit_count += bit_counts[3];
-      if (ptr_lkup_tbl_ptr_width == 10) {
+      bit_count += bit_counts[u16_arr_count];
+      if (ptr_lt_ptr_width == 4) {
         gen::copy_uint32(bit_count, lt_pos); lt_pos += 4;
       } else {
         gen::copy_uint24(bit_count, lt_pos); lt_pos += 3;
       }
-      for (int j = 0; j < 3; j++) {
+      for (int j = 0; j < u16_arr_count; j++) {
         gen::copy_uint16(bit_counts[j], lt_pos);
         lt_pos += 2;
       }
@@ -1832,31 +1836,32 @@ class static_dict : public static_dict_fwd {
         cv.node_id--;
         cv.t = trie_loc + cv.node_id / nodes_per_bv_block3 * bytes_per_bv_block3;
         cv.t = ctx_vars::read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
-        cv.t += cv.node_id % 64;
+        cv.t += cv.node_id % nodes_per_bv_block3;
         cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block3);
-        cv.ptr_bit_count = UINT32_MAX;
-        if (cv.bm_mask & cv.bm_ptr)
+        if (cv.bm_mask & cv.bm_ptr) {
+          cv.ptr_bit_count = UINT32_MAX;
           tail_map.get_tail_str(cv.tail, cv.node_id, *cv.t, cv.tail_ptr, cv.ptr_bit_count, cv.grp_no);
-        else {
-          cv.tail.clear();
-          cv.tail.append(*cv.t);
+          for (int i = cv.tail.length() - 1; i >= 0; i--)
+            ret_key[key_len++] = cv.tail[i];
+        } else {
+          ret_key[key_len++] = *cv.t;
         }
         if (return_first_byte) {
-          *ret_key = cv.tail[cv.tail.length() - 1];
           *in_size_out_key_len = 1;
           return true;
         }
         if (ctx != nullptr) {
+          if ((cv.bm_mask & cv.bm_ptr) == 0) {
+            cv.tail.append(*cv.t);
+            key_len++;
+          }
           if ((cv.bm_mask & cv.bm_leaf) && (cmp == 0 || (cmp - 1 == cv.tail.length())) && !ctx->last_leaf_set) {
             ctx->last_leaf_node_id = cv.node_id;
             ctx->last_leaf_len_offset = key_len;
             ctx->last_leaf_set = true;
           }
-        }
-        for (int i = cv.tail.length() - 1; i >= 0; i--)
-          ret_key[key_len++] = cv.tail[i];
-        if (ctx != nullptr)
           insert_into_ctx(*ctx, cv);
+        }
         cmp = 0;
         bool do_select = (rev_cache_count == 0);
         if (!do_select) {
@@ -1868,9 +1873,7 @@ class static_dict : public static_dict_fwd {
             rev_cache *cche = cche0 + cache_idx;
             uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
             if (cv.node_id == cache_node_id) {
-              // printf("Child node id: %u, ", cv.node_id);
               cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
-              // printf("Cache parent: %u, ", c_node_id);
               break;
             } else
               do_select = true;
@@ -1882,7 +1885,6 @@ class static_dict : public static_dict_fwd {
         if (do_select) {
           uint32_t term_count = term_lt.rank(cv.node_id);
           child_lt.select(cv.node_id, term_count);
-          // printf("Actual parent: %u\n", cv.node_id);
         }
       } while (cv.node_id > 2);
       *in_size_out_key_len = key_len;

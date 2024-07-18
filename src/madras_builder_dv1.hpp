@@ -13,7 +13,7 @@
 #include <math.h>
 #include <time.h>
 
-#include "common.hpp"
+#include "common_dv1.hpp"
 #include "../../leopard-trie/src/leopard.hpp"
 
 #include "../../ds_common/src/bv.hpp"
@@ -380,9 +380,9 @@ class freq_grp_ptrs_data {
       dessicate = dessicat;
       enc_type = encoding_type;
       if (encoding_type != 't') {
-        ptr_lkup_tbl_ptr_width = 9;
+        ptr_lkup_tbl_ptr_width = 3;
         if (tot_ptr_bit_count >= (1 << 24))
-          ptr_lkup_tbl_ptr_width = 10;
+          ptr_lkup_tbl_ptr_width = 4;
         build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec);
       }
       ptr_lookup_tbl_loc = 8 * 4 + 4;
@@ -392,7 +392,7 @@ class freq_grp_ptrs_data {
         if (dessicate)
           ptr_lookup_tbl_sz = 0;
         else
-          ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width);
+          ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block3 - 1) * 2);
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       if (encoding_type == 't') {
@@ -505,13 +505,15 @@ class freq_grp_ptrs_data {
       uint32_t bit_count = 0;
       uint32_t bit_count4 = 0;
       int pos4 = 0;
-      uint16_t bit_counts[4];
+      int u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block3);
+      u16_arr_count--;
+      uint16_t bit_counts[u16_arr_count + 1];
       uint32_t prv_blk_last_pos = 0;
       uint8_t  prv_blk_last_bits = 8;
       block_ptr_vec prv_blk_ptrs;
       block_ptr_vec block_ptrs;
       int block_rpt_count = 0;
-      memset(bit_counts, '\0', 8);
+      memset(bit_counts, '\0', u16_arr_count * 2 + 2);
       ptr_lookup_tbl.clear();
       if (!is_tail) {
         ptrs.clear();
@@ -519,7 +521,7 @@ class freq_grp_ptrs_data {
         last_byte_bits = 8;
       }
       if (!dessicate) {
-        if (ptr_lkup_tbl_ptr_width == 10)
+        if (ptr_lkup_tbl_ptr_width == 4)
           gen::append_uint32(bit_count, ptr_lookup_tbl);
         else
           gen::append_uint24(bit_count, ptr_lookup_tbl);
@@ -558,19 +560,19 @@ class freq_grp_ptrs_data {
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
           if (!dessicate) {
-            for (int j = 0; j < 3; j++)
+            for (int j = 0; j < u16_arr_count; j++)
               gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
           }
-          bit_count += bit_counts[3];
+          bit_count += bit_counts[u16_arr_count];
           if (!dessicate) {
-            if (ptr_lkup_tbl_ptr_width == 10)
+            if (ptr_lkup_tbl_ptr_width == 4)
               gen::append_uint32(bit_count, ptr_lookup_tbl);
             else
               gen::append_uint24(bit_count, ptr_lookup_tbl);
           }
           bit_count4 = 0;
           pos4 = 0;
-          memset(bit_counts, '\0', 8);
+          memset(bit_counts, '\0', u16_arr_count * 2 + 2);
         }
         if (is_tail) {
           if (cur_node_flags & NFLAG_TAIL) {
@@ -597,16 +599,16 @@ class freq_grp_ptrs_data {
       if (!is_tail)
         append_ptr_bits(0x00, 8); // read beyond protection
       if (!dessicate) {
-        for (int j = 0; j < 3; j++)
+        for (int j = 0; j < u16_arr_count; j++)
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
-      bit_count += bit_counts[3];
+      bit_count += bit_counts[u16_arr_count];
       if (!dessicate) {
-        if (ptr_lkup_tbl_ptr_width == 10)
+        if (ptr_lkup_tbl_ptr_width == 4)
           gen::append_uint32(bit_count, ptr_lookup_tbl);
         else
           gen::append_uint24(bit_count, ptr_lookup_tbl);
-        for (int j = 0; j < 3; j++)
+        for (int j = 0; j < u16_arr_count; j++)
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
     }
@@ -1597,7 +1599,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, true, false, false, true})
+        bldr_options _opts = {true, false, false, true, true, false, false, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2080,7 +2082,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, true, false, false});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, false, false, false, false, true});
       ret->fp = fp;
       return ret;
     }
@@ -2250,7 +2252,7 @@ class builder : public builder_fwd {
       uint32_t cache_count = 256;
       while (cache_count < memtrie.key_count / 512)
         cache_count *= 2;
-      // cache_count *= 2;
+      //cache_count *= 2;
       if (build_fwd_cache) {
         f_cache = new fwd_cache[cache_count];
         memset(f_cache, '\0', cache_count * sizeof(fwd_cache));
@@ -2264,16 +2266,16 @@ class builder : public builder_fwd {
         memset(r_cache_freq, '\0', cache_count * sizeof(uint32_t));
       }
       build_cache(1, 1, cache_count, 1, build_fwd_cache, build_rev_cache);
-      int f_sum_freq = 0;
-      int r_sum_freq = 0;
-      for (int i = 0; i < cache_count; i++) {
-        if (build_fwd_cache)
-          f_sum_freq += f_cache_freq[i];
-        if (build_rev_cache)
-          r_sum_freq += r_cache_freq[i];
-        //printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
-      }
-      printf("Sum of cache freq: %d, %d\n", f_sum_freq, r_sum_freq);
+      // int f_sum_freq = 0;
+      // int r_sum_freq = 0;
+      // for (int i = 0; i < cache_count; i++) {
+      //   if (build_fwd_cache)
+      //     f_sum_freq += f_cache_freq[i];
+      //   if (build_rev_cache)
+      //     r_sum_freq += r_cache_freq[i];
+      //   //printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
+      // }
+      // printf("Sum of cache freq: %d, %d\n", f_sum_freq, r_sum_freq);
       gen::print_time_taken(t, "Time taken for build_cache(): ");
       return cache_count;
     }
