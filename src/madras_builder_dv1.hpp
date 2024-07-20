@@ -72,8 +72,10 @@ struct bldr_min_pos_stats {
 struct trie_parts {
   uint32_t fwd_cache_count;
   uint32_t fwd_cache_size;
+  uint32_t fwd_cache_max_node_id;
   uint32_t rev_cache_count;
   uint32_t rev_cache_size;
+  uint32_t rev_cache_max_node_id;
   uint32_t sec_cache_count;
   uint32_t sec_cache_size;
   uint32_t term_bvlt_sz;
@@ -1541,7 +1543,7 @@ class builder : public builder_fwd {
 
   private:
     fwd_cache *f_cache;
-    rev_cache *r_cache;
+    nid_cache *r_cache;
     uint32_t *f_cache_freq;
     uint32_t *r_cache_freq;
     //dfox uniq_basix_map;
@@ -1599,7 +1601,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, false, true, true, false, false, true})
+        bldr_options _opts = {true, false, true, true, true, false, false, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2246,7 +2248,7 @@ class builder : public builder_fwd {
       }
     }
 
-    uint32_t build_cache(bool build_fwd_cache, bool build_rev_cache) {
+    uint32_t build_cache(bool build_fwd_cache, bool build_rev_cache, uint32_t& max_node_id) {
       clock_t t = clock();
       set_node_id();
       uint32_t cache_count = 256;
@@ -2254,28 +2256,34 @@ class builder : public builder_fwd {
         cache_count *= 2;
       //cache_count *= 2;
       if (build_fwd_cache) {
-        f_cache = new fwd_cache[cache_count];
-        memset(f_cache, '\0', cache_count * sizeof(fwd_cache));
-        f_cache_freq = new uint32_t[cache_count];
-        memset(f_cache_freq, '\0', cache_count * sizeof(uint32_t));
+        f_cache = new fwd_cache[cache_count + 1]();
+        f_cache_freq = new uint32_t[cache_count]();
       }
       if (build_rev_cache) {
-        r_cache = new rev_cache[cache_count];
-        memset(r_cache, '\0', cache_count * sizeof(rev_cache));
-        r_cache_freq = new uint32_t[cache_count];
-        memset(r_cache_freq, '\0', cache_count * sizeof(uint32_t));
+        r_cache = new nid_cache[cache_count + 1]();
+        r_cache_freq = new uint32_t[cache_count]();
       }
       build_cache(1, 1, cache_count, 1, build_fwd_cache, build_rev_cache);
-      // int f_sum_freq = 0;
-      // int r_sum_freq = 0;
-      // for (int i = 0; i < cache_count; i++) {
-      //   if (build_fwd_cache)
-      //     f_sum_freq += f_cache_freq[i];
-      //   if (build_rev_cache)
-      //     r_sum_freq += r_cache_freq[i];
-      //   //printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
-      // }
-      // printf("Sum of cache freq: %d, %d\n", f_sum_freq, r_sum_freq);
+      max_node_id = 0;
+      int sum_freq = 0;
+      for (int i = 0; i < cache_count; i++) {
+        if (build_fwd_cache) {
+          fwd_cache *fc = &f_cache[i];
+          uint32_t cche_node_id = gen::read_uint24(&fc->child_node_id1);
+          if (max_node_id < cche_node_id)
+            max_node_id = cche_node_id;
+          sum_freq += f_cache_freq[i];
+        }
+        if (build_rev_cache) {
+          nid_cache *rc = &r_cache[i];
+          uint32_t cche_node_id = gen::read_uint24(&rc->child_node_id1);
+          if (max_node_id < cche_node_id)
+            max_node_id = cche_node_id;
+          sum_freq += r_cache_freq[i];
+        }
+        // printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
+      }
+      gen::gen_printf("Sum of cache freq: %d, Max node id: %d\n", sum_freq, max_node_id);
       gen::print_time_taken(t, "Time taken for build_cache(): ");
       return cache_count;
     }
@@ -2285,6 +2293,7 @@ class builder : public builder_fwd {
         return 1;
       if (memtrie.max_level < level)
         memtrie.max_level = level;
+      uint32_t node_id_limit = (memtrie.node_count / 2);
       leopard::node_set_handler ns(memtrie.all_node_sets, ns_id);
       leopard::node n = ns.first_node();
       leopard::node_set_header *ns_hdr = ns.get_ns_hdr();
@@ -2303,7 +2312,7 @@ class builder : public builder_fwd {
             int times = MDX_CACHE_TIMES;
             do {
               fwd_cache *fc = f_cache + cache_loc;
-              if (f_cache_freq[cache_loc] < node_freq && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
+              if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
                 f_cache_freq[cache_loc] = node_freq;
                 gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
                 gen::copy_uint24(child_node_id, &fc->child_node_id1);
@@ -2319,11 +2328,11 @@ class builder : public builder_fwd {
           }
         }
         if (build_rev_cache) {
-          uint32_t cache_loc = cur_node_id & (cache_count - 1);
+          uint32_t cache_loc = (cur_node_id ^ (cur_node_id << MDX_CACHE_SHIFT)) & (cache_count - 1);
           int times = MDX_CACHE_TIMES;
           do {
-            rev_cache *rc = r_cache + cache_loc;
-            if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < (1 << 24)) {
+            nid_cache *rc = r_cache + cache_loc;
+            if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
               r_cache_freq[cache_loc] = node_freq;
               gen::copy_uint24(parent_node_id, &rc->parent_node_id1);
               gen::copy_uint24(cur_node_id, &rc->child_node_id1);
@@ -2404,7 +2413,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       memset(&tp, '\0', sizeof(tp));
-      tp.dummy_loc = 4 + 10 + 20 * 4; // 94
+      tp.dummy_loc = 4 + 10 + 22 * 4; // 102
       if (!opts.no_primary_trie) {
         memtrie.sort_node_sets();
         tp.min_stats = make_min_positions();
@@ -2414,11 +2423,11 @@ class builder : public builder_fwd {
           opts.need_rev_cache = true;
         }
         if (opts.need_fwd_cache) {
-          tp.fwd_cache_count = build_cache(true, false);
+          tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
           tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
         }
         if (opts.need_rev_cache) {
-          tp.rev_cache_count = build_cache(false, true);
+          tp.rev_cache_count = build_cache(false, true, tp.rev_cache_max_node_id);
           tp.rev_cache_size = tp.rev_cache_count * 6; // 6 = parent_node_id (3) + child_node_id (3)
         }
         tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
@@ -2460,7 +2469,7 @@ class builder : public builder_fwd {
       int val_count = column_count - (opts.no_primary_trie ? 0 : 1);
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
       tp.col_val_loc0 = tp.col_val_table_loc + tp.col_val_table_sz;
-      tp.total_idx_size = 4 + 10 + 20 * 4 +
+      tp.total_idx_size = 4 + 10 + 22 * 4 +
                 tp.fwd_cache_size + tp.rev_cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
                 tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz +
@@ -2527,6 +2536,8 @@ class builder : public builder_fwd {
       gen::write_uint16(memtrie.max_level, fp);
       gen::write_uint32(tp.fwd_cache_count, fp);
       gen::write_uint32(tp.rev_cache_count, fp);
+      gen::write_uint32(tp.fwd_cache_max_node_id, fp);
+      gen::write_uint32(tp.rev_cache_max_node_id, fp);
       fwrite(&tp.min_stats, 4, 1, fp);
       gen::write_uint32(tp.fwd_cache_loc, fp);
       gen::write_uint32(tp.rev_cache_loc, fp);
@@ -2702,7 +2713,7 @@ class builder : public builder_fwd {
     }
 
     void write_rev_cache(FILE *fp) {
-      fwrite(r_cache, tp.rev_cache_count * sizeof(rev_cache), 1, fp);
+      fwrite(r_cache, tp.rev_cache_count * sizeof(nid_cache), 1, fp);
     }
 
     uint32_t write_bv_select_val(uint32_t node_id, FILE *fp) {

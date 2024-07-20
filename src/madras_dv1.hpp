@@ -1264,6 +1264,8 @@ class static_dict : public static_dict_fwd {
     uint32_t node_set_count;
     uint32_t fwd_cache_count;
     uint32_t rev_cache_count;
+    uint32_t fwd_cache_max_node_id;
+    uint32_t rev_cache_max_node_id;
     uint16_t max_level;
     uint8_t *fwd_cache_loc;
     uint8_t *rev_cache_loc;
@@ -1275,6 +1277,10 @@ class static_dict : public static_dict_fwd {
     uint8_t *leaf_select_lkup_loc;
     uint8_t *trie_loc;
     uint8_t *val_table_loc;
+    nid_cache *fwd_mru_nid_cache_loc;
+    nid_cache *rev_mru_nid_cache_loc;
+    uint32_t fwd_mru_cache_mask;
+    uint32_t rev_mru_cache_mask;
 
     bool to_release_dict_buf;
 
@@ -1313,7 +1319,10 @@ class static_dict : public static_dict_fwd {
 
       max_key_len = max_tail_len = max_level = 0;
       fwd_cache_count = rev_cache_count = 0;
+      fwd_cache_max_node_id = rev_cache_max_node_id = 0;
       fwd_cache_loc = rev_cache_loc = sec_cache_loc = nullptr;
+      fwd_mru_nid_cache_loc = rev_mru_nid_cache_loc = nullptr;
+      fwd_mru_cache_mask = rev_mru_cache_mask = 0;
       term_select_lkup_loc = term_lt_loc = 0;
       child_select_lkup_loc = child_lt_loc = leaf_select_lkup_loc = 0;
       leaf_lt_loc = trie_loc = 0;
@@ -1330,10 +1339,40 @@ class static_dict : public static_dict_fwd {
       if (val_map != nullptr) {
         delete [] val_map;
       }
+      if (fwd_mru_nid_cache_loc != nullptr)
+        delete [] fwd_mru_nid_cache_loc;
+      if (rev_mru_nid_cache_loc != nullptr)
+        delete [] rev_mru_nid_cache_loc;
     }
 
     void set_print_enabled(bool to_print_messages = true) {
       gen::is_gen_print_enabled = to_print_messages;
+    }
+
+    int calc_mru_cache_count() {
+      if (key_count == 0)
+        return 0;
+      int cache_count = 256;
+      while (cache_count < key_count / 512)
+        cache_count *= 2;
+      return cache_count;
+    }
+
+    void init_mru_nid_cache(int which) {
+      if (key_count == 0)
+        return;
+      nid_cache *n_cache;
+      int cache_count = calc_mru_cache_count();
+      if (cache_count == 0)
+        return;
+      if (which == MDX_FWD_MRU_NID_CACHE) {
+        fwd_mru_nid_cache_loc = n_cache = new nid_cache[cache_count + 1]();
+        fwd_mru_cache_mask = cache_count - 1;
+      } else {
+        rev_mru_nid_cache_loc = n_cache = new nid_cache[cache_count + 1]();
+        rev_mru_cache_mask = cache_count - 1;
+      }
+      //memset(n_cache, '\0', sizeof(nid_cache) * cache_count);
     }
 
     void load_into_vars() {
@@ -1355,20 +1394,22 @@ class static_dict : public static_dict_fwd {
         max_level = gen::read_uint16(dict_buf + 40);
         fwd_cache_count = gen::read_uint32(dict_buf + 42);
         rev_cache_count = gen::read_uint32(dict_buf + 46);
-        memcpy(&min_stats, dict_buf + 50, 4);
-        fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 54);
-        rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 58);
-        sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
+        fwd_cache_max_node_id = gen::read_uint32(dict_buf + 50);
+        rev_cache_max_node_id = gen::read_uint32(dict_buf + 54);
+        memcpy(&min_stats, dict_buf + 58, 4);
+        fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
+        rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 66);
+        sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 70);
         if (sec_cache_loc == dict_buf)
           sec_cache_loc = nullptr;
 
-        term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 66);
-        term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 70);
-        child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
-        child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
-        leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
-        leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
-        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 90);
+        term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
+        term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
+        child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
+        child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
+        leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 90);
+        leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 94);
+        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 98);
 
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 4;
@@ -1394,6 +1435,9 @@ class static_dict : public static_dict_fwd {
           val_map[i].init(val_buf, this, trie_loc, val_buf, node_count, false);
         }
       }
+
+      init_mru_nid_cache(MDX_FWD_MRU_NID_CACHE);
+      init_mru_nid_cache(MDX_REV_MRU_NID_CACHE);
 
     }
 
@@ -1475,13 +1519,56 @@ class static_dict : public static_dict_fwd {
 
     }
 
+    void add_fwd_mru(uint32_t node_id, uint32_t child_node_id) {
+      if (node_id >= fwd_cache_max_node_id || child_node_id >= fwd_cache_max_node_id)
+        return;
+      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT)) & fwd_mru_cache_mask;
+      nid_cache *cche = fwd_mru_nid_cache_loc + cache_idx;
+      gen::copy_uint24(node_id, &cche->parent_node_id1);
+      gen::copy_uint24(child_node_id, &cche->child_node_id1);
+    }
+
+    bool lookup_fwd_mru(uint32_t& node_id) {
+      if (node_id >= fwd_cache_max_node_id)
+        return false;
+      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT)) & fwd_mru_cache_mask;
+      nid_cache *cche = fwd_mru_nid_cache_loc + cache_idx;
+      uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
+      if (node_id == cache_node_id) {
+        node_id = gen::read_uint24(&cche->child_node_id1);
+        return true;
+      }
+      return false;
+    }
+
+    void add_rev_mru(uint32_t node_id, uint32_t parent_node_id) {
+      if (node_id >= rev_cache_max_node_id || parent_node_id >= rev_cache_max_node_id)
+        return;
+      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT)) & rev_mru_cache_mask;
+      nid_cache *cche = rev_mru_nid_cache_loc + cache_idx;
+      gen::copy_uint24(parent_node_id, &cche->parent_node_id1);
+      gen::copy_uint24(node_id, &cche->child_node_id1);
+    }
+
+    bool lookup_rev_mru(uint32_t& node_id) {
+      if (node_id >= rev_cache_max_node_id)
+        return false;
+      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT)) & rev_mru_cache_mask;
+      nid_cache *cche = rev_mru_nid_cache_loc + cache_idx;
+      uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
+      if (node_id == cache_node_id) {
+        node_id = gen::read_uint24(&cche->parent_node_id1);
+        return true;
+      }
+      return false;
+    }
+
     void find_child(uint32_t& node_id, uint32_t child_count) {
       term_lt.select(node_id, child_count);
-      //child_count = child_lt.rank(node_id);
     }
 
     int find_in_cache(const uint8_t *key, int key_len, int& key_pos, uint32_t& node_id) {
-      if (fwd_cache_count == 0)
+      if (fwd_cache_count == 0 || node_id > fwd_cache_max_node_id)
         return -1;
       uint8_t key_byte = key[key_pos];
       uint32_t cache_mask = fwd_cache_count - 1;
@@ -1613,7 +1700,16 @@ class static_dict : public static_dict_fwd {
           if (key_pos < key_len && (*pcmp == 0 || abs(*pcmp) - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0)
               return false;
-            find_child(node_id, child_lt.rank(node_id) + 1);
+            bool is_mru = false;
+            uint32_t parent_node_id = node_id;
+            if (fwd_mru_nid_cache_loc != nullptr)
+              is_mru = lookup_fwd_mru(node_id);
+            if (!is_mru) {
+              uint32_t child_count = child_lt.rank(node_id) + 1;
+              term_lt.select(node_id, child_count);
+              if (fwd_mru_nid_cache_loc != nullptr)
+                add_fwd_mru(parent_node_id, node_id);
+            }
             continue;
           }
           if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask))
@@ -1865,12 +1961,12 @@ class static_dict : public static_dict_fwd {
         cmp = 0;
         bool do_select = (rev_cache_count == 0);
         if (!do_select) {
-          rev_cache *cche0 = (rev_cache *) rev_cache_loc;
-          uint32_t cache_idx = cv.node_id & cache_mask;
+          nid_cache *cche0 = (nid_cache *) rev_cache_loc;
+          uint32_t cache_idx = (cv.node_id ^ (cv.node_id << MDX_CACHE_SHIFT)) & cache_mask;
           int times = MDX_CACHE_TIMES;
           do {
             do_select = false;
-            rev_cache *cche = cche0 + cache_idx;
+            nid_cache *cche = cche0 + cache_idx;
             uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
             if (cv.node_id == cache_node_id) {
               cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
@@ -1883,8 +1979,16 @@ class static_dict : public static_dict_fwd {
           } while (--times);
         }
         if (do_select) {
-          uint32_t term_count = term_lt.rank(cv.node_id);
-          child_lt.select(cv.node_id, term_count);
+          bool is_mru = false;
+          uint32_t child_node_id = cv.node_id;
+          if (rev_mru_nid_cache_loc != nullptr)
+            is_mru = lookup_rev_mru(cv.node_id);
+          if (!is_mru) {
+            uint32_t term_count = term_lt.rank(cv.node_id);
+            child_lt.select(cv.node_id, term_count);
+            if (rev_mru_nid_cache_loc != nullptr)
+              add_rev_mru(child_node_id, cv.node_id);
+          }
         }
       } while (cv.node_id > 2);
       *in_size_out_key_len = key_len;

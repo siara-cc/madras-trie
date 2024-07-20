@@ -15,6 +15,9 @@ namespace madras_dv1 {
 #define MDX_CACHE_TIMES 3
 #define MDX_CACHE_SHIFT 5
 
+#define MDX_FWD_MRU_NID_CACHE 1
+#define MDX_REV_MRU_NID_CACHE 2
+
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
 #define nodes_per_bv_block3 64
@@ -62,7 +65,7 @@ struct PACKED_STRUCT fwd_cache {
   uint8_t node_byte;
 };
 
-struct PACKED_STRUCT rev_cache {
+struct PACKED_STRUCT nid_cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
