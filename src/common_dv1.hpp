@@ -15,29 +15,40 @@ namespace madras_dv1 {
 #define MDX_CACHE_TIMES 3
 #define MDX_CACHE_SHIFT 5
 
+// not used
 #define MDX_FWD_MRU_NID_CACHE 1
 #define MDX_REV_MRU_NID_CACHE 2
 
+// #define nodes_per_bv_block 128
+// #define bytes_per_bv_block 192
+// #define width_of_bv_block 5
+// #define width_of_bv_block_n 1
 #define nodes_per_bv_block 256
 #define bytes_per_bv_block 384
-#define nodes_per_bv_block3 64
-#define bytes_per_bv_block3 96
+#define width_of_bv_block 7
+#define width_of_bv_block_n 3
+// #define nodes_per_bv_block 512
+// #define bytes_per_bv_block 768
+// #define width_of_bv_block 11
+// #define width_of_bv_block_n 7
+// #define nodes_per_bv_block 1024
+// #define bytes_per_bv_block 1536
+// #define width_of_bv_block 19
+// #define width_of_bv_block_n 15
+#define nodes_per_bv_block_n 64
+#define bytes_per_bv_block_n 96
 
 // #define nodes_per_ptr_block 64
-// #define nodes_per_ptr_block3 16
-// #define bytes_per_ptr_block3 24
+// #define nodes_per_ptr_block_n 16
+// #define bytes_per_ptr_block_n 24
 
 // #define nodes_per_ptr_block 128
-// #define nodes_per_ptr_block3 32
-// #define bytes_per_ptr_block3 48
-
-// #define nodes_per_ptr_block 256
-// #define nodes_per_ptr_block3 64
-// #define bytes_per_ptr_block3 96
+// #define nodes_per_ptr_block_n 32
+// #define bytes_per_ptr_block_n 48
 
 #define nodes_per_ptr_block 256
-#define nodes_per_ptr_block3 64
-#define bytes_per_ptr_block3 96
+#define nodes_per_ptr_block_n 64
+#define bytes_per_ptr_block_n 96
 
 #define sel_divisor 256
 

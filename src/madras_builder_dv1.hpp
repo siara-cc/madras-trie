@@ -394,7 +394,7 @@ class freq_grp_ptrs_data {
         if (dessicate)
           ptr_lookup_tbl_sz = 0;
         else
-          ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block3 - 1) * 2);
+          ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1) * 2);
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       if (encoding_type == 't') {
@@ -507,7 +507,7 @@ class freq_grp_ptrs_data {
       uint32_t bit_count = 0;
       uint32_t bit_count4 = 0;
       int pos4 = 0;
-      int u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block3);
+      int u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block_n);
       u16_arr_count--;
       uint16_t bit_counts[u16_arr_count + 1];
       uint32_t prv_blk_last_pos = 0;
@@ -534,7 +534,7 @@ class freq_grp_ptrs_data {
         uint8_t cur_node_flags = 0;
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
-        if (node_id && (node_id % nodes_per_ptr_block3) == 0) {
+        if (node_id && (node_id % nodes_per_ptr_block_n) == 0) {
           if (is_tail) {
             if (bit_count4 > 65535)
               std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count3 > 65k" << std::endl;
@@ -1601,7 +1601,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, true, true, true, false, false, true})
+        bldr_options _opts = {true, false, false, true, true, false, false, false})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -1760,14 +1760,14 @@ class builder : public builder_fwd {
           continue;
         }
         node_id = ni.get_node_id();
-        if ((node_id % nodes_per_bv_block3) == 0)
+        if ((node_id % nodes_per_bv_block_n) == 0)
           prev_val = 0;
         if (cur_node.get_flags() & NFLAG_LEAF) {
           uint32_t val_pos = cur_node.get_col_val();
           int64_t col_val = gen::read_svint60((*memtrie.all_vals)[val_pos]);
           int64_t delta_val = col_val;
           // std::cout << node_id << ", " << val_pos << ", ";
-          if (node_id % nodes_per_bv_block3)
+          if (node_id % nodes_per_bv_block_n)
             delta_val -= prev_val;
           prev_val = col_val;
           // std::cout << col_val << ": " << delta_val << std::endl;
@@ -1775,7 +1775,7 @@ class builder : public builder_fwd {
           cur_node.set_col_val(val_pos);
         }
         node_id++;
-        if ((node_id % nodes_per_bv_block3) == 0)
+        if ((node_id % nodes_per_bv_block_n) == 0)
           prev_val = 0;
         cur_node = ni.next();
       }
@@ -1885,7 +1885,7 @@ class builder : public builder_fwd {
           uint32_t col_val_pos = n.get_col_val();
           if (col_val_pos < 3) {
             rpt_count = 0;
-            if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
+            if ((ni.get_node_id() % nodes_per_bv_block_n) == 0)
               gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
             ptrs.push_back(col_val_pos == 1 ? '\x40' : '\x80');
             n = ni.next();
@@ -1902,7 +1902,7 @@ class builder : public builder_fwd {
             gen::append_vint32(line_ptrs, cf->ptr, cf->grp + 1);
             col_val_pos++;
           } while (word_info[4] == 0);
-          if ((ni.get_node_id() % nodes_per_bv_block3) == 0)
+          if ((ni.get_node_id() % nodes_per_bv_block_n) == 0)
             gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
           else {
             if (last_line_sz == line_ptrs.size() && memcmp(line_ptrs.data(),
@@ -1936,7 +1936,7 @@ class builder : public builder_fwd {
       fputc(LPDT_WORDS, fp); // encoding type
       fputc(0, fp); // flags
       uint32_t hdr_size = 8 * 4 + 4;
-      uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block3, ptr_lkup_tbl_ptr_width);
+      uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
       uint32_t ptr_lookup_tbl_loc = hdr_size;
       uint32_t grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       uint32_t two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
@@ -2084,7 +2084,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, false, false, false, true});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, false, false, true, false, false, false});
       ret->fp = fp;
       return ret;
     }
@@ -2434,7 +2434,7 @@ class builder : public builder_fwd {
         tp.sec_cache_size = 0;
         if (opts.need_dart)
           tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256;
-        tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, 7);
+        tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
         tp.child_bvlt_sz = tp.term_bvlt_sz;
         tp.leaf_bvlt_sz = tp.term_bvlt_sz;
         tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
@@ -2656,27 +2656,30 @@ class builder : public builder_fwd {
     //   uint32_t ptr;
     // };
 
-    void write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, FILE *fp) {
+    void write_bv_n(uint32_t node_id, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n, FILE *fp) {
+      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n) - 1;
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(buf3, 3, 1, fp);
+        fwrite(bit_counts_n, u8_arr_count, 1, fp);
         gen::write_uint32(count, fp);
-        count3 = 0;
-        memset(buf3, 0, 3);
-        pos3 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block3) == 0) {
-        buf3[pos3] = count3;
-        //count3 = 0;
-        pos3++;
+        count_n = 0;
+        memset(bit_counts_n, 0, u8_arr_count + 1);
+        pos_n = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
+        bit_counts_n[pos_n] = count_n;
+        count_n = 0;
+        pos_n++;
       }
     }
 
     void write_bv_rank_lt(int which, FILE *fp) {
       uint32_t node_id = (which == BV_LT_TYPE_LEAF ? 0 : 2);
       uint32_t count = 0;
-      uint32_t count3 = 0;
-      uint8_t buf3[3];
-      uint8_t pos3 = 0;
-      memset(buf3, 0, 3);
+      uint32_t count_n = 0;
+      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
+      u8_arr_count--;
+      uint8_t bit_counts_n[u8_arr_count + 1];
+      uint8_t pos_n = 0;
+      memset(bit_counts_n, 0, u8_arr_count + 1);
       gen::write_uint32(0, fp);
       leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LT_TYPE_LEAF ? 0 : 1));
       leopard::node cur_node = ni.next();
@@ -2684,7 +2687,7 @@ class builder : public builder_fwd {
         uint8_t cur_node_flags = 0;
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
-        write_bv3(node_id, count, count3, buf3, pos3, fp);
+        write_bv_n(node_id, count, count_n, bit_counts_n, pos_n, fp);
         uint32_t ct;
         switch (which) {
           case BV_LT_TYPE_TERM:
@@ -2698,14 +2701,14 @@ class builder : public builder_fwd {
             break;
         }
         count += ct;
-        count3 += ct;
+        count_n += ct;
         node_id++;
         cur_node = ni.next();
       }
-      fwrite(buf3, 3, 1, fp);
+      fwrite(bit_counts_n, u8_arr_count, 1, fp);
       // extra (guard)
       gen::write_uint32(count, fp);
-      fwrite(buf3, 3, 1, fp);
+      fwrite(bit_counts_n, u8_arr_count, 1, fp);
     }
 
     void write_fwd_cache(FILE *fp) {
