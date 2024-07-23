@@ -1836,7 +1836,7 @@ class builder : public builder_fwd {
       int words_grp_count = memtrie.wm.grp_count;
       builder *word_tries[words_grp_count];
       for (int i = 0; i < words_grp_count; i++) {
-        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, (madras_dv1::bldr_options) {false, false, false, false, true, false, false});
+        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, (madras_dv1::bldr_options) {false, false, false, false, true, false, false, false});
         word_tries[i]->fp = fp;
       }
       for (int i = 0; i < word_positions->size(); i++) {
@@ -2071,7 +2071,7 @@ class builder : public builder_fwd {
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false, false});
         col_trie_builder->fp = fp;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
@@ -2084,7 +2084,7 @@ class builder : public builder_fwd {
     }
 
     builder_fwd *new_instance() {
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, false, false, false, false, true});
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, (madras_dv1::bldr_options) {false, false, true, false, false, false, false, true});
       ret->fp = fp;
       return ret;
     }
@@ -2226,7 +2226,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false});
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, (madras_dv1::bldr_options) {true, false, true, false, true, false, false, false});
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2576,9 +2576,9 @@ class builder : public builder_fwd {
       write_names(fp);
       write_col_val_table(fp);
 
-      gen::gen_printf("\nNode count: %u, Trie bit vectors: %u, Leaf bit vectors: %u\nSelect lookup tables - Term: %u, Child: %u, Leaf: %u\n"
+      gen::gen_printf("\nNodes#: %u, NS#: %u, Trie bv: %u, Leaf bv: %u\nSelect lt - Term: %u, Child: %u, Leaf: %u\n"
         "Fwd cache: %u, Rev cache: %u, Sec cache: %u\nNode struct size: %u, Max tail len: %u\n",
-            memtrie.node_count, tp.term_bvlt_sz * 2, tp.leaf_bvlt_sz, tp.term_select_lt_sz, tp.child_select_lt_sz, tp.leaf_select_lt_sz,
+            memtrie.node_count, memtrie.node_set_count, tp.term_bvlt_sz * 2, tp.leaf_bvlt_sz, tp.term_select_lt_sz, tp.child_select_lt_sz, tp.leaf_select_lt_sz,
             tp.fwd_cache_size, tp.rev_cache_size, tp.sec_cache_size, sizeof(leopard::node), memtrie.max_tail_len);
 
       // fp = fopen("nodes.txt", "wb+");
@@ -2716,14 +2716,6 @@ class builder : public builder_fwd {
       fwrite(r_cache, tp.rev_cache_count * sizeof(nid_cache), 1, fp);
     }
 
-    uint32_t write_bv_select_val(uint32_t node_id, FILE *fp) {
-      uint32_t val_to_write = node_id / nodes_per_bv_block;
-      // if (val_to_write - prev_val > 4)
-      //   gen::gen_printf("Nid:\t%u\tblk:\t%u\tdiff:\t%u\n", node_id, val_to_write, val_to_write-prev_val);
-      gen::write_uint24(val_to_write, fp);
-      return val_to_write;
-    }
-
     bool node_qualifies_for_select(leopard::node *cur_node, uint8_t cur_node_flags, int which) {
       switch (which) {
         case BV_LT_TYPE_TERM:
@@ -2738,7 +2730,7 @@ class builder : public builder_fwd {
 
     void write_bv_select_lt(int which, FILE *fp) {
       uint32_t node_id = (which == BV_LT_TYPE_LEAF ? 0 : 2);
-      uint32_t sel_count = 0;
+      uint32_t one_count = 0;
       gen::write_uint24(0, fp);
       leopard::node_iterator ni(memtrie.all_node_sets, (which == BV_LT_TYPE_LEAF ? 0 : 1));
       leopard::node cur_node = ni.next();
@@ -2747,12 +2739,13 @@ class builder : public builder_fwd {
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
         if (node_qualifies_for_select(&cur_node, cur_node_flags, which)) {
-          if (sel_count && (sel_count % sel_divisor) == 0) {
-            uint32_t val_to_write = write_bv_select_val(node_id, fp);
+          if (one_count && (one_count % sel_divisor) == 0) {
+            uint32_t val_to_write = node_id / nodes_per_bv_block;
+            gen::write_uint24(val_to_write, fp);
             if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+              gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
-          sel_count++;
+          one_count++;
         }
         node_id++;
         cur_node = ni.next();
