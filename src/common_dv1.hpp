@@ -58,12 +58,12 @@ namespace madras_dv1 {
 #define BV_LT_TYPE_TERM 2
 #define BV_LT_TYPE_CHILD 3
 
-#define NFLAG_LEAF '\x01'
-#define NFLAG_CHILD '\x02'
-#define NFLAG_TAIL '\x04'
-#define NFLAG_TERM '\x08'
-#define NFLAG_NULL '\x10'
-#define NFLAG_EMPTY '\x20'
+#define NFLAG_LEAF 1
+#define NFLAG_CHILD 2
+#define NFLAG_TAIL 4
+#define NFLAG_TERM 8
+#define NFLAG_NULL 16
+#define NFLAG_EMPTY 32
 
 struct PACKED_STRUCT fwd_cache {
   uint8_t parent_node_id1;

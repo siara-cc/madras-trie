@@ -40,6 +40,15 @@ namespace madras_dv1 {
 typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uint8_t *> byte_ptr_vec;
 
+// sfx_set_dflt
+// min_sfx_len
+// step_idx
+// step_rest
+// inner trie level
+// use_leaf_select_inner_trie
+// inner_trie_min
+// no suffix coding
+// need_leaf_lt
 struct bldr_options {
   bool maintain_seq;
   bool no_primary_trie;
@@ -953,7 +962,7 @@ class tail_val_maps {
           freq_idx++;
           int cmp = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
           cmp--;
-          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 1)) {
+          if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 4)) {
             ti->flags |= (cmp == ti->len ? MDX_SUFFIX_FULL : MDX_SUFFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
@@ -1110,16 +1119,20 @@ class tail_val_maps {
         leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets);
         leopard::node n = ni.next();
         int leaf_id = 0;
+        uint32_t node_id = 2;
         while (n != nullptr) {
           uint32_t col_val_pos = n.get_col_val();
           if (n.get_flags() & NFLAG_LEAF) {
             leopard::uniq_info *ti = uniq_tails_freq[col_val_pos];
-            ti->ptr = leaf_id++;
+            ti->ptr = node_id; //leaf_id++;
           }
           n = ni.next();
+          node_id++;
         }
         freq_grp *fg = tail_ptrs.get_freq_grp(tail_ptrs.inner_trie_start_grp + it_idx);
         fg->grp_size = trie_size;
+        fg->grp_limit = node_id;
+        fg->count = node_id;
         //printf("Inner Trie size:\t%u\n", trie_size);
       }
 
@@ -1601,7 +1614,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, false, true, true, false, false, false})
+        bldr_options _opts = {true, false, false, true, false, false, false, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
@@ -2324,6 +2337,8 @@ class builder : public builder_fwd {
               cache_loc ^= ns_hdr->node_id;
               cache_loc ^= node_byte;
               cache_loc &= (cache_count - 1);
+              // cache_loc %= (cache_count - 1);
+              // cache_loc++;
             } while (--times);
           }
         }
