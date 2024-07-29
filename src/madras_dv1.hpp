@@ -141,7 +141,7 @@ struct ctx_vars {
   uint32_t ptr_bit_count;
   uint8_t grp_no;
   ctx_vars() {
-    memset(this, 0, sizeof(*this));
+    *this = {};
     ptr_bit_count = UINT32_MAX;
   }
   static uint8_t *read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
@@ -359,7 +359,7 @@ class grp_ptr_data_map {
           if (inner_tries[i] != nullptr)
             delete inner_tries[i];
         }
-        delete inner_tries;
+        delete [] inner_tries;
       }
       if (!was_ptr_lt_given)
         delete [] ptr_lt_loc;
@@ -652,8 +652,6 @@ class grp_ptr_data_map {
       if (ret_val == nullptr || in_size_out_value_len == nullptr)
         return;
       uint8_t *val_loc;
-      int val_len = 0;
-      int8_t len_of_len = 0;
       uint8_t grp_no = 0;
       switch (encoding_type) {
         case 'u':
@@ -769,7 +767,7 @@ class grp_ptr_data_map {
       if (first_byte >= 32)
         return first_byte;
       uint8_t len_len;
-      uint32_t bin_len = read_len(tail, len_len);
+      read_len(tail, len_len);
       return tail[len_len];
     }
 
@@ -873,7 +871,7 @@ class grp_ptr_data_map {
         ret.clear();
       }
       uint8_t len_len = 0;
-      uint32_t pfx_len = read_len(t, len_len);
+      read_len(t, len_len);
       uint8_t *t_end = t;
       uint8_t byt;
       do {
@@ -985,7 +983,7 @@ class bv_lookup_tbl {
               bm_leaf, bm_term, bm_child, bm_ptr);
         }
         lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
-        uint32_t ct;
+        uint32_t ct = 0;
         switch (lt_type) {
           case BV_LT_TYPE_TERM:
             ct = (bm_mask & bm_term ? 1 : 0);
@@ -1072,7 +1070,7 @@ class bv_lookup_tbl {
     uint32_t block_select(uint32_t target_count, uint32_t& node_id) {
       uint8_t *select_loc = lt_sel_loc + target_count / sel_divisor * 3;
       uint32_t block = gen::read_uint24(select_loc);
-      uint32_t end_block = gen::read_uint24(select_loc + 3);
+      // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 10 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
       while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
@@ -1292,8 +1290,8 @@ class static_dict : public static_dict_fwd {
     bv_lookup_tbl term_lt;
     bv_lookup_tbl child_lt;
     bv_lookup_tbl leaf_lt;
-    uint32_t max_key_len;
-    uint32_t max_val_len;
+    int max_key_len;
+    int max_val_len;
     static_dict() {
       init_vars();
     }
@@ -1388,7 +1386,7 @@ class static_dict : public static_dict_fwd {
 
       if (val_count > 0) {
         val_map = new grp_ptr_data_map[val_count];
-        for (int i = 0; i < val_count; i++) {
+        for (uint32_t i = 0; i < val_count; i++) {
           val_buf = dict_buf + gen::read_uint32(val_table_loc + i * sizeof(uint32_t));
           val_map[i].init(val_buf, this, trie_loc, val_buf, node_count, false);
         }
@@ -1460,7 +1458,11 @@ class static_dict : public static_dict_fwd {
       dict_buf = (uint8_t *) malloc(dict_size);
 
       FILE *fp = fopen(filename, "rb");
-      fread(dict_buf, dict_size, 1, fp);
+      size_t bytes_read = fread(dict_buf, 1, dict_size, fp);
+      if (bytes_read != dict_size) {
+        printf("Read error: [%s], %lu, %lu\n", filename, dict_size, bytes_read);
+        throw errno;
+      }
       fclose(fp);
 
       // int len_will_need = (dict_size >> 1);
@@ -1603,7 +1605,7 @@ class static_dict : public static_dict_fwd {
         } while (1);
         if (key_byte == trie_byte) {
           *pcmp = 0;
-          uint32_t tail_len = 1;
+          int tail_len = 1;
           if (bm_mask & bm_ptr) {
             tail_map.get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
@@ -1635,7 +1637,6 @@ class static_dict : public static_dict_fwd {
     }
 
     bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val, uint32_t& node_id) {
-      int key_pos, cmp;
       bool is_found = lookup(key, key_len, node_id);
       if (is_found && node_id >= 0) {
         if (val_count > 0)
