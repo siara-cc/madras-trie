@@ -141,7 +141,7 @@ struct ctx_vars {
   uint32_t ptr_bit_count;
   uint8_t grp_no;
   ctx_vars() {
-    *this = {};
+    memset(this, '\0', sizeof(*this));
     ptr_bit_count = UINT32_MAX;
   }
   static uint8_t *read_flags(uint8_t *t, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {

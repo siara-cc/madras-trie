@@ -953,8 +953,11 @@ class tail_val_maps {
         while (freq_idx < uniq_tails_freq.size()) {
           leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
           freq_idx++;
-          uint32_t cmp = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
-          cmp--; // cmp always > 0
+          int cmp_ret = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
+          if (cmp_ret == 0)
+            continue;
+          uint32_t cmp = abs(cmp_ret);
+          cmp--;
           if (cmp == ti->len || (freq_idx >= cumu_freq_idx && cmp > 4)) {
             ti->flags |= (cmp == ti->len ? MDX_SUFFIX_FULL : MDX_SUFFIX_PARTIAL);
             ti->cmp = cmp;
@@ -1194,8 +1197,11 @@ class tail_val_maps {
               prev_ti = uniq_vals_freq[freq_idx];
             continue;
           }
-          uint32_t cmp = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
-          cmp--; // cmp always > 0
+          int cmp_ret = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
+          if (cmp_ret == 0)
+            continue;
+          uint32_t cmp = abs(cmp_ret);
+          cmp--;
           if (cmp == ti->len || cmp > 1) { // (freq_idx >= cumu_freq_idx && cmp > 1)) {
             ti->flags |= (cmp == ti->len ? MDX_PREFIX_FULL : MDX_PREFIX_PARTIAL);
             ti->cmp = cmp;
@@ -1604,7 +1610,7 @@ class builder : public builder_fwd {
     // other config options: sfx_set_max, step_bits_idx, dict_comp, prefix_comp
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bldr_options _opts = {true, false, false, true, false, false, false, true})
+        bldr_options _opts = {true, false, true, true, false, false, false, true})
         : memtrie(_column_count, _column_types, _column_encoding, _opts.maintain_seq, _opts.no_primary_trie, _opts.sort_nodes_on_freq),
           tail_vals (this, memtrie.uniq_tails, memtrie.uniq_tails_rev, memtrie.uniq_vals, memtrie.uniq_vals_fwd) {
       opts = _opts;
