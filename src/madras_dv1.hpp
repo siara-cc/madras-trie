@@ -1525,16 +1525,14 @@ class static_dict : public static_dict_fwd {
 
     uint8_t *get_t(uint32_t node_id, uint64_t& bm_leaf, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint64_t& bm_mask) {
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block_n * bytes_per_bv_block_n;
+      t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
       uint32_t node_id_rem = node_id % nodes_per_bv_block_n;
-      if (node_id_rem) {
-        t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-        t += node_id_rem;
-      }
+      t += node_id_rem;
       bm_mask = (bm_init_mask << node_id_rem);
       return t;
     }
 
-    bool lookup(const uint8_t *key, int key_len, uint32_t& node_id, int *pcmp = nullptr) {
+    bool lookup(const uint8_t *key, int key_len, uint32_t& node_id) {
       #ifndef MDX_NO_NULLS
       if (key == nullptr) {
         node_id = 0;
@@ -1545,9 +1543,6 @@ class static_dict : public static_dict_fwd {
         return trie_loc[33] == 0xFF;
       }
       #endif
-      int cmp = 0;
-      if (pcmp == nullptr)
-        pcmp = &cmp;
       int key_pos = 0;
       node_id = 2;
       uint8_t tail_str_buf[max_tail_len];
@@ -1560,34 +1555,26 @@ class static_dict : public static_dict_fwd {
       uint8_t *t = trie_loc;
       uint8_t key_byte = key[key_pos];
       do {
-        *pcmp = 1;
         int ret = find_in_cache(key, key_len, key_pos, node_id);
-        if (ret == 0) {
-          *pcmp = 0;
+        if (ret == 0)
           return true;
-        }
         key_byte = key[key_pos];
         t = get_t(node_id, bm_leaf, bm_term, bm_child, bm_ptr, bm_mask);
+        #ifndef MDX_NO_DART
+        if (sec_cache_loc != nullptr && (bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
+          uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
+          if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
+            t += min_offset;
+            node_id += min_offset;
+            bm_mask <<= min_offset;
+          } else {
+            node_id += min_offset;
+            t = get_t(node_id, bm_leaf, bm_term, bm_child, bm_ptr, bm_mask);
+          }
+        }
+        #endif
         ptr_bit_count = UINT32_MAX;
         do {
-          if ((node_id % nodes_per_bv_block_n) == 0) {
-            bm_mask = bm_init_mask;
-            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
-          }
-          #ifndef MDX_NO_DART
-          if (sec_cache_loc != nullptr && (bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
-            uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
-            uint32_t old_node_id = node_id;
-            node_id += min_offset;
-            if ((old_node_id / nodes_per_bv_block_n) == (node_id / nodes_per_bv_block_n)) {
-              t += min_offset;
-              bm_mask <<= min_offset;
-            } else {
-              t = get_t(node_id, bm_leaf, bm_term, bm_child, bm_ptr, bm_mask);
-            }
-            continue;
-          }
-          #endif
           uint8_t node_byte = trie_byte = *t++;
           if (bm_mask & bm_ptr)
             trie_byte = tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
@@ -1602,23 +1589,27 @@ class static_dict : public static_dict_fwd {
             node_id++;
           } else
             break;
+          if ((node_id % nodes_per_bv_block_n) == 0) {
+            bm_mask = bm_init_mask;
+            t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
+          }
         } while (1);
         if (key_byte == trie_byte) {
-          *pcmp = 0;
+          int cmp = 0;
           int tail_len = 1;
           if (bm_mask & bm_ptr) {
             tail_map.get_tail_str(tail_str, tail_ptr, grp_no);
             tail_len = tail_str.length();
-            *pcmp = gen::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
+            cmp = gen::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
           }
           key_pos += tail_len;
-          if (key_pos < key_len && (*pcmp == 0 || abs(*pcmp) - 1 == tail_len)) {
+          if (key_pos < key_len && (cmp == 0 || abs(cmp) - 1 == tail_len)) {
             if ((bm_mask & bm_child) == 0)
               return false;
             term_lt.select(node_id, child_lt.rank(node_id) + 1);
             continue;
           }
-          if (*pcmp == 0 && key_pos == key_len && (bm_leaf & bm_mask))
+          if (cmp == 0 && key_pos == key_len && (bm_leaf & bm_mask))
             return true;
         }
         return false;
