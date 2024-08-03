@@ -84,6 +84,45 @@ struct PACKED_STRUCT nid_cache {
   uint8_t child_node_id2;
   uint8_t child_node_id3;
 };
+
+struct PACKED_STRUCT bldr_options {
+  uint8_t inner_tries;
+  uint8_t tail_tries;
+  uint8_t fwd_cache;
+  uint8_t rev_cache;
+  uint8_t dart;
+  uint8_t dessicate;
+  uint8_t sort_nodes_on_freq;
+  uint8_t leaf_lt;
+  uint8_t partial_sfx_coding;
+  uint8_t idx_partial_sfx_coding;
+  uint8_t sfx_min_tail_len;
+  uint8_t step_bits_idx;
+  uint8_t step_bits_rest;
+  uint8_t max_inner_tries;
+  uint8_t fwd_cache_multipler;
+  uint8_t rev_cache_multipler;
+  uint16_t sfx_set_max_dflt;
+};
+#define opts_size 18
+
+const static bldr_options preset_opts[] = {
+  //  it,    tt,    fc,    rc,  dart,  dsct, sortn,   llt,    sc, scidx, mt, si, sr, it, cm, cm, sfx
+  { true, false,  true,  true, false, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64},
+  {false, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64},
+  { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64}
+};
+
+const static bldr_options dflt_opts =
+  { true, false,  true,  true, false, false, false,  true,  true, false,  4,  3,  3,  3,  2,  2,  64};
+
+const static bldr_options word_tries_dflt_opts =
+  {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  64};
+const static bldr_options col_tries_dflt_opts =
+  { true, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  64};
+const static bldr_options inner_tries_dflt_opts =
+  { true, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  2,  2,  2,  64};
+
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif

@@ -402,7 +402,7 @@ class grp_ptr_data_map {
 
       was_ptr_lt_given = true;
       col_trie = nullptr;
-      if (encoding_type == 't' && !is_tail) {
+      if (encoding_type == 't') {
         col_trie = dict_obj->new_instance(grp_data_loc);
         col_trie_int_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
@@ -1277,6 +1277,7 @@ class static_dict : public static_dict_fwd {
 
   public:
     uint8_t *dict_buf;
+    bldr_options *opts;
     uint32_t node_count;
     uint32_t val_count;
     uint8_t *names_loc;
@@ -1337,6 +1338,7 @@ class static_dict : public static_dict_fwd {
       names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
       val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
       node_count = gen::read_uint32(dict_buf + 14);
+      opts = (bldr_options *) dict_buf + gen::read_uint32(dict_buf + 18);
       node_set_count = gen::read_uint32(dict_buf + 22);
       key_count = gen::read_uint32(dict_buf + 26);
       names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
