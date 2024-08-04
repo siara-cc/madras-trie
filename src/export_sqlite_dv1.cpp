@@ -259,9 +259,11 @@ int main(int argc, char* argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
+  madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
+  bldr_opts.inner_tries = true;
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
-      col_types.c_str(), col_encodings.c_str(), 0,
-      (madras_dv1::bldr_options) {true, key_col_idx == 0, true, true, false, true, false});
+      col_types.c_str(), col_encodings.c_str(), 0, true, key_col_idx == 0,
+      bldr_opts);
   mb.set_print_enabled();
   mb.open_file();
 
@@ -328,7 +330,7 @@ int main(int argc, char* argv[]) {
       const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
       int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
       int key_len;
-      bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key);
+      bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key, nullptr, nullptr, 0, nullptr, false, true);
       if (sql_key == nullptr && key_len == -1) {
         // Ok
       } else if (key_len != sql_key_len)

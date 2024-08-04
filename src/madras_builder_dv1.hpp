@@ -123,7 +123,7 @@ class builder_fwd {
     virtual uint32_t write_trie(const char *filename = NULL) = 0;
 };
 
-class grasping {
+class ptr_groups {
   private:
     int step_bits_idx;
     int step_bits_rest;
@@ -155,10 +155,10 @@ class grasping {
   public:
     std::vector<builder_fwd *> inner_tries;
     size_t inner_trie_start_grp;
-    grasping() {
+    ptr_groups() {
       reset();
     }
-    ~grasping() {
+    ~ptr_groups() {
       for (size_t i = 0; i < inner_tries.size(); i++)
         delete inner_tries[i];
     }
@@ -408,7 +408,13 @@ class grasping {
       if (dessicate)
         ptr_lookup_tbl_loc = 0;
     }
+    #define CODE_LT_BIT_LEN 0
+    #define CODE_LT_CODE_LEN 1
     void write_code_lookup_tbl(bool is_tail, FILE* fp) {
+      write_code_lt(is_tail, CODE_LT_BIT_LEN, fp);
+      write_code_lt(is_tail, CODE_LT_CODE_LEN, fp);
+    }
+    void write_code_lt(bool is_tail, int which, FILE* fp) {
       for (int i = 0; i < 256; i++) {
         uint8_t code_i = i;
         bool code_found = false;
@@ -416,16 +422,20 @@ class grasping {
           uint8_t code_len = freq_grp_vec[j].code_len;
           uint8_t code = freq_grp_vec[j].code;
           if ((code_i >> (8 - code_len)) == code) {
-            int bit_len = freq_grp_vec[j].grp_log2;
-            fputc(bit_len, fp);
-            fputc((j - 1) | (code_len << 4), fp);
+            if (which == CODE_LT_BIT_LEN) {
+              int bit_len = freq_grp_vec[j].grp_log2;
+              fputc(bit_len, fp);
+            }
+            if (which == CODE_LT_CODE_LEN) {
+              fputc((j - 1) | (code_len << 4), fp);
+            }
             code_found = true;
             break;
           }
         }
         if (!code_found) {
           //printf("Code not found: %d", i);
-          fputc(0, fp);
+          //fputc(0, fp);
           fputc(0, fp);
         }
       }
@@ -727,8 +737,7 @@ class tail_val_maps {
     gen::byte_blocks& uniq_tails;
     leopard::uniq_info_vec& uniq_tails_rev;
     //leopard::uniq_info_vec uniq_tails_fwd;
-    grasping tail_ptrs;
-    grasping val_ptrs;
+    ptr_groups ptr_grps;
     byte_vec two_byte_tails;
     gen::byte_blocks& uniq_vals;
     leopard::uniq_info_vec& uniq_vals_fwd;
@@ -736,8 +745,7 @@ class tail_val_maps {
   public:
     tail_val_maps(builder_fwd *_bldr, gen::byte_blocks& _uniq_tails, leopard::uniq_info_vec& _uniq_tails_rev, gen::byte_blocks& _uniq_vals, leopard::uniq_info_vec& _uniq_vals_fwd)
         : bldr (_bldr), uniq_tails (_uniq_tails), uniq_tails_rev (_uniq_tails_rev), uniq_vals (_uniq_vals), uniq_vals_fwd (_uniq_vals_fwd) {
-      tail_ptrs.init(_bldr->opts.step_bits_idx, _bldr->opts.step_bits_rest);
-      val_ptrs.init(_bldr->opts.step_bits_idx, _bldr->opts.step_bits_rest);
+      ptr_grps.init(_bldr->opts.step_bits_idx, _bldr->opts.step_bits_rest);
     }
     ~tail_val_maps() {
       for (size_t i = 0; i < uniq_tails_rev.size(); i++)
@@ -923,8 +931,8 @@ class tail_val_maps {
       uint32_t last_data_len;
       uint8_t start_bits = 7;
       uint32_t cumu_freq_idx = make_uniq_freq((leopard::uniq_info_vec&) uniq_tails_rev, (leopard::uniq_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
-      tail_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
-      tail_ptrs.set_max_len(_max_len);
+      ptr_grps.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
+      ptr_grps.set_max_len(_max_len);
 
       uint32_t freq_idx = cumu_freq_idx;
       while (freq_idx < uniq_tails_freq.size()) {
@@ -978,8 +986,8 @@ class tail_val_maps {
       freq_idx = 0;
       grp_no = 1;
       uint32_t cur_limit = pow(2, start_bits);
-      tail_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      tail_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
       uint32_t savings_partial = 0;
@@ -993,7 +1001,7 @@ class tail_val_maps {
         leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
         last_data_len -= ti->len;
         last_data_len--;
-        uint32_t it_nxt_limit = tail_ptrs.check_next_grp(grp_no, cur_limit, ti->len);
+        uint32_t it_nxt_limit = ptr_grps.check_next_grp(grp_no, cur_limit, ti->len);
         if (bldr->opts.inner_tries && it_nxt_limit != cur_limit && 
               it_nxt_limit >= inner_trie_min_size && last_data_len >= inner_trie_min_size * 2) {
           break;
@@ -1001,12 +1009,12 @@ class tail_val_maps {
         freq_idx++;
         if (is_bin) {
           uint32_t bin_len = ti->len;
-          uint32_t len_len = tail_ptrs.get_set_len_len(bin_len);
+          uint32_t len_len = ptr_grps.get_set_len_len(bin_len);
           bin_len += len_len;
-          uint32_t new_limit = tail_ptrs.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = tail_ptrs.append_bin15_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
+          uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
+          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
           ti->grp_no = grp_no;
-          tail_ptrs.update_current_grp(grp_no, bin_len, ti->freq_count);
+          ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
           continue;
         } else if (ti->flags & MDX_SUFFIX_FULL) {
@@ -1015,22 +1023,22 @@ class tail_val_maps {
           savings_count_full++;
           leopard::uniq_info *link_ti = uniq_tails_rev[ti->link_arr_idx];
           if (link_ti->grp_no == 0) {
-            cur_limit = tail_ptrs.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
-            tail_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[link_ti->pos], link_ti->len, true);
+            ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
+            link_ti->ptr = ptr_grps.append_text_tail(grp_no, uniq_tails[link_ti->pos], link_ti->len, true);
           }
-          //cur_limit = tail_ptrs.next_grp(grp_no, cur_limit, 0);
-          tail_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
+          //cur_limit = ptr_grps.next_grp(grp_no, cur_limit, 0);
+          ptr_grps.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
           ti->ptr = link_ti->ptr + link_ti->len - ti->len;
           ti->grp_no = link_ti->grp_no;
         } else {
           if (ti->flags & MDX_SUFFIX_PARTIAL) {
             uint32_t cmp = ti->cmp;
             uint32_t remain_len = ti->len - cmp;
-            uint32_t len_len = tail_ptrs.get_set_len_len(cmp);
+            uint32_t len_len = ptr_grps.get_set_len_len(cmp);
             remain_len += len_len;
-            uint32_t new_limit = tail_ptrs.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
+            uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
             if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
               ti->cmp_min = 0;
               if (sfx_set_len == 1)
@@ -1040,11 +1048,11 @@ class tail_val_maps {
               savings_partial += cmp;
               savings_partial -= len_len;
               savings_count_partial++;
-              tail_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
+              ptr_grps.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], remain_len);
-              byte_vec& tail_data = tail_ptrs.get_data(grp_no);
-              tail_ptrs.get_set_len_len(cmp, &tail_data);
+              ti->ptr = ptr_grps.append_text_tail(grp_no, uniq_tails[ti->pos], remain_len);
+              byte_vec& tail_data = ptr_grps.get_data(grp_no);
+              ptr_grps.get_set_len_len(cmp, &tail_data);
             } else {
               // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               sfx_set_len = 1;
@@ -1054,8 +1062,8 @@ class tail_val_maps {
               sfx_set_max = bldr->opts.sfx_set_max_dflt;
               if (ti->len > sfx_set_max)
                 sfx_set_max = ti->len * 2;
-              tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
+              ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
+              ti->ptr = ptr_grps.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
             }
               //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails[ti->tail_pos]);
             cur_limit = new_limit;
@@ -1068,9 +1076,9 @@ class tail_val_maps {
             sfx_set_max = bldr->opts.sfx_set_max_dflt;
             if (ti->len > sfx_set_max)
               sfx_set_max = ti->len * 2;
-            cur_limit = tail_ptrs.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            tail_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = tail_ptrs.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
+            ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
+            ti->ptr = ptr_grps.append_text_tail(grp_no, uniq_tails[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
@@ -1079,10 +1087,10 @@ class tail_val_maps {
 
       if (bldr->opts.inner_tries && freq_idx < uniq_tails_freq.size()) {
         builder_fwd *inner_trie = bldr->new_instance();
-        cur_limit = tail_ptrs.next_grp(grp_no, cur_limit, uniq_tails_freq[freq_idx]->len, tot_freq_count, true);
-        tail_ptrs.inner_trie_start_grp = grp_no;
+        cur_limit = ptr_grps.next_grp(grp_no, cur_limit, uniq_tails_freq[freq_idx]->len, tot_freq_count, true);
+        ptr_grps.inner_trie_start_grp = grp_no;
         uint32_t trie_entry_idx = 0;
-        tail_ptrs.inner_tries.push_back(inner_trie);
+        ptr_grps.inner_tries.push_back(inner_trie);
         while (freq_idx < uniq_tails_freq.size()) {
           leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
           uint8_t rev[ti->len];
@@ -1090,21 +1098,21 @@ class tail_val_maps {
           for (uint32_t j = 0; j < ti->len; j++)
             rev[j] = ti_data[ti->len - j - 1];
           inner_trie->insert(rev, ti->len, nullptr, 0, freq_idx);
-          tail_ptrs.update_current_grp(grp_no, 1, ti->freq_count);
+          ptr_grps.update_current_grp(grp_no, 1, ti->freq_count);
           ti->grp_no = grp_no;
           trie_entry_idx++;
           if (trie_entry_idx == cur_limit) {
             inner_trie = bldr->new_instance();
-            cur_limit = tail_ptrs.next_grp(grp_no, cur_limit, trie_entry_idx, tot_freq_count, true);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, trie_entry_idx, tot_freq_count, true);
             trie_entry_idx = 0;
-            tail_ptrs.inner_tries.push_back(inner_trie);
+            ptr_grps.inner_tries.push_back(inner_trie);
           }
           freq_idx++;
         }
       }
 
-      for (size_t it_idx = 0; it_idx < tail_ptrs.inner_tries.size(); it_idx++) {
-        builder_fwd *inner_trie = tail_ptrs.inner_tries[it_idx];
+      for (size_t it_idx = 0; it_idx < ptr_grps.inner_tries.size(); it_idx++) {
+        builder_fwd *inner_trie = ptr_grps.inner_tries[it_idx];
         uint32_t trie_size = inner_trie->build();
         leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets);
         leopard::node n = ni.next();
@@ -1119,7 +1127,7 @@ class tail_val_maps {
           n = ni.next();
           node_id++;
         }
-        freq_grp *fg = tail_ptrs.get_freq_grp(tail_ptrs.inner_trie_start_grp + it_idx);
+        freq_grp *fg = ptr_grps.get_freq_grp(ptr_grps.inner_trie_start_grp + it_idx);
         fg->grp_size = trie_size;
         fg->grp_limit = node_id;
         fg->count = node_id;
@@ -1128,7 +1136,7 @@ class tail_val_maps {
 
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
         leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
-        ti->ptr = tail_ptrs.append_ptr2_idx_map(ti->grp_no, ti->ptr);
+        ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
       // check_remaining_text(uniq_tails_freq, uniq_tails, true);
@@ -1138,7 +1146,7 @@ class tail_val_maps {
       // size_t tot_cmpr_size = 0;
       // uint8_t *cmpr_buf = (uint8_t *) malloc(cmpr_blk_size * 1.2);
       // for (int g = 1; g <= grp_no; g++) {
-      //   byte_vec& gd = tail_ptrs.get_data(g);
+      //   byte_vec& gd = ptr_grps.get_data(g);
       //   if (gd.size() > cmpr_blk_size) {
       //     int cmpr_blk_count = gd.size() / cmpr_blk_size + 1;
       //     for (int b = 0; b < cmpr_blk_count; b++) {
@@ -1155,8 +1163,8 @@ class tail_val_maps {
       // }
       // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
 
-      tail_ptrs.build_freq_codes();
-      tail_ptrs.show_freq_codes();
+      ptr_grps.build_freq_codes();
+      ptr_grps.show_freq_codes();
 
       gen::print_time_taken(t, "Time taken for build_tail_maps(): ");
 
@@ -1172,9 +1180,9 @@ class tail_val_maps {
       uint32_t last_data_len;
       uint8_t start_bits = 1;
       uint32_t cumu_freq_idx = make_uniq_freq((leopard::uniq_info_vec&) uniq_vals_fwd, (leopard::uniq_info_vec&) uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
-      val_ptrs.reset();
-      val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
-      val_ptrs.set_max_len(_max_len);
+      ptr_grps.reset();
+      ptr_grps.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
+      ptr_grps.set_max_len(_max_len);
 
       uint32_t freq_idx = 0;
       bool is_bin = false;
@@ -1222,8 +1230,8 @@ class tail_val_maps {
       freq_idx = 0;
       grp_no = 1;
       uint32_t cur_limit = pow(2, start_bits);
-      val_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      val_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       uint32_t savings_full = 0;
       uint32_t savings_count_full = 0;
       uint32_t savings_partial = 0;
@@ -1236,15 +1244,15 @@ class tail_val_maps {
       while (freq_idx < uniq_vals_freq.size()) {
         leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
         freq_idx++;
-        byte_vec& val_data = val_ptrs.get_data(grp_no);
+        byte_vec& val_data = ptr_grps.get_data(grp_no);
         if (is_bin) {
           uint32_t bin_len = ti->len;
-          uint32_t len_len = val_ptrs.get_set_len_len(bin_len);
+          uint32_t len_len = ptr_grps.get_set_len_len(bin_len);
           bin_len += len_len;
-          uint32_t new_limit = val_ptrs.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = val_ptrs.append_bin15_to_grp_data(grp_no, uniq_vals[ti->pos], ti->len);
+          uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
+          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_vals[ti->pos], ti->len);
           ti->grp_no = grp_no;
-          val_ptrs.update_current_grp(grp_no, bin_len, ti->freq_count);
+          ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
           continue;
         } else if (ti->flags & MDX_PREFIX_FULL) {
@@ -1253,22 +1261,22 @@ class tail_val_maps {
           savings_count_full++;
           leopard::uniq_info *link_ti = uniq_vals_fwd[ti->link_arr_idx];
           if (link_ti->grp_no == 0) {
-            cur_limit = val_ptrs.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
-            val_ptrs.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[link_ti->pos], link_ti->len, true);
+            ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
+            link_ti->ptr = ptr_grps.append_text_val(grp_no, uniq_vals[link_ti->pos], link_ti->len, true);
           }
-          //cur_limit = val_ptrs.next_grp(grp_no, cur_limit, 0);
-          val_ptrs.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
+          //cur_limit = ptr_grps.next_grp(grp_no, cur_limit, 0);
+          ptr_grps.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
           ti->ptr = link_ti->ptr - link_ti->len + ti->len;
           ti->grp_no = link_ti->grp_no;
         } else {
           if (ti->flags & MDX_PREFIX_PARTIAL) {
             uint32_t cmp = ti->cmp;
             uint32_t remain_len = ti->len - cmp;
-            uint32_t len_len = val_ptrs.get_set_len_len(cmp);
+            uint32_t len_len = ptr_grps.get_set_len_len(cmp);
             remain_len += len_len;
-            uint32_t new_limit = val_ptrs.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
+            uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
             if (pfx_set_len + remain_len <= pfx_set_max && cur_limit == new_limit) {
               ti->cmp_min = 0;
               // if (pfx_set_len == 1)
@@ -1278,10 +1286,10 @@ class tail_val_maps {
               savings_partial += cmp;
               savings_partial -= len_len;
               savings_count_partial++;
-              val_ptrs.update_current_grp(grp_no, remain_len, ti->freq_count);
+              ptr_grps.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos + cmp], remain_len) + 1;
-              val_ptrs.get_set_len_len(cmp, &val_data);
+              ti->ptr = ptr_grps.append_text_val(grp_no, uniq_vals[ti->pos + cmp], remain_len) + 1;
+              ptr_grps.get_set_len_len(cmp, &val_data);
             } else {
               // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               pfx_set_len = 1;
@@ -1291,8 +1299,8 @@ class tail_val_maps {
               pfx_set_max = pfx_set_max_dflt;
               if (ti->len > pfx_set_max)
                 pfx_set_max = ti->len * 2;
-              val_ptrs.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
+              ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
+              ti->ptr = ptr_grps.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
             }
               //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp, ti->cmp_min, ti->val_ptr, remain_len, ti->val_len, ti->val_len, uniq_vals[ti->val_pos]);
             cur_limit = new_limit;
@@ -1305,14 +1313,14 @@ class tail_val_maps {
             pfx_set_max = pfx_set_max_dflt;
             if (ti->len > pfx_set_max)
               pfx_set_max = ti->len * 2;
-            cur_limit = val_ptrs.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            val_ptrs.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
+            ptr_grps.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
             if (ti->flags & LPDU_NULL)
               ti->ptr = 0;
             else if (ti->flags & LPDU_EMPTY)
               ti->ptr = 1;
             else
-              ti->ptr = val_ptrs.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
+              ti->ptr = ptr_grps.append_text_val(grp_no, uniq_vals[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
@@ -1321,7 +1329,7 @@ class tail_val_maps {
 
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
         leopard::uniq_info *ti = uniq_vals_freq[freq_idx];
-        ti->ptr = val_ptrs.append_ptr2_idx_map(ti->grp_no, ti->ptr);
+        ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
       check_remaining_text(uniq_vals_freq, uniq_vals, false);
@@ -1333,7 +1341,7 @@ class tail_val_maps {
       // size_t tot_cmpr_size = 0;
       // uint8_t *cmpr_buf = (uint8_t *) malloc(cmpr_blk_size * 1.2);
       // for (int g = 1; g <= grp_no; g++) {
-      //   byte_vec& gd = val_ptrs.get_data(g);
+      //   byte_vec& gd = ptr_grps.get_data(g);
       //   // if (gd.size() > cmpr_blk_size) {
       //     int cmpr_blk_count = gd.size() / cmpr_blk_size + 1;
       //     for (int b = 0; b < cmpr_blk_count; b++) {
@@ -1351,8 +1359,8 @@ class tail_val_maps {
       // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
       // gen::print_time_taken(tt, "Time taken for compress (): ");
 
-      val_ptrs.build_freq_codes(true);
-      val_ptrs.show_freq_codes();
+      ptr_grps.build_freq_codes(true);
+      ptr_grps.show_freq_codes();
       gen::print_time_taken(t, "Time taken for build_val_maps(): ");
 
     }
@@ -1364,15 +1372,15 @@ class tail_val_maps {
       uint8_t grp_no;
       leopard::uniq_info_vec uniq_vals_freq;
       uint32_t cumu_freq_idx = make_uniq_freq(uniq_vals_fwd, uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
-      val_ptrs.reset();
-      val_ptrs.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
-      val_ptrs.set_max_len(_max_len);
+      ptr_grps.reset();
+      ptr_grps.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
+      ptr_grps.set_max_len(_max_len);
       uint32_t freq_idx = 0;
       uint32_t cur_limit = pow(2, start_bits);
       grp_no = 1;
       // gen::word_matcher wm(uniq_vals);
-      val_ptrs.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      val_ptrs.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       while (freq_idx < uniq_vals_freq.size()) {
         leopard::uniq_info *vi = uniq_vals_freq[freq_idx];
         freq_idx++;
@@ -1380,7 +1388,7 @@ class tail_val_maps {
         if (data_type == LPDT_TEXT || data_type == LPDT_BIN)
           len_of_len = gen::get_vlen_of_uint32(vi->len);
         uint32_t len_plus_len = vi->len + len_of_len;
-        cur_limit = val_ptrs.next_grp(grp_no, cur_limit, len_plus_len, tot_freq_count);
+        cur_limit = ptr_grps.next_grp(grp_no, cur_limit, len_plus_len, tot_freq_count);
         vi->grp_no = grp_no;
         if (vi->flags & LPDU_NULL) {
           vi->ptr = 0;
@@ -1389,36 +1397,36 @@ class tail_val_maps {
           vi->ptr = 1;
           len_plus_len = 0;
         } else {
-          vi->ptr = val_ptrs.append_bin_to_grp_data(grp_no, uniq_vals[vi->pos], vi->len, data_type);
+          vi->ptr = ptr_grps.append_bin_to_grp_data(grp_no, uniq_vals[vi->pos], vi->len, data_type);
           // if (data_type == 't')
           //   wm.add_all_combis(vi->pos, vi->len, vi->arr_idx);
         }
-        val_ptrs.update_current_grp(grp_no, len_plus_len, vi->freq_count);
+        ptr_grps.update_current_grp(grp_no, len_plus_len, vi->freq_count);
       }
       // wm.process_combis();
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
         leopard::uniq_info *vi = uniq_vals_freq[freq_idx];
-        vi->ptr = val_ptrs.append_ptr2_idx_map(vi->grp_no, vi->ptr);
+        vi->ptr = ptr_grps.append_ptr2_idx_map(vi->grp_no, vi->ptr);
       }
-      val_ptrs.build_freq_codes(true);
-      val_ptrs.show_freq_codes();
+      ptr_grps.build_freq_codes(true);
+      ptr_grps.show_freq_codes();
       t = gen::print_time_taken(t, "Time taken for build_val_maps(): ");
     }
 
     void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp) {
-      tail_ptrs.write_ptrs_data(LPDT_BIN, 1, true, fp);
+      ptr_grps.write_ptrs_data(LPDT_BIN, 1, true, fp);
     }
 
     void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, uint8_t flags, FILE *fp) {
-      val_ptrs.write_ptrs_data(data_type, flags, false, fp);
+      ptr_grps.write_ptrs_data(data_type, flags, false, fp);
     }
 
     uint32_t get_tail_ptr(uint32_t grp_no, leopard::uniq_info *ti) {
       uint32_t ptr = ti->ptr;
-      if (grp_no <= tail_ptrs.get_idx_limit()) {
-        byte_vec& idx2_ptr_map = *(tail_ptrs.get_idx2_ptrs_map());
-        uint32_t pos = tail_ptrs.idx_map_arr[grp_no - 1] + ptr * tail_ptrs.get_idx_ptr_size();
-        ptr = tail_ptrs.get_idx_ptr_size() == 2 ? gen::read_uint16(idx2_ptr_map, pos) : gen::read_uint24(idx2_ptr_map, pos);
+      if (grp_no <= ptr_grps.get_idx_limit()) {
+        byte_vec& idx2_ptr_map = *(ptr_grps.get_idx2_ptrs_map());
+        uint32_t pos = ptr_grps.idx_map_arr[grp_no - 1] + ptr * ptr_grps.get_idx_ptr_size();
+        ptr = ptr_grps.get_idx_ptr_size() == 2 ? gen::read_uint16(idx2_ptr_map, pos) : gen::read_uint24(idx2_ptr_map, pos);
       }
       return ptr;
     }
@@ -1450,7 +1458,7 @@ class tail_val_maps {
       leopard::uniq_info *ti = uniq_tails_rev[n->get_tail()];
       uint32_t grp_no = ti->grp_no;
       uint32_t ptr = get_tail_ptr(grp_no, ti);
-      byte_vec& tail = tail_ptrs.get_data(grp_no);
+      byte_vec& tail = ptr_grps.get_data(grp_no);
       return *(tail.data() + ptr);
     }
 
@@ -1464,7 +1472,7 @@ class tail_val_maps {
       uint32_t grp_no = ti->grp_no;
       uint32_t tail_ptr = get_tail_ptr(grp_no, ti);
       uint32_t ptr = tail_ptr;
-      byte_vec& tail = tail_ptrs.get_data(grp_no);
+      byte_vec& tail = ptr_grps.get_data(grp_no);
       std::string ret;
       int byt = tail[ptr++];
       while (byt > 31) {
@@ -1520,11 +1528,11 @@ class tail_val_maps {
     leopard::uniq_info_vec *get_uniq_vals_fwd() {
       return &uniq_vals_fwd;
     }
-    grasping *get_tail_grp_ptrs() {
-      return &tail_ptrs;
+    ptr_groups *get_tail_grp_ptrs() {
+      return &ptr_grps;
     }
-    grasping *get_val_grp_ptrs() {
-      return &val_ptrs;
+    ptr_groups *get_val_grp_ptrs() {
+      return &ptr_grps;
     }
 
 };
@@ -1716,17 +1724,17 @@ class builder : public builder_fwd {
         return cur_node->get_byte();
       uint8_t node_val;
       uint32_t ptr = 0;
-      grasping *tail_ptrs = tail_vals.get_tail_grp_ptrs();
+      ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
         leopard::uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
         uint8_t grp_no = ti->grp_no;
         // if (grp_no == 0 || ti->tail_ptr == 0)
         //   gen::gen_printf("ERROR: not marked: [%.*s]\n", ti->tail_len, uniq_tails.data() + ti->tail_pos);
         ptr = ti->ptr;
-        freq_grp *fg = tail_ptrs->get_freq_grp(grp_no);
+        freq_grp *fg = ptr_grps->get_freq_grp(grp_no);
         int node_val_bits = 8 - fg->code_len;
         node_val = (fg->code << node_val_bits) | (ptr & ((1 << node_val_bits) - 1));
         ptr >>= node_val_bits;
-        tail_ptrs->append_ptr_bits(ptr, fg->grp_log2);
+        ptr_grps->append_ptr_bits(ptr, fg->grp_log2);
       return node_val;
     }
 
@@ -1738,13 +1746,13 @@ class builder : public builder_fwd {
       if ((cur_node->get_flags() & NFLAG_TAIL) == 0)
         return;
       uint32_t ptr = 0;
-      grasping *tail_ptrs = tail_vals.get_tail_grp_ptrs();
+      ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
       leopard::uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
       uint8_t grp_no = ti->grp_no;
       // if (grp_no == 0 || ti->tail_ptr == 0)
       //   gen::gen_printf("ERROR: not marked: [%.*s]\n", ti->tail_len, uniq_tails.data() + ti->tail_pos);
       ptr = ti->ptr;
-      freq_grp *fg = tail_ptrs->get_freq_grp(grp_no);
+      freq_grp *fg = ptr_grps->get_freq_grp(grp_no);
       int node_val_bits = 8 - fg->code_len;
       ptr >>= node_val_bits;
       if (fg->grp_log2 > 0)
@@ -1806,11 +1814,11 @@ class builder : public builder_fwd {
         leopard::node cur_node = cur_ns[this_val_seq.node_idx];
         cur_node.set_col_val(col_trie_node_id);
       }
-      byte_vec *val_ptrs = tail_vals.get_val_grp_ptrs()->get_ptrs();
+      byte_vec *ptr_grps = tail_vals.get_val_grp_ptrs()->get_ptrs();
       int bit_len = ceil(log2(max_node_id + 1));
       tail_vals.get_val_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Col trie bit_len: %d [log(%u)]\n", bit_len, max_node_id);
-      gen::int_bit_vector int_bv(val_ptrs, bit_len, memtrie.node_count);
+      gen::int_bit_vector int_bv(ptr_grps, bit_len, memtrie.node_count);
       int counter = 0;
       leopard::node_iterator ni(memtrie.all_node_sets, (no_primary_trie ? 1 : 0));
       leopard::node cur_node = ni.next();
@@ -2022,9 +2030,9 @@ class builder : public builder_fwd {
           make_delta_values();
         if (encoding_type == 't') {
           uint32_t col_trie_size = build_col_trie();
-          grasping *val_ptrs = tail_vals.get_val_grp_ptrs();
-          val_ptrs->set_max_len(col_trie_builder->memtrie.max_key_len);
-          val_ptrs->build(memtrie.node_count, memtrie.all_node_sets, grasping::get_vals_info_fn, 
+          ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
+          ptr_grps->set_max_len(col_trie_builder->memtrie.max_key_len);
+          ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               memtrie.uniq_vals_fwd, false, no_primary_trie, opts.dessicate, encoding_type, col_trie_size);
         } else {
           leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
@@ -2055,8 +2063,8 @@ class builder : public builder_fwd {
           }
           printf("Rpt count: %u\n", rpt_count);
 
-          grasping *val_ptrs = tail_vals.get_val_grp_ptrs();
-          val_ptrs->build(memtrie.node_count, memtrie.all_node_sets, grasping::get_vals_info_fn, 
+          ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
+          ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               memtrie.uniq_vals_fwd, false, no_primary_trie, opts.dessicate, encoding_type);
         }
       }
@@ -2073,7 +2081,7 @@ class builder : public builder_fwd {
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, col_tries_dflt_opts);
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
         col_trie_builder->fp = fp;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
@@ -2184,7 +2192,7 @@ class builder : public builder_fwd {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
       }
       gen::gen_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
-      tail_vals.get_tail_grp_ptrs()->build(node_count, memtrie.all_node_sets, grasping::get_tails_info_fn, 
+      tail_vals.get_tail_grp_ptrs()->build(node_count, memtrie.all_node_sets, ptr_groups::get_tails_info_fn, 
               memtrie.uniq_tails_rev, true, no_primary_trie, opts.dessicate, 'u');
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       end_loc = (4 + tail_size + trie.size());
@@ -2233,7 +2241,7 @@ class builder : public builder_fwd {
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, col_tries_dflt_opts);
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
         col_trie_builder->fp = fp;
         memtrie.col_trie = &col_trie_builder->memtrie;
       }
@@ -2241,7 +2249,6 @@ class builder : public builder_fwd {
     }
 
     void set_node_id() {
-      printf("set_node_id Before Node count: %u\n", memtrie.node_count);
       uint32_t node_id = 0;
       for (size_t i = 0; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
@@ -2254,7 +2261,6 @@ class builder : public builder_fwd {
         node_id += ns_hdr->last_node_idx;
         node_id++;
       }
-      printf("set_node_id After Node count: %u\n", memtrie.node_count);
     }
 
     uint32_t build_cache(bool build_fwd_cache, bool build_rev_cache, uint32_t& max_node_id) {
@@ -2488,7 +2494,7 @@ class builder : public builder_fwd {
       int val_count = column_count - (no_primary_trie ? 0 : 1);
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
       tp.col_val_loc0 = tp.col_val_table_loc + tp.col_val_table_sz;
-      tp.total_idx_size = 4 + 10 + 22 * 4 + opts_size +
+      tp.total_idx_size = tp.opts_loc + opts_size +
                 tp.fwd_cache_size + tp.rev_cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
                 tp.leaf_select_lt_sz + tp.child_select_lt_sz + tp.leaf_bvlt_sz +
