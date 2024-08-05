@@ -114,7 +114,7 @@ const static bldr_options preset_opts[] = {
 };
 
 const static bldr_options dflt_opts =
-  { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,  1,  2,  2,  64};
+  { true, false,  true, false,  true, false, false,  true,  true, false,  4,  3,  3,  1,  2,  2,  64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  64};

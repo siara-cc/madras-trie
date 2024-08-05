@@ -1489,8 +1489,9 @@ class static_dict : public static_dict_fwd {
       uint32_t cache_mask = fwd_cache_count - 1;
       fwd_cache *cche0 = (fwd_cache *) fwd_cache_loc;
       int times = MDX_CACHE_TIMES;
-      uint32_t cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+      uint32_t cache_idx = node_id;
       do {
+        cache_idx = (node_id ^ (cache_idx << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
         fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (node_id == cache_node_id) {
@@ -1499,7 +1500,7 @@ class static_dict : public static_dict_fwd {
             if (key_pos < key_len) {
               node_id = gen::read_uint24(&cche->child_node_id1);
               key_byte = key[key_pos];
-              cache_idx = (node_id ^ (node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+              cache_idx = node_id;
               times = MDX_CACHE_TIMES;
               continue;
             }
@@ -1515,9 +1516,6 @@ class static_dict : public static_dict_fwd {
             }
           }
         }
-        cache_idx = ((cache_idx << MDX_CACHE_SHIFT) ^ node_id ^ key_byte) & cache_mask;
-        // cache_idx %= cache_mask;
-        // cache_idx++;
       } while (--times);
       return -1;
     }
@@ -1578,16 +1576,16 @@ class static_dict : public static_dict_fwd {
           if (bm_mask & bm_ptr)
             trie_byte = tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
           #ifndef MDX_IN_ORDER
-          if (key_byte != trie_byte) {
+            if (key_byte == trie_byte)
+              break;
           #else
-          if (key_byte > trie_byte) {
+            if (key_byte <= trie_byte)
+              break;
           #endif
-            if (bm_mask & bm_term)
-              return false;
-            bm_mask <<= 1;
-            node_id++;
-          } else
-            break;
+          if (bm_mask & bm_term)
+            return false;
+          bm_mask <<= 1;
+          node_id++;
           if ((node_id % nodes_per_bv_block_n) == 0) {
             bm_mask = bm_init_mask;
             t = ctx_vars::read_flags(t, bm_leaf, bm_term, bm_child, bm_ptr);
@@ -1858,18 +1856,18 @@ class static_dict : public static_dict_fwd {
         bool do_select = (rev_cache_count == 0);
         if (!do_select) {
           nid_cache *cche0 = (nid_cache *) rev_cache_loc;
-          uint32_t cache_idx = (cv.node_id ^ (cv.node_id << MDX_CACHE_SHIFT)) & cache_mask;
+          uint32_t cache_idx = cv.node_id;
           int times = MDX_CACHE_TIMES;
           do {
             do_select = false;
+            cache_idx = ((cache_idx << MDX_CACHE_SHIFT) ^ cv.node_id) & cache_mask;
             nid_cache *cche = cche0 + cache_idx;
             uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
             if (cv.node_id == cache_node_id) {
               cv.node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
               break;
-            } else
-              do_select = true;
-            cache_idx = ((cache_idx << MDX_CACHE_SHIFT) ^ cv.node_id) & cache_mask;
+            }
+            do_select = true;
           } while (--times);
         }
         if (do_select)
