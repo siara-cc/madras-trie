@@ -260,12 +260,9 @@ class ptr_data_map {
     uint32_t get_ptr_block_t(uint32_t node_id) {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width;
       uint32_t ptr_bit_count = gen::read_uintx(block_ptr, ptr_lt_mask);
-      int pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
-      if (pos) {
-        pos--;
-        uint8_t *ptr3 = block_ptr + ptr_lt_ptr_width + pos * 2;
-        ptr_bit_count += gen::read_uint16(ptr3);
-      }
+      uint32_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
+      if (pos)
+        ptr_bit_count += gen::read_uint16(block_ptr + ptr_lt_ptr_width + --pos * 2);
       return ptr_bit_count;
     }
 
@@ -728,17 +725,15 @@ class ptr_data_map {
     }
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
+      uint32_t code_len = code_lt_code_len[node_byte];
+      grp_no = code_len & 0x0F;
+      code_len >>= 4;
+      uint32_t ptr = node_byte & (0xFF >> code_len);
       uint8_t bit_len = code_lt_bit_len[node_byte];
-      grp_no = code_lt_code_len[node_byte] & 0x0F;
-      uint8_t code_len = code_lt_code_len[node_byte] >> 4;
-      uint8_t node_val_bits = 8 - code_len;
-      node_byte <<= code_len; // Lose the code
-      node_byte >>= code_len;
-      uint32_t ptr = node_byte; // & ((1 << node_val_bits) - 1);
       if (bit_len > 0) {
         if (ptr_bit_count == UINT32_MAX)
           ptr_bit_count = get_ptr_bit_count_tail(node_id);
-        ptr |= (read_extra_ptr(ptr_bit_count, bit_len) << node_val_bits);
+        ptr |= (read_extra_ptr(ptr_bit_count, bit_len) << (8 - code_len));
       }
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
@@ -1101,9 +1096,9 @@ class bv_lookup_tbl {
       uint32_t rank = gen::read_uint32(rank_ptr);
       int pos = (node_id / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
       if (pos > 0) {
-        uint8_t *bv3 = rank_ptr + 4;
+        rank_ptr += 4;
         while (pos--)
-          rank += bv3[pos];
+          rank += *rank_ptr++;
       }
       return rank;
     }
@@ -1558,7 +1553,7 @@ class static_dict : public static_dict_fwd {
         key_byte = key[key_pos];
         t = get_t(node_id, bm_leaf, bm_term, bm_child, bm_ptr, bm_mask);
         #ifndef MDX_NO_DART
-        if (sec_cache_loc != nullptr && (bm_mask & bm_child) == 0 && (bm_mask & bm_leaf) == 0) {
+        if (sec_cache_loc != nullptr && (bm_mask & (bm_child | bm_leaf)) == 0) {
           uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
           if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
             t += min_offset;
@@ -1838,7 +1833,7 @@ class static_dict : public static_dict_fwd {
       do {
         cv.node_id--;
         cv.t = trie_loc + cv.node_id / nodes_per_bv_block_n * bytes_per_bv_block_n;
-        cv.t = ctx_vars::read_flags(cv.t, cv.bm_leaf, cv.bm_term, cv.bm_child, cv.bm_ptr);
+        cv.t = gen::read_uint64(cv.t + 24, cv.bm_ptr);
         cv.t += cv.node_id % nodes_per_bv_block_n;
         cv.bm_mask = bm_init_mask << (cv.node_id % nodes_per_bv_block_n);
         if (cv.bm_mask & cv.bm_ptr) {
