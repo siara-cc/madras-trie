@@ -24,7 +24,7 @@ namespace madras_dv1 {
 // #define width_of_bv_block 5
 // #define width_of_bv_block_n 1
 #define nodes_per_bv_block 256
-#define bytes_per_bv_block 384
+#define bytes_per_bv_block 352
 #define width_of_bv_block 7
 #define width_of_bv_block_n 3
 // #define nodes_per_bv_block 512
@@ -36,7 +36,7 @@ namespace madras_dv1 {
 // #define width_of_bv_block 19
 // #define width_of_bv_block_n 15
 #define nodes_per_bv_block_n 64
-#define bytes_per_bv_block_n 96
+#define bytes_per_bv_block_n 88
 
 // #define nodes_per_ptr_block 64
 // #define nodes_per_ptr_block_n 16
@@ -48,7 +48,7 @@ namespace madras_dv1 {
 
 #define nodes_per_ptr_block 256
 #define nodes_per_ptr_block_n 64
-#define bytes_per_ptr_block_n 96
+#define bytes_per_ptr_block_n 88
 
 #define sel_divisor 256
 
@@ -102,24 +102,25 @@ struct PACKED_STRUCT bldr_options {
   uint8_t max_inner_tries;
   uint8_t fwd_cache_multipler;
   uint8_t rev_cache_multipler;
+  uint8_t trie_leaf_count;
   uint16_t sfx_set_max_dflt;
 };
-#define opts_size 18
+#define opts_size 19
 
 const static bldr_options preset_opts[] = {
   //  it,    tt,    fc,    rc,  dart,  dsct, sortn,   llt,    sc, scidx, mt, si, sr, it, cm, cm, sfx
-  { true, false,  true,  true, false, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64},
-  {false, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64},
-  { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  64}
+  {false, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  1,  64},
+  { true, false,  true,  true, false, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  1,  64},
+  { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,  0,  2,  2,  1,  64}
 };
 
 const static bldr_options dflt_opts =
-  { true, false,  true, false,  true, false, false,  true,  true, false,  4,  3,  3,  1,  2,  2,  64};
+  { true, false,  true, false,  false, false, true,  true,  true, false,  4,  3,  3,  1,  2,  2,  1,  64};
 
 const static bldr_options word_tries_dflt_opts =
-  {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  64};
+  {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  1,  64};
 const static bldr_options inner_tries_dflt_opts =
-  { true, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3, 99,  2,  2,  64};
+  { true, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3, 99,  2,  2,  1,  64};
 
 #if defined(_MSC_VER)
 #pragma pack(pop)
