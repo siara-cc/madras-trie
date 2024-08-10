@@ -148,17 +148,17 @@ struct ctx_vars {
   static uint64_t read_leaf_bm(uint8_t *leaf_bm_loc, uint32_t node_id) {
     return gen::read_uint64(leaf_bm_loc + node_id / nodes_per_bv_block_n * 8);
   }
-  static uint8_t *read_flags(uint8_t *t, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr) {
-    t = gen::read_uint64(t, bm_term);
+  static uint8_t *read_flags(uint8_t *t, uint64_t& bm_child, uint64_t& bm_term, uint64_t& bm_ptr) {
     t = gen::read_uint64(t, bm_child);
+    t = gen::read_uint64(t, bm_term);
     return gen::read_uint64(t, bm_ptr);
   }
   uint64_t read_leaf_bm(uint32_t node_id) {
     return gen::read_uint64(leaf_bm_loc + node_id / nodes_per_bv_block_n * 8);
   }
   void read_flags() {
-    t = gen::read_uint64(t, bm_term);
     t = gen::read_uint64(t, bm_child);
+    t = gen::read_uint64(t, bm_term);
     t = gen::read_uint64(t, bm_ptr);
     bm_leaf = gen::read_uint64(leaf_bm_loc + node_id / nodes_per_bv_block_n * 8);
   }
@@ -470,7 +470,7 @@ class ptr_data_map {
         if ((node_id % nodes_per_bv_block_n) == 0) {
           bm_mask = bm_init_mask;
           if (dict_obj->key_count > 0)
-            t = ctx_vars::read_flags(t, bm_term, bm_child, bm_ptr);
+            t = ctx_vars::read_flags(t, bm_child, bm_term, bm_ptr);
           bm_leaf = ctx_vars::read_leaf_bm(trie_leaf_bm, node_id);
         }
         if (node_id && (node_id % nodes_per_ptr_block_n) == 0) {
@@ -1365,8 +1365,8 @@ class static_dict : public static_dict_fwd {
         if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
 
         leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, node_set_count, key_count, trie_leaf_bm, 8, 0, BV_LT_TYPE_LEAF);
-        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 0, BV_LT_TYPE_TERM);
-        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 8, BV_LT_TYPE_CHILD);
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 0, BV_LT_TYPE_CHILD);
+        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 8, BV_LT_TYPE_TERM);
       }
 
       if (val_count > 0) {
@@ -1497,9 +1497,9 @@ class static_dict : public static_dict_fwd {
       return -1;
     }
 
-    uint8_t *get_t(uint32_t node_id, uint64_t& bm_term, uint64_t& bm_child, uint64_t& bm_ptr, uint64_t& bm_mask) {
+    uint8_t *get_t(uint32_t node_id, uint64_t& bm_child, uint64_t& bm_term, uint64_t& bm_ptr, uint64_t& bm_mask) {
       uint8_t *t = trie_loc + node_id / nodes_per_bv_block_n * bytes_per_bv_block_n;
-      t = ctx_vars::read_flags(t, bm_term, bm_child, bm_ptr);
+      t = ctx_vars::read_flags(t, bm_child, bm_term, bm_ptr);
       uint32_t node_id_rem = node_id % nodes_per_bv_block_n;
       t += node_id_rem;
       bm_mask = (bm_init_mask << node_id_rem);
@@ -1533,7 +1533,7 @@ class static_dict : public static_dict_fwd {
         if (ret == 0)
           return true;
         key_byte = key[key_pos];
-        t = get_t(node_id, bm_term, bm_child, bm_ptr, bm_mask);
+        t = get_t(node_id, bm_child, bm_term, bm_ptr, bm_mask);
         #ifndef MDX_NO_DART
         if (sec_cache_loc != nullptr) {
           bm_leaf = ctx_vars::read_leaf_bm(trie_leaf_bm, node_id);
@@ -1545,7 +1545,7 @@ class static_dict : public static_dict_fwd {
               bm_mask <<= min_offset;
             } else {
               node_id += min_offset;
-              t = get_t(node_id, bm_term, bm_child, bm_ptr, bm_mask);
+              t = get_t(node_id, bm_child, bm_term, bm_ptr, bm_mask);
             }
           }
         }
@@ -1568,7 +1568,7 @@ class static_dict : public static_dict_fwd {
           node_id++;
           if ((node_id % nodes_per_bv_block_n) == 0) {
             bm_mask = bm_init_mask;
-            t = ctx_vars::read_flags(t, bm_term, bm_child, bm_ptr);
+            t = ctx_vars::read_flags(t, bm_child, bm_term, bm_ptr);
           }
         } while (1);
         if (key_byte == trie_byte) {
@@ -1799,11 +1799,6 @@ class static_dict : public static_dict_fwd {
     }
 
     bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false) {
-      ctx_vars cv;
-      uint8_t tail[max_tail_len + 1];
-      cv.tail.set_buf_max_len(tail, max_tail_len);
-      int key_len = 0;
-      cv.node_id = node_id;
       #ifndef MDX_NO_NULLS
       if (node_id == 0) {
         *in_size_out_key_len = -1; // unconditional?
@@ -1814,6 +1809,11 @@ class static_dict : public static_dict_fwd {
         return true;
       }
       #endif
+      ctx_vars cv;
+      uint8_t tail[max_tail_len + 1];
+      cv.tail.set_buf_max_len(tail, max_tail_len);
+      int key_len = 0;
+      cv.node_id = node_id;
       cv.node_id++;
       uint32_t cache_mask = rev_cache_count - 1;
       do {

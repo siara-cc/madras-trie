@@ -1583,9 +1583,9 @@ class builder : public builder_fwd {
       byv.push_back((b64 >> 48) & 0xFF);
       byv.push_back(b64 >> 56);
     }
-    void append_flags(byte_vec& byv, uint64_t bm_term, uint64_t bm_child, uint64_t bm_ptr) {
-      append64_t(byv, bm_term);
+    void append_flags(byte_vec& byv, uint64_t bm_child, uint64_t bm_term, uint64_t bm_ptr) {
       append64_t(byv, bm_child);
+      append64_t(byv, bm_term);
       append64_t(byv, bm_ptr);
     }
     void append_byte_vec(byte_vec& byv1, byte_vec& byv2) {
@@ -2147,7 +2147,7 @@ class builder : public builder_fwd {
         }
         //dump_ptr(&cur_node, node_count);
         if (node_count && (node_count % 64) == 0) {
-          append_flags(trie, bm_term, bm_child, bm_ptr);
+          append_flags(trie, bm_child, bm_term, bm_ptr);
           append_byte_vec(trie, byte_vec64);
           append64_t(trie_leaf_bm, bm_leaf);
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
@@ -2187,7 +2187,7 @@ class builder : public builder_fwd {
         cur_node = ni.next();
       }
       // TODO: write on all cases?
-      append_flags(trie, bm_term, bm_child, bm_ptr);
+      append_flags(trie, bm_child, bm_term, bm_ptr);
       append_byte_vec(trie, byte_vec64);
       append64_t(trie_leaf_bm, bm_leaf);
       for (int i = 0; i < 8; i++) {
@@ -2496,6 +2496,8 @@ class builder : public builder_fwd {
         tp.leaf_select_lkup_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
         tp.child_select_lkup_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
+        if (!opts.dart)
+          tp.sec_cache_loc = 0;
       } else {
         tp.child_select_lkup_loc = tp.opts_loc + opts_size;
         tp.child_select_lt_sz = 0;
