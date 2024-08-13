@@ -175,9 +175,9 @@ class ptr_groups {
       idx_limit = 0;
       inner_trie_start_grp = 0;
       idx_ptr_size = 3;
-      last_byte_bits = 8;
+      last_byte_bits = 32;
       max_len = 0;
-      ptrs.push_back(0);
+      gen::append_uint32(0, ptrs);
     }
     uint32_t get_idx_limit() {
       return idx_limit;
@@ -326,18 +326,18 @@ class ptr_groups {
       return ptr;
     }
     int append_ptr_bits(uint32_t ptr, int bits_to_append) {
-      int last_idx = ptrs.size() - 1;
+      uint32_t *last_ptr = (uint32_t *) (ptrs.data() + ptrs.size() - 4);
       while (bits_to_append > 0) {
         if (bits_to_append < last_byte_bits) {
           last_byte_bits -= bits_to_append;
-          ptrs[last_idx] |= (ptr << last_byte_bits);
+          *last_ptr |= (ptr << last_byte_bits);
           bits_to_append = 0;
         } else {
           bits_to_append -= last_byte_bits;
-          ptrs[last_idx] |= (ptr >> bits_to_append);
-          last_byte_bits = 8;
-          ptrs.push_back(0);
-          last_idx++;
+          *last_ptr |= (ptr >> bits_to_append);
+          last_byte_bits = 32;
+          gen::append_uint32(0, ptrs);
+          last_ptr = (uint32_t *) (ptrs.data() + ptrs.size() - 4);
         }
       }
       return last_byte_bits;
@@ -1537,20 +1537,6 @@ class tail_val_maps {
 
 };
 
-typedef struct {
-  uint32_t parent_node_id;
-  uint32_t child_node_id;
-  uint32_t freq_count;
-  uint8_t node_offset;
-  uint8_t node_byte;
-} bldr_fwd_cache;
-
-typedef struct {
-  uint32_t parent_node_id;
-  uint32_t child_node_id;
-  uint32_t freq_count;
-} bldr_rev_cache;
-
 class builder : public builder_fwd {
 
   private:
@@ -2330,30 +2316,30 @@ class builder : public builder_fwd {
           uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
           if (build_fwd_cache) {
             int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
-            uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
-            int times = MDX_CACHE_TIMES;
-            do {
-              fwd_cache *fc = f_cache + cache_loc;
+              uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
+            int times = MDX_CACHE_TIMES_FWD;
+              do {
+                fwd_cache *fc = f_cache + cache_loc;
               if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
-                f_cache_freq[cache_loc] = node_freq;
-                gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
-                gen::copy_uint24(child_node_id, &fc->child_node_id1);
-                fc->node_offset = node_offset;
-                fc->node_byte = node_byte;
-                break;
-              }
-              cache_loc <<= MDX_CACHE_SHIFT;
-              cache_loc ^= ns_hdr->node_id;
-              cache_loc ^= node_byte;
-              cache_loc &= (cache_count - 1);
-              // cache_loc %= (cache_count - 1);
-              // cache_loc++;
-            } while (--times);
+                  f_cache_freq[cache_loc] = node_freq;
+                  gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
+                  gen::copy_uint24(child_node_id, &fc->child_node_id1);
+                  fc->node_offset = node_offset;
+                  fc->node_byte = node_byte;
+                  break;
+                }
+                cache_loc <<= MDX_CACHE_SHIFT;
+                cache_loc ^= ns_hdr->node_id;
+                cache_loc ^= node_byte;
+                cache_loc &= (cache_count - 1);
+                // cache_loc %= (cache_count - 1);
+                // cache_loc++;
+              } while (--times);
+            }
           }
-        }
         if (build_rev_cache) {
           uint32_t cache_loc = (cur_node_id ^ (cur_node_id << MDX_CACHE_SHIFT)) & (cache_count - 1);
-          int times = MDX_CACHE_TIMES;
+          int times = MDX_CACHE_TIMES_REV;
           do {
             nid_cache *rc = r_cache + cache_loc;
             if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
@@ -2451,6 +2437,7 @@ class builder : public builder_fwd {
         memtrie.sort_node_sets();
         set_node_id();
         tp.min_stats = make_min_positions();
+        tp.trie_tail_ptrs_data_sz = build_trie();
 
         if (trie_level > 0) {
           opts.fwd_cache = false;
@@ -2492,7 +2479,6 @@ class builder : public builder_fwd {
         tp.term_bv_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
         tp.child_bv_loc = tp.term_bv_loc + tp.term_bvlt_sz;
         tp.trie_tail_ptrs_data_loc = tp.child_bv_loc + tp.child_bvlt_sz;
-        tp.trie_tail_ptrs_data_sz = build_trie();
         tp.leaf_select_lkup_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
         tp.child_select_lkup_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;

@@ -12,7 +12,8 @@ namespace madras_dv1 {
 #define PACKED_STRUCT
 #endif
 
-#define MDX_CACHE_TIMES 3
+#define MDX_CACHE_TIMES_FWD 3
+#define MDX_CACHE_TIMES_REV 3
 #define MDX_CACHE_SHIFT 5
 
 // not used
