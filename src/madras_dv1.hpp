@@ -73,20 +73,6 @@ class dict_iter_ctx {
     }
 };
 
-class static_dict_fwd {
-  public:
-    int key_count;
-    uint16_t max_tail_len;
-    virtual ~static_dict_fwd() {
-    }
-    virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
-    virtual void map_from_memory(uint8_t *mem) = 0;
-    virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, dict_iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false) = 0;
-};
-
 #define DCT_INSERT_AFTER -2
 #define DCT_INSERT_BEFORE -3
 #define DCT_INSERT_LEAF -4
@@ -190,6 +176,331 @@ struct ctx_vars {
   }
 };
 
+const uint8_t bit_count[256] = {
+  0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 
+  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
+  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
+  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
+  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
+  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
+  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
+  3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
+const uint8_t select_lookup_tbl[8][256] = {{
+  8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
+  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1
+}, {
+  8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
+  7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2
+}, {
+  8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
+  8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
+  8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
+  8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
+  8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
+  8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
+  8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
+  8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3
+}, {
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
+  8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
+  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
+  8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
+  8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
+  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
+  8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4
+}, {
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
+  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
+  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5
+}, {
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6
+}, {
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7
+}, {
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
+}};
+
+class bv_lookup_tbl {
+  private:
+    uint8_t *lt_sel_loc;
+    uint8_t *lt_rank_loc;
+    uint32_t node_count;
+    uint32_t node_set_count;
+    uint32_t key_count;
+    uint8_t *bm_start_loc;
+    int bm_multiplier;
+    int bm_pos;
+    bool lt_given;
+    int lt_type;
+  public:
+    bv_lookup_tbl() {
+      lt_given = true;
+    }
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, uint32_t _node_set_count, uint32_t _key_count, uint8_t *_bm_start_loc, int _bm_multiplier, int _bm_pos, int _lt_type) {
+      lt_rank_loc = _lt_rank_loc;
+      lt_sel_loc = _lt_sel_loc;
+      node_count = _node_count;
+      node_set_count = _node_set_count;
+      key_count = _key_count;
+      bm_start_loc = _bm_start_loc;
+      bm_multiplier = _bm_multiplier;
+      bm_pos = _bm_pos;
+      lt_type = _lt_type;
+      lt_given = true;
+      if (lt_rank_loc == nullptr) {
+        lt_given = false;
+        create_rank_lt_from_trie();
+        create_select_lt_from_trie();
+      }
+    }
+    ~bv_lookup_tbl() {
+      if (!lt_given) {
+        delete [] lt_rank_loc;
+        delete [] lt_sel_loc;
+      }
+    }
+    uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
+      if (node_id && (node_id % nodes_per_bv_block) == 0) {
+        memcpy(lt_pos, buf3, 3); lt_pos += 3;
+        gen::copy_uint32(count, lt_pos); lt_pos += 4;
+        count3 = 0;
+        memset(buf3, 0, 3);
+        pos3 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
+        buf3[pos3] = count3;
+        //count3 = 0;
+        pos3++;
+      }
+      return lt_pos;
+    }
+    void create_rank_lt_from_trie() {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t count = 0;
+      uint32_t count3 = 0;
+      uint8_t buf3[3];
+      uint8_t pos3 = 0;
+      memset(buf3, 0, 3);
+      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      lt_rank_loc = lt_pos;
+      uint64_t bm_flags, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+      gen::copy_uint32(0, lt_pos); lt_pos += 4;
+      do {
+        if ((node_id % nodes_per_bv_block_n) == 0) {
+          bm_mask = bm_init_mask;
+          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+        }
+        lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
+        uint32_t ct = (bm_mask & bm_flags ? 1 : 0);
+        count += ct;
+        count3 += ct;
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+      // extra (guard)
+      gen::copy_uint32(count, lt_pos); lt_pos += 4;
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+    }
+    void create_select_lt_from_trie() {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t sel_count = 0;
+      uint32_t lt_size = 0;
+      if (lt_type == BV_LT_TYPE_LEAF)
+        lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
+      else if (lt_type == BV_LT_TYPE_CHILD) {
+        lt_size = 0;
+        if (node_set_count > 1)
+          lt_size = gen::get_lkup_tbl_size2(node_set_count - 1, sel_divisor, 3);
+      } else
+        lt_size = gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3);
+
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      lt_sel_loc = lt_pos;
+      uint64_t bm_flags, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+      gen::copy_uint24(0, lt_pos); lt_pos += 3;
+      do {
+        if ((node_id % nodes_per_bv_block_n) == 0) {
+          bm_mask = bm_init_mask;
+          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+        }
+        bool node_qualifies_for_select = (bm_mask & bm_flags) ? true : false;
+        if (node_qualifies_for_select) {
+          if (sel_count && (sel_count % sel_divisor) == 0) {
+            uint32_t val_to_write = node_id / nodes_per_bv_block;
+            gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
+            if (val_to_write > (1 << 24))
+              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+          }
+          sel_count++;
+        }
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      gen::copy_uint24(node_count / nodes_per_bv_block, lt_pos);
+    }
+    int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
+      while (first + 1 < last) {
+        const uint32_t middle = (first + last) >> 1;
+        if (given_count < gen::read_uint32(lt_rank_loc + middle * width_of_bv_block))
+          last = middle;
+        else
+          first = middle;
+      }
+      return first;
+    }
+    uint32_t block_select(uint32_t target_count, uint32_t& node_id) {
+      uint8_t *select_loc = lt_sel_loc + target_count / sel_divisor * 3;
+      uint32_t block = gen::read_uint24(select_loc);
+      // uint32_t end_block = gen::read_uint24(select_loc + 3);
+      // if (block + 10 < end_block)
+      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
+      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
+        block++;
+      block--;
+      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      node_id = block * nodes_per_bv_block;
+      if (cur_count == target_count)
+        return cur_count;
+      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
+      int pos3;
+      for (pos3 = 0; pos3 < width_of_bv_block_n && node_id + nodes_per_bv_block_n < node_count; pos3++) {
+        uint8_t count3 = bv3[pos3];
+        if (cur_count + count3 < target_count) {
+          node_id += nodes_per_bv_block_n;
+          cur_count += count3;
+        } else
+          break;
+      }
+      // if (pos3) {
+      //   pos3--;
+      //   cur_count += bv3[pos3];
+      // }
+      return cur_count;
+    }
+    uint32_t block_rank(uint32_t node_id) {
+      uint8_t *rank_ptr = lt_rank_loc + node_id / nodes_per_bv_block * width_of_bv_block;
+      uint32_t rank = gen::read_uint32(rank_ptr);
+      int pos = (node_id / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
+      if (pos > 0) {
+        rank_ptr += 4;
+        while (pos--)
+          rank += *rank_ptr++;
+      }
+      return rank;
+    }
+    uint32_t rank(uint32_t node_id) {
+      uint32_t rank = block_rank(node_id);
+      uint8_t *t = bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier;
+      uint64_t bm = gen::read_uint64(t + bm_pos);
+      uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
+      // return rank + __popcountdi2(bm & (mask - 1));
+      return rank + __builtin_popcountll(bm & (mask - 1));
+    }
+    void select(uint32_t& node_id, uint32_t target_count) {
+      if (target_count == 0) {
+        node_id = 2;
+        return;
+      }
+      uint32_t block_count = block_select(target_count, node_id);
+      if (block_count == target_count)
+        return;
+      uint8_t *t = bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier;
+      uint64_t bm = gen::read_uint64(t + bm_pos);
+
+      int remaining = target_count - block_count - 1;
+      uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
+      size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
+      // size_t bit_loc = find_nth_set_bit(bm, i) + 1;
+      if (bit_loc == 65) {
+        printf("WARNING: UNEXPECTED bit_loc=65, node_id: %u, nc: %u, bc: %u, ttc: %u\n", node_id, node_count, block_count, target_count);
+        return;
+      }
+      node_id += bit_loc;
+
+      // The performance of this is not too different from using bmi2. Keeping this for now
+      // size_t bit_loc = 0;
+      // while (bit_loc < 64) {
+      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+      //   if (block_count + next_count >= target_count)
+      //     break;
+      //   bit_loc += 8;
+      //   block_count += next_count;
+      // }
+      // if (block_count < target_count)
+      //   bit_loc += select_lookup_tbl[target_count - block_count - 1][(bm >> bit_loc) & 0xFF];
+      // node_id += bit_loc;
+
+      // uint64_t bm_mask = bm_init_mask << bit_loc;
+      // while (block_count < target_count) {
+      //   if (bm & bm_mask)
+      //     block_count++;
+      //   bit_loc++;
+      //   bm_mask <<= 1;
+      // }
+      // node_id += bit_loc;
+    }
+
+};
+
+class static_dict_fwd {
+  public:
+    int key_count;
+    uint16_t max_tail_len;
+    bv_lookup_tbl tail_lt;
+    virtual ~static_dict_fwd() {
+    }
+    virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
+    virtual void map_from_memory(uint8_t *mem) = 0;
+    virtual uint32_t leaf_rank(uint32_t node_id) = 0;
+    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, dict_iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false) = 0;
+};
+
 class ptr_data_map {
   private:
     uint32_t ptr_lt_ptr_width;
@@ -209,6 +520,7 @@ class ptr_data_map {
     uint8_t *code_lt_bit_len;
     uint8_t *code_lt_code_len;
     uint8_t **grp_data;
+    gen::int_bv_reader int_ptr_bv;
 
     uint8_t *dict_buf;
     uint8_t *trie_loc;
@@ -411,7 +723,11 @@ class ptr_data_map {
         col_trie_int_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
         group_count = *grp_data_loc;
-        inner_trie_start_grp = grp_data_loc[1];
+        inner_trie_start_grp = 0;
+        if (group_count == 1)
+          int_ptr_bv.init(ptrs_loc, grp_data_loc[1]);
+        else
+          inner_trie_start_grp = grp_data_loc[1];
         code_lt_bit_len = grp_data_loc + 2;
         code_lt_code_len = code_lt_bit_len + 256;
         uint8_t *grp_data_idx_start = code_lt_bit_len + (data_type == 'w' ? 0 : 512);
@@ -731,6 +1047,19 @@ class ptr_data_map {
     }
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
+      if (group_count == 1) {
+        uint32_t flat_ptr = int_ptr_bv[dict_obj->tail_lt.rank(node_id)];
+        flat_ptr <<= 8;
+        flat_ptr |= node_byte;
+        return flat_ptr;
+      }
+      if (encoding_type == 't') {
+        uint32_t ptr_pos = dict_obj->tail_lt.rank(node_id);
+        uint32_t tail_trie_node_id = col_trie_int_bv[ptr_pos];
+        tail_trie_node_id <<= 8;
+        tail_trie_node_id |= node_byte;
+        return tail_trie_node_id;
+      }
       uint32_t code_len = code_lt_code_len[node_byte];
       grp_no = code_len & 0x0F;
       code_len >>= 4;
@@ -756,6 +1085,12 @@ class ptr_data_map {
 
     uint8_t get_first_byte(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint32_t& tail_ptr, uint8_t& grp_no) {
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
+      if (encoding_type == 't') {
+        uint8_t tail_byte_str[dict_obj->max_tail_len];
+        int tail_str_len;
+        col_trie->reverse_lookup_from_node_id(tail_ptr, &tail_str_len, tail_byte_str, true);
+        return *tail_byte_str;
+      }
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
         uint8_t tail_byte_str[dict_obj->max_tail_len];
@@ -779,6 +1114,12 @@ class ptr_data_map {
 
     //const int max_tailset_len = 129;
     void get_tail_str(gen::byte_str& ret, uint32_t tail_ptr, uint8_t grp_no) {
+      if (encoding_type == 't') {
+        int tail_str_len;
+        col_trie->reverse_lookup_from_node_id(tail_ptr, &tail_str_len, ret.data(), false);
+        ret.set_length(tail_str_len);
+        return;
+      }
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
         int tail_str_len;
@@ -911,316 +1252,6 @@ class ptr_data_map {
     }
 };
 
-const uint8_t bit_count[256] = {
-  0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 
-  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-  1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
-  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-  2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
-  3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
-const uint8_t select_lookup_tbl[8][256] = {{
-  8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
-  6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1
-}, {
-  8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  8, 8, 8, 2, 8, 3, 3, 2, 8, 4, 4, 2, 4, 3, 3, 2, 8, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  8, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  8, 7, 7, 2, 7, 3, 3, 2, 7, 4, 4, 2, 4, 3, 3, 2, 7, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2, 
-  7, 6, 6, 2, 6, 3, 3, 2, 6, 4, 4, 2, 4, 3, 3, 2, 6, 5, 5, 2, 5, 3, 3, 2, 5, 4, 4, 2, 4, 3, 3, 2
-}, {
-  8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
-  8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-  8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
-  8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-  8, 8, 8, 8, 8, 8, 8, 3, 8, 8, 8, 4, 8, 4, 4, 3, 8, 8, 8, 5, 8, 5, 5, 3, 8, 5, 5, 4, 5, 4, 4, 3, 
-  8, 8, 8, 6, 8, 6, 6, 3, 8, 6, 6, 4, 6, 4, 4, 3, 8, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3, 
-  8, 8, 8, 7, 8, 7, 7, 3, 8, 7, 7, 4, 7, 4, 4, 3, 8, 7, 7, 5, 7, 5, 5, 3, 7, 5, 5, 4, 5, 4, 4, 3, 
-  8, 7, 7, 6, 7, 6, 6, 3, 7, 6, 6, 4, 6, 4, 4, 3, 7, 6, 6, 5, 6, 5, 5, 3, 6, 5, 5, 4, 5, 4, 4, 3
-}, {
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
-  8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
-  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
-  8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 8, 8, 8, 8, 5, 8, 8, 8, 5, 8, 5, 5, 4, 
-  8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 4, 8, 8, 8, 6, 8, 6, 6, 5, 8, 6, 6, 5, 6, 5, 5, 4, 
-  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 4, 8, 8, 8, 7, 8, 7, 7, 5, 8, 7, 7, 5, 7, 5, 5, 4, 
-  8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 4, 8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4
-}, {
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
-  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 8, 8, 8, 8, 6, 8, 8, 8, 6, 8, 6, 6, 5, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 5, 
-  8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 8, 8, 8, 7, 8, 7, 7, 6, 8, 7, 7, 6, 7, 6, 6, 5
-}, {
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 8, 7, 8, 8, 8, 7, 8, 7, 7, 6
-}, {
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 7
-}, {
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 
-  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
-}};
-
-class bv_lookup_tbl {
-  private:
-    uint8_t *lt_sel_loc;
-    uint8_t *lt_rank_loc;
-    uint32_t node_count;
-    uint32_t node_set_count;
-    uint32_t key_count;
-    uint8_t *bm_start_loc;
-    int bm_multiplier;
-    int bm_pos;
-    bool lt_given;
-    int lt_type;
-  public:
-    bv_lookup_tbl() {
-      lt_given = true;
-    }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, uint32_t _node_set_count, uint32_t _key_count, uint8_t *_bm_start_loc, int _bm_multiplier, int _bm_pos, int _lt_type) {
-      lt_rank_loc = _lt_rank_loc;
-      lt_sel_loc = _lt_sel_loc;
-      node_count = _node_count;
-      node_set_count = _node_set_count;
-      key_count = _key_count;
-      bm_start_loc = _bm_start_loc;
-      bm_multiplier = _bm_multiplier;
-      bm_pos = _bm_pos;
-      lt_type = _lt_type;
-      lt_given = true;
-      if (lt_rank_loc == nullptr) {
-        lt_given = false;
-        create_rank_lt_from_trie();
-        create_select_lt_from_trie();
-      }
-    }
-    ~bv_lookup_tbl() {
-      if (!lt_given) {
-        delete [] lt_rank_loc;
-        delete [] lt_sel_loc;
-      }
-    }
-    uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
-      if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        memcpy(lt_pos, buf3, 3); lt_pos += 3;
-        gen::copy_uint32(count, lt_pos); lt_pos += 4;
-        count3 = 0;
-        memset(buf3, 0, 3);
-        pos3 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
-        buf3[pos3] = count3;
-        //count3 = 0;
-        pos3++;
-      }
-      return lt_pos;
-    }
-    void create_rank_lt_from_trie() {
-      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
-      uint32_t count = 0;
-      uint32_t count3 = 0;
-      uint8_t buf3[3];
-      uint8_t pos3 = 0;
-      memset(buf3, 0, 3);
-      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
-      uint8_t *lt_pos = new uint8_t[lt_size];
-      lt_rank_loc = lt_pos;
-      uint64_t bm_flags, bm_mask;
-      bm_mask = bm_init_mask << node_id;
-      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-      gen::copy_uint32(0, lt_pos); lt_pos += 4;
-      do {
-        if ((node_id % nodes_per_bv_block_n) == 0) {
-          bm_mask = bm_init_mask;
-          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-        }
-        lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
-        uint32_t ct = (bm_mask & bm_flags ? 1 : 0);
-        count += ct;
-        count3 += ct;
-        node_id++;
-        bm_mask <<= 1;
-      } while (node_id < node_count);
-      memcpy(lt_pos, buf3, 3); lt_pos += 3;
-      // extra (guard)
-      gen::copy_uint32(count, lt_pos); lt_pos += 4;
-      memcpy(lt_pos, buf3, 3); lt_pos += 3;
-    }
-    void create_select_lt_from_trie() {
-      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
-      uint32_t sel_count = 0;
-      uint32_t lt_size = 0;
-      if (lt_type == BV_LT_TYPE_LEAF)
-        lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
-      else if (lt_type == BV_LT_TYPE_CHILD) {
-        lt_size = 0;
-        if (node_set_count > 1)
-          lt_size = gen::get_lkup_tbl_size2(node_set_count - 1, sel_divisor, 3);
-      } else
-        lt_size = gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3);
-
-      uint8_t *lt_pos = new uint8_t[lt_size];
-      lt_sel_loc = lt_pos;
-      uint64_t bm_flags, bm_mask;
-      bm_mask = bm_init_mask << node_id;
-      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-      gen::copy_uint24(0, lt_pos); lt_pos += 3;
-      do {
-        if ((node_id % nodes_per_bv_block_n) == 0) {
-          bm_mask = bm_init_mask;
-          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-        }
-        bool node_qualifies_for_select = (bm_mask & bm_flags) ? true : false;
-        if (node_qualifies_for_select) {
-          if (sel_count && (sel_count % sel_divisor) == 0) {
-            uint32_t val_to_write = node_id / nodes_per_bv_block;
-            gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
-            if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
-          }
-          sel_count++;
-        }
-        node_id++;
-        bm_mask <<= 1;
-      } while (node_id < node_count);
-      gen::copy_uint24(node_count / nodes_per_bv_block, lt_pos);
-    }
-    int bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
-      while (first + 1 < last) {
-        const uint32_t middle = (first + last) >> 1;
-        if (given_count < gen::read_uint32(lt_rank_loc + middle * width_of_bv_block))
-          last = middle;
-        else
-          first = middle;
-      }
-      return first;
-    }
-    uint32_t block_select(uint32_t target_count, uint32_t& node_id) {
-      uint8_t *select_loc = lt_sel_loc + target_count / sel_divisor * 3;
-      uint32_t block = gen::read_uint24(select_loc);
-      // uint32_t end_block = gen::read_uint24(select_loc + 3);
-      // if (block + 10 < end_block)
-      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
-        block++;
-      block--;
-      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
-      node_id = block * nodes_per_bv_block;
-      if (cur_count == target_count)
-        return cur_count;
-      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
-      int pos3;
-      for (pos3 = 0; pos3 < width_of_bv_block_n && node_id + nodes_per_bv_block_n < node_count; pos3++) {
-        uint8_t count3 = bv3[pos3];
-        if (cur_count + count3 < target_count) {
-          node_id += nodes_per_bv_block_n;
-          cur_count += count3;
-        } else
-          break;
-      }
-      // if (pos3) {
-      //   pos3--;
-      //   cur_count += bv3[pos3];
-      // }
-      return cur_count;
-    }
-    uint32_t block_rank(uint32_t node_id) {
-      uint8_t *rank_ptr = lt_rank_loc + node_id / nodes_per_bv_block * width_of_bv_block;
-      uint32_t rank = gen::read_uint32(rank_ptr);
-      int pos = (node_id / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
-      if (pos > 0) {
-        rank_ptr += 4;
-        while (pos--)
-          rank += *rank_ptr++;
-      }
-      return rank;
-    }
-    uint32_t rank(uint32_t node_id) {
-      uint32_t rank = block_rank(node_id);
-      uint8_t *t = bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier;
-      uint64_t bm = gen::read_uint64(t + bm_pos);
-      uint64_t mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
-      // return rank + __popcountdi2(bm & (mask - 1));
-      return rank + __builtin_popcountll(bm & (mask - 1));
-    }
-    void select(uint32_t& node_id, uint32_t target_count) {
-      if (target_count == 0) {
-        node_id = 2;
-        return;
-      }
-      uint32_t block_count = block_select(target_count, node_id);
-      if (block_count == target_count)
-        return;
-      uint8_t *t = bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier;
-      uint64_t bm = gen::read_uint64(t + bm_pos);
-
-      int remaining = target_count - block_count - 1;
-      uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
-      size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
-      // size_t bit_loc = find_nth_set_bit(bm, i) + 1;
-      if (bit_loc == 65) {
-        printf("WARNING: UNEXPECTED bit_loc=65, node_id: %u, nc: %u, bc: %u, ttc: %u\n", node_id, node_count, block_count, target_count);
-        return;
-      }
-      node_id += bit_loc;
-
-      // The performance of this is not too different from using bmi2. Keeping this for now
-      // size_t bit_loc = 0;
-      // while (bit_loc < 64) {
-      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-      //   if (block_count + next_count >= target_count)
-      //     break;
-      //   bit_loc += 8;
-      //   block_count += next_count;
-      // }
-      // if (block_count < target_count)
-      //   bit_loc += select_lookup_tbl[target_count - block_count - 1][(bm >> bit_loc) & 0xFF];
-      // node_id += bit_loc;
-
-      // uint64_t bm_mask = bm_init_mask << bit_loc;
-      // while (block_count < target_count) {
-      //   if (bm & bm_mask)
-      //     block_count++;
-      //   bit_loc++;
-      //   bm_mask <<= 1;
-      // }
-      // node_id += bit_loc;
-    }
-
-};
-
 class static_dict : public static_dict_fwd {
 
   private:
@@ -1240,6 +1271,7 @@ class static_dict : public static_dict_fwd {
     uint8_t *term_lt_loc;
     uint8_t *child_lt_loc;
     uint8_t *leaf_lt_loc;
+    uint8_t *tail_lt_loc;
     uint8_t *term_select_lkup_loc;
     uint8_t *child_select_lkup_loc;
     uint8_t *leaf_select_lkup_loc;
@@ -1289,7 +1321,7 @@ class static_dict : public static_dict_fwd {
       fwd_cache_loc = rev_cache_loc = sec_cache_loc = nullptr;
       term_select_lkup_loc = term_lt_loc = 0;
       child_select_lkup_loc = child_lt_loc = leaf_select_lkup_loc = 0;
-      leaf_lt_loc = trie_loc = 0;
+      leaf_lt_loc = tail_lt_loc = trie_loc = 0;
 
     }
 
@@ -1344,7 +1376,8 @@ class static_dict : public static_dict_fwd {
         child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
         leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 90);
         leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 94);
-        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 98);
+        tail_lt_loc = dict_buf + gen::read_uint32(dict_buf + 98);
+        uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 102);
 
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
         uint32_t trie_size = gen::read_uint32(trie_tail_ptrs_data_loc + 4);
@@ -1363,6 +1396,8 @@ class static_dict : public static_dict_fwd {
         leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, node_set_count, key_count, trie_leaf_bm, 8, 0, BV_LT_TYPE_LEAF);
         child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 0, BV_LT_TYPE_CHILD);
         term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 8, BV_LT_TYPE_TERM);
+        if (opts->tail_tries)
+          tail_lt.init(tail_lt_loc, nullptr, node_count, node_set_count, key_count, trie_loc, bytes_per_bv_block_n, 16, BV_LT_TYPE_TAIL);
       }
 
       if (val_count > 0) {
