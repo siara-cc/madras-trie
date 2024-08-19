@@ -118,6 +118,13 @@ struct min_pos_stats {
   uint8_t max_len;
 };
 
+typedef struct PACKED_STRUCT {
+  uint64_t bm_child;
+  uint64_t bm_term;
+  uint64_t bm_ptr;
+  uint8_t t[];
+} trie_flags;
+
 struct ctx_vars {
   uint8_t *t;
   uint8_t *leaf_bm_loc;
@@ -1528,13 +1535,14 @@ class static_dict : public static_dict_fwd {
       return -1;
     }
 
-    uint8_t *get_t(uint32_t node_id, uint64_t& bm_child, uint64_t& bm_term, uint64_t& bm_ptr, uint64_t& bm_mask) {
-      uint8_t *t = trie_loc + node_id / nodes_per_bv_block_n * bytes_per_bv_block_n;
-      t = ctx_vars::read_flags(t, bm_child, bm_term, bm_ptr);
+    trie_flags *get_t(uint32_t node_id, uint64_t& bm_mask, uint8_t *&t) {
+      trie_flags *tf;
+      tf = (trie_flags *) (trie_loc + node_id / nodes_per_bv_block_n * bytes_per_bv_block_n);
       uint32_t node_id_rem = node_id % nodes_per_bv_block_n;
+      t = tf->t;
       t += node_id_rem;
       bm_mask = (bm_init_mask << node_id_rem);
-      return t;
+      return tf;
     }
 
     bool lookup(const uint8_t *key, int key_len, uint32_t& node_id) {
@@ -1552,23 +1560,24 @@ class static_dict : public static_dict_fwd {
       node_id = 2;
       uint8_t tail_str_buf[max_tail_len];
       gen::byte_str tail_str(tail_str_buf, max_tail_len);
-      uint64_t bm_leaf, bm_term, bm_child, bm_ptr, bm_mask;
+      uint64_t bm_leaf, bm_mask;
       uint8_t trie_byte;
       uint8_t grp_no;
       uint32_t tail_ptr = 0;
       uint32_t ptr_bit_count;
       uint8_t *t = trie_loc;
+      trie_flags *tf = (trie_flags *) trie_loc;
       uint8_t key_byte = key[key_pos];
       do {
         int ret = find_in_cache(key, key_len, key_pos, node_id);
         if (ret == 0)
           return true;
         key_byte = key[key_pos];
-        t = get_t(node_id, bm_child, bm_term, bm_ptr, bm_mask);
+        tf = get_t(node_id, bm_mask, t);
           #ifndef MDX_NO_DART
           if (sec_cache_loc != nullptr) {
             bm_leaf = ctx_vars::read_leaf_bm(trie_leaf_bm, node_id);
-            if ((bm_mask & (bm_child | bm_leaf)) == 0) {
+            if ((bm_mask & (tf->bm_child | bm_leaf)) == 0) {
               uint8_t min_offset = sec_cache_loc[((*t - min_stats.min_len) * 256) + key_byte];
               if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
                 t += min_offset;
@@ -1576,7 +1585,7 @@ class static_dict : public static_dict_fwd {
                 bm_mask <<= min_offset;
               } else {
                 node_id += min_offset;
-                t = get_t(node_id, bm_child, bm_term, bm_ptr, bm_mask);
+                tf = get_t(node_id, bm_mask, t);
               }
             }
           }
@@ -1584,7 +1593,7 @@ class static_dict : public static_dict_fwd {
           ptr_bit_count = UINT32_MAX;
           do {
             uint8_t node_byte = trie_byte = *t++;
-            if (bm_mask & bm_ptr)
+            if (bm_mask & tf->bm_ptr)
               trie_byte = tail_map.get_first_byte(node_byte, node_id, ptr_bit_count, tail_ptr, grp_no);
             #ifndef MDX_IN_ORDER
               if (key_byte == trie_byte)
@@ -1593,26 +1602,28 @@ class static_dict : public static_dict_fwd {
               if (key_byte <= trie_byte)
                 break;
             #endif
-            if (bm_mask & bm_term)
+            if (bm_mask & tf->bm_term)
               return false;
             bm_mask <<= 1;
             node_id++;
             if ((node_id % nodes_per_bv_block_n) == 0) {
+              t = trie_loc + node_id / nodes_per_bv_block_n * bytes_per_bv_block_n;
+              tf = (trie_flags *) t;
+              t += 24;
               bm_mask = bm_init_mask;
-              t = ctx_vars::read_flags(t, bm_child, bm_term, bm_ptr);
             }
           } while (1);
         // if (key_byte == trie_byte) {
         int cmp = 0;
         int tail_len = 1;
-        if (bm_mask & bm_ptr) {
+        if (bm_mask & tf->bm_ptr) {
           tail_map.get_tail_str(tail_str, tail_ptr, grp_no);
           tail_len = tail_str.length();
           cmp = gen::compare(tail_str.data(), tail_len, key + key_pos, key_len - key_pos);
         }
         key_pos += tail_len;
         if (key_pos < key_len && (cmp == 0 || abs(cmp) - 1 == tail_len)) {
-          if ((bm_mask & bm_child) == 0)
+          if ((bm_mask & tf->bm_child) == 0)
             return false;
           term_lt.select(node_id, child_lt.rank(node_id) + 1);
           continue;
