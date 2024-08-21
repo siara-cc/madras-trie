@@ -1603,11 +1603,8 @@ class builder : public builder_fwd {
   public:
     leopard::trie memtrie;
     char *out_filename;
-    byte_vec trie_nodes;
+    byte_vec trie;
     byte_vec trie_leaf_bm;
-    byte_vec trie_child_bm;
-    byte_vec trie_term_bm;
-    byte_vec trie_ptr_bm;
     uint32_t end_loc;
     tail_val_maps tail_vals;
     uint32_t column_count;
@@ -2210,11 +2207,9 @@ class builder : public builder_fwd {
         }
         //dump_ptr(&cur_node, node_count);
         if (node_count && (node_count % 64) == 0) {
-          append_byte_vec(trie_nodes, byte_vec64);
+          append_flags(trie, bm_child, bm_term, bm_ptr);
+          append_byte_vec(trie, byte_vec64);
           append64_t(trie_leaf_bm, bm_leaf);
-          append64_t(trie_child_bm, bm_child);
-          append64_t(trie_term_bm, bm_term);
-          append64_t(trie_ptr_bm, bm_ptr);
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
           bm_mask = 1UL;
           byte_vec64.clear();
@@ -2252,11 +2247,9 @@ class builder : public builder_fwd {
         cur_node = ni.next();
       }
       // TODO: write on all cases?
-      append_byte_vec(trie_nodes, byte_vec64);
+      append_flags(trie, bm_child, bm_term, bm_ptr);
+      append_byte_vec(trie, byte_vec64);
       append64_t(trie_leaf_bm, bm_leaf);
-      append64_t(trie_child_bm, bm_child);
-      append64_t(trie_term_bm, bm_term);
-      append64_t(trie_ptr_bm, bm_ptr);
       for (int i = 0; i < 8; i++) {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
       }
@@ -2264,27 +2257,24 @@ class builder : public builder_fwd {
       tail_vals.get_tail_grp_ptrs()->build(node_count, memtrie.all_node_sets, ptr_groups::get_tails_info_fn, 
               memtrie.uniq_tails_rev, true, no_primary_trie, opts.dessicate, tail_trie_size == 0 ? 'u' : 't', tail_trie_size);
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
-      end_loc = (8 + tail_size + trie_nodes.size() + trie_leaf_bm.size() * 4);
+      end_loc = (8 + tail_size + trie.size() + trie_leaf_bm.size());
       gen::print_time_taken(t, "Time taken for build_trie(): ");
       return end_loc;
     }
     uint32_t write_trie_tail_ptrs_data(FILE *fp) {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
-      gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie_nodes.size(), tail_size);
+      gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
       gen::write_uint32(tail_size, fp);
-      gen::write_uint32(trie_leaf_bm.size(), fp);
+      gen::write_uint32(trie.size(), fp);
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       if (opts.tail_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->write_trie(NULL);
       }
-      fwrite(trie_nodes.data(), 1, trie_nodes.size(), fp);
-      fwrite(trie_child_bm.data(), 1, trie_child_bm.size(), fp);
-      fwrite(trie_term_bm.data(), 1, trie_term_bm.size(), fp);
-      fwrite(trie_ptr_bm.data(), 1, trie_ptr_bm.size(), fp);
+      fwrite(trie.data(), 1, trie.size(), fp);
       fwrite(trie_leaf_bm.data(), 1, trie_leaf_bm.size(), fp);
-      return 8 + tail_size + trie_nodes.size() + trie_leaf_bm.size() * 4;
+      return 8 + tail_size + trie.size() + trie_leaf_bm.size();
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val) {
       uint32_t val_fp_offset = 0;
@@ -2296,7 +2286,7 @@ class builder : public builder_fwd {
       return val_fp_offset;
     }
     size_t trie_data_ptr_size() {
-      size_t ret = 8 + trie_leaf_bm.size() * 4 + trie_nodes.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
+      size_t ret = 8 + trie_leaf_bm.size() + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size();
       //if (get_uniq_val_count() > 0)
       //  ret += tail_vals.get_val_grp_ptrs()->get_total_size();
       return ret;
