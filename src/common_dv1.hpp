@@ -29,7 +29,7 @@ namespace madras_dv1 {
 #define width_of_bv_block 7
 #define width_of_bv_block_n 3
 // #define nodes_per_bv_block 512
-// #define bytes_per_bv_block 768
+// #define bytes_per_bv_block 704
 // #define width_of_bv_block 11
 // #define width_of_bv_block_n 7
 // #define nodes_per_bv_block 1024
@@ -118,7 +118,7 @@ const static bldr_options preset_opts[] = {
 };
 
 const static bldr_options dflt_opts =
-  {true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,  1,  2,  2,  1,  16, 64};
+  {false, false,  true, false, false, false,  true,  true,  false, false,  4,  3,  3,  1,  2,  2,  1,  1, 64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  1, 16, 64};

@@ -434,6 +434,8 @@ class bv_lookup_tbl {
       int pos = (node_id / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
       if (pos > 0) {
         rank_ptr += 4;
+        // pos--;
+        // rank += rank_ptr[pos];
         while (pos--)
           rank += *rank_ptr++;
       }
@@ -618,13 +620,13 @@ class ptr_data_map {
     }
 
     uint32_t read_extra_ptr(uint32_t& ptr_bit_count, int bits_to_read) {
-      uint32_t *ptr_loc = (uint32_t *) ptrs_loc + ptr_bit_count / 32;
-      int bit_pos = (ptr_bit_count % 32);
-      uint32_t ret = (*ptr_loc++ << bit_pos);
+      uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
+      int bit_pos = (ptr_bit_count % 64);
+      uint64_t ret = (*ptr_loc++ << bit_pos);
       ptr_bit_count += bits_to_read;
-      if (bit_pos + bits_to_read <= 32)
-        return ret >> (32 - bits_to_read);
-      return (ret | (*ptr_loc >> (32 - bit_pos))) >> (32 - bits_to_read);
+      if (bit_pos + bits_to_read <= 64)
+        return ret >> (64 - bits_to_read);
+      return (ret | (*ptr_loc >> (64 - bit_pos))) >> (64 - bits_to_read);
     }
 
     uint32_t read_len(uint8_t *t, uint8_t& len_len) {

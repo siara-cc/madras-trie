@@ -180,9 +180,9 @@ class ptr_groups {
       idx_limit = 0;
       inner_trie_start_grp = 0;
       idx_ptr_size = 3;
-      last_byte_bits = 32;
+      last_byte_bits = 64;
       max_len = 0;
-      gen::append_uint32(0, ptrs);
+      gen::append_uint64(0, ptrs);
     }
     uint32_t get_idx_limit() {
       return idx_limit;
@@ -334,12 +334,13 @@ class ptr_groups {
       // grp_data_vec.push_back(0);
       return ptr;
     }
-    int append_ptr_bits(uint32_t ptr, int bits_to_append) {
+    int append_ptr_bits(uint32_t given_ptr, int bits_to_append) {
       if (freq_grp_vec.size() == 2) {
-        flat_ptr_bv.append(ptr);
+        flat_ptr_bv.append(given_ptr);
         return last_byte_bits;
       }
-      uint32_t *last_ptr = (uint32_t *) (ptrs.data() + ptrs.size() - 4);
+      uint64_t ptr = given_ptr;
+      uint64_t *last_ptr = (uint64_t *) (ptrs.data() + ptrs.size() - 8);
       while (bits_to_append > 0) {
         if (bits_to_append < last_byte_bits) {
           last_byte_bits -= bits_to_append;
@@ -348,9 +349,9 @@ class ptr_groups {
         } else {
           bits_to_append -= last_byte_bits;
           *last_ptr |= (ptr >> bits_to_append);
-          last_byte_bits = 32;
-          gen::append_uint32(0, ptrs);
-          last_ptr = (uint32_t *) (ptrs.data() + ptrs.size() - 4);
+          last_byte_bits = 64;
+          gen::append_uint64(0, ptrs);
+          last_ptr = (uint64_t *) (ptrs.data() + ptrs.size() - 8);
         }
       }
       return last_byte_bits;
