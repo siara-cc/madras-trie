@@ -1057,7 +1057,9 @@ class ptr_data_map {
 
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       if (group_count == 1) {
-        uint32_t flat_ptr = int_ptr_bv[dict_obj->tail_lt.rank(node_id)];
+        if (ptr_bit_count == UINT32_MAX)
+          ptr_bit_count = dict_obj->tail_lt.rank(node_id);
+        uint32_t flat_ptr = int_ptr_bv[ptr_bit_count++];
         flat_ptr <<= 8;
         flat_ptr |= node_byte;
         return flat_ptr;
@@ -1086,7 +1088,6 @@ class ptr_data_map {
     }
 
     void get_tail_str(gen::byte_str& ret, uint32_t node_id, uint8_t node_byte, uint32_t& tail_ptr, uint32_t& ptr_bit_count, uint8_t& grp_no) {
-      ret.clear();
       //ptr_bit_count = UINT32_MAX;
       tail_ptr = get_tail_ptr(node_byte, node_id, ptr_bit_count, grp_no);
       get_tail_str(ret, tail_ptr, grp_no);
