@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
   else if (what == 2) // Insert key as value to compare trie and prefix coding
     sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, data_types == nullptr ? "tt" : data_types, encoding == nullptr ? "uu" : encoding);
   sb->set_print_enabled(true);
-  vector<uint8_t *> lines;
+  vector<pair<uint8_t *, uint32_t>> lines;
 
   clock_t t = clock();
   struct stat file_stat;
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
         sb->insert(key, key_len);
       else if (what == 2)
         sb->insert(key, key_len, key, key_len);
-      lines.push_back(line);
+      lines.push_back(make_pair(line, line_len));
       prev_line = line;
       prev_line_len = line_len;
       line_count++;
@@ -115,8 +115,8 @@ int main(int argc, char *argv[]) {
   if (what == 0) {
     sb->reset_for_next_col();
     for (int i = 0; i < line_count; i++) {
-      line = lines[i];
-      line_len = strlen((const char *) line);
+      line = lines[i].first;
+      line_len = lines[i].second;
       char val[30];
       snprintf(val, 30, "%d", line_len);
       // printf("[%.*s]]\n", (int) strlen(val), val);
@@ -126,7 +126,7 @@ int main(int argc, char *argv[]) {
 
     sb->reset_for_next_col();
     for (int i = 0; i < line_count; i++) {
-      line = lines[i];
+      line = lines[i].first;
       int checksum = 0;
       for (int i = 0; i < strlen((const char *) line); i++) {
         checksum += line[i];
@@ -155,8 +155,8 @@ int main(int argc, char *argv[]) {
   dict_ctx.init(dict_reader.get_max_key_len(), dict_reader.get_max_level());
 
   if (!is_sorted) {
-    std::sort(lines.begin(), lines.end(), [](const uint8_t *lhs, const uint8_t *rhs) -> bool {
-      return gen::compare(lhs, strlen((const char *) lhs), rhs, strlen((const char *) rhs)) < 0;
+    std::sort(lines.begin(), lines.end(), [](const pair<uint8_t *, int> lhs, const pair<uint8_t *, int> rhs) -> bool {
+      return gen::compare(lhs.first, lhs.second, rhs.first, rhs.second) < 0;
     });
     is_sorted = true;
   }
@@ -164,8 +164,8 @@ int main(int argc, char *argv[]) {
   line_count = 0;
   bool success = false;
   for (int i = 0; i < lines.size(); i++) {
-    line = lines[i];
-    line_len = strlen((const char *) line);
+    line = lines[i].first;
+    line_len = lines[i].second;
     // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
     //   continue;
     prev_line = line;
