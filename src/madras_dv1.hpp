@@ -1424,7 +1424,6 @@ class static_dict : public static_dict_fwd {
     uint32_t last_exit_loc;
     min_pos_stats min_stats;
     uint8_t *sec_cache_loc;
-    uint8_t *sec32_cache_loc;
     ptr_data_map tail_map;
     ptr_data_map *val_map;
     bv_lookup_tbl term_lt;
@@ -1448,7 +1447,7 @@ class static_dict : public static_dict_fwd {
       max_key_len = max_tail_len = max_level = 0;
       rev_cache_count = 0;
       rev_cache_max_node_id = 0;
-      rev_cache_loc = sec_cache_loc = sec32_cache_loc = nullptr;
+      rev_cache_loc = sec_cache_loc = nullptr;
       term_select_lkup_loc = term_lt_loc = 0;
       child_select_lkup_loc = child_lt_loc = leaf_select_lkup_loc = 0;
       leaf_lt_loc = tail_lt_loc = trie_loc = 0;
@@ -1497,11 +1496,8 @@ class static_dict : public static_dict_fwd {
         uint8_t *fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
         uint8_t *rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 66);
         sec_cache_loc = dict_buf + gen::read_uint32(dict_buf + 70);
-        sec32_cache_loc = sec_cache_loc + (min_stats.max_len - min_stats.min_len + 1) * 256;
-        if (sec_cache_loc == dict_buf) {
+        if (sec_cache_loc == dict_buf)
           sec_cache_loc = nullptr;
-          sec32_cache_loc = nullptr;
-        }
 
         fwd_cache.init(fwd_cache_loc, fwd_cache_count, fwd_cache_max_node_id);
         rev_cache.init(rev_cache_loc, rev_cache_count, rev_cache_max_node_id);
@@ -1672,11 +1668,7 @@ class static_dict : public static_dict_fwd {
           if (sec_cache_loc != nullptr) {
             bm_leaf = ctx_vars::read_leaf_bm(trie_leaf_bm, node_id);
             if ((tv.bm_mask & (tv.tb->bm_child | bm_leaf)) == 0) {
-              uint8_t min_offset;
-              if (*tv.t & 0x80)
-                min_offset = sec32_cache_loc[(*tv.t & 0x60) * 256 + (*tv.t & 0x1F) * 256 + key_byte];
-              else
-                min_offset = sec_cache_loc[((*tv.t - min_stats.min_len) * 256) + key_byte];
+              uint8_t min_offset = sec_cache_loc[((*tv.t - min_stats.min_len) * 256) + key_byte];
               if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
                 tv.t += min_offset;
                 node_id += min_offset;

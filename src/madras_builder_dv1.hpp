@@ -2200,11 +2200,6 @@ class builder : public builder_fwd {
         uint8_t node_byte, cur_node_flags;
         if (cur_node.get_flags() & NODE_SET_LEAP) {
           node_byte = ni.last_node_idx();
-          leopard::node_set_header *leap_nsh = ni.get_ns_hdr();
-          if (leap_nsh->flags & 0x07) {
-            node_byte -= tp.min_stats.min_len;
-            node_byte |= (0x80 | (((leap_nsh->flags & 0x07) - 1) << 5));
-          }
           cur_node_flags = 0;
         } else {
           node_byte = append_tail_ptr(&cur_node);
@@ -2321,13 +2316,12 @@ class builder : public builder_fwd {
       return memtrie.insert(key, key_len, val, val_len, val_pos);
     }
 
-    #define MIN_LEN_TSHOLD 5
     void set_node_id() {
       uint32_t node_id = 0;
       for (size_t i = 0; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
         ns_hdr->node_id = node_id;
-        if (ns_hdr->last_node_idx >= MIN_LEN_TSHOLD && trie_level == 0 && opts.dart) {
+        if (ns_hdr->last_node_idx > 4 && trie_level == 0 && opts.dart) {
           node_id++; // && (ns_hdr->last_node_idx + 1) >= stats.min_len 
           memtrie.node_count++;
           ns_hdr->flags |= NODE_SET_LEAP;
@@ -2444,7 +2438,6 @@ class builder : public builder_fwd {
     }
 
     uint8_t min_pos[256][256];
-    uint8_t min_pos32[4][32][256];
     // uint32_t min_len_count[256];
     // uint32_t min_len_last_ns_id[256];
     bldr_min_pos_stats make_min_positions() {
@@ -2456,8 +2449,6 @@ class builder : public builder_fwd {
       for (size_t i = 1; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
         uint8_t len = cur_ns.last_node_idx();
-        if (len < MIN_LEN_TSHOLD)
-          continue;
         if (stats.min_len > len)
           stats.min_len = len;
         if (stats.max_len < len)
@@ -2488,8 +2479,6 @@ class builder : public builder_fwd {
 
     uint32_t decide_min_stat_to_use(bldr_min_pos_stats& stats) {
       clock_t t = clock();
-      if (stats.min_len < MIN_LEN_TSHOLD)
-        stats.min_len = MIN_LEN_TSHOLD;
       for (int i = stats.min_len; i <= stats.max_len; i++) {
         int good_b_count = 0;
         for (int j = stats.min_b; j <= stats.max_b; j++) {
@@ -2501,98 +2490,12 @@ class builder : public builder_fwd {
           break;
         }
       }
-      byte_ptr_vec node_sets;
-      uint32_t* min_pos_counts = new uint32_t[32 * 256 * 256]();
-      leopard::node_set_handler cur_ns(memtrie.all_node_sets, 1);
-      for (size_t i = 1; i < memtrie.all_node_sets.size(); i++) {
-        cur_ns.set_pos(i);
-        uint8_t len = cur_ns.last_node_idx();
-        if (len < stats.min_len)
-          continue;
-        if (len >= stats.min_len + 32)
-          continue;
-        node_sets.push_back(memtrie.all_node_sets[i]);
-        leopard::node cur_node = cur_ns.first_node();
-        for (int k = 0; k <= len; k++) {
-          uint8_t b = cur_node.get_byte();
-          min_pos_counts[(len - stats.min_len) * 65536 + b * 256 + k]++;
-          cur_node.next();
-        }
-      }
-      //printf("Node set 32 count: %lu\n", node_sets.size());
-      uint64_t total_sum_counts = 0;
-      leopard::node_set_handler ns_len_32(node_sets, 1);
-      for (size_t i = 0; i < node_sets.size(); i++) {
-        ns_len_32.set_pos(i);
-        uint8_t len = ns_len_32.last_node_idx();
-        leopard::node cur_node = ns_len_32.first_node();
-        uint32_t sum_counts = 0;
-        for (int k = 0; k <= len; k++) {
-          uint8_t b = cur_node.get_byte();
-          sum_counts += min_pos_counts[(len - stats.min_len) * 65536 + b * 256 + k];
-          cur_node.next();
-        }
-        leopard::node_set_header *nsh = ns_len_32.get_ns_hdr();
-        nsh->count = sum_counts;
-        total_sum_counts += sum_counts;
-      }
-      uint64_t avgs[5] = {0, 0, 0, 0, 0};
-      avgs[2] = total_sum_counts / node_sets.size();
-      std::sort(node_sets.begin(), node_sets.end(), [](const uint8_t *lhs, const uint8_t *rhs) -> bool {
-        leopard::node_set_header *lhs_nsh = (leopard::node_set_header *) lhs;
-        leopard::node_set_header *rhs_nsh = (leopard::node_set_header *) rhs;
-        return lhs_nsh->count > rhs_nsh->count;
-      });
-      uint32_t half1_count = 0;
-      uint32_t half2_count = 0;
-      for (size_t i = 0; i < node_sets.size(); i++) {
-        ns_len_32.set_pos(i);
-        leopard::node_set_header *nsh = ns_len_32.get_ns_hdr();
-        if (nsh->count > avgs[2]) {
-          half1_count++;
-          avgs[1] += nsh->count;
-        } else {
-          half2_count++;
-          avgs[3] += nsh->count;
-        }
-      }
-      avgs[1] = avgs[1] / half1_count;
-      avgs[3] = avgs[3] / half2_count;
-      avgs[0] = total_sum_counts;
-      //printf("Total sum counts: %llu, avg0: %llu, avg1: %llu, avg2: %llu, avg3: %llu, avg4: %llu\n", total_sum_counts, avgs[0], avgs[1], avgs[2], avgs[3], avgs[4]);
-      memset(min_pos32, 0xFF, 32768);
-      int cur_avg = 1;
-      for (size_t i = 0; i < node_sets.size(); i++) {
-        ns_len_32.set_pos(i);
-        uint8_t len = ns_len_32.last_node_idx();
-        leopard::node_set_header *nsh = ns_len_32.get_ns_hdr();
-        if (avgs[cur_avg] > nsh->count) {
-          cur_avg++;
-        }
-        if (cur_avg < 4)
-          nsh->flags |= cur_avg;
-        leopard::node cur_node = ns_len_32.first_node();
-        for (int k = 0; k <= len; k++) {
-          uint8_t b = cur_node.get_byte();
-          if (min_pos32[cur_avg - 1][len - stats.min_len][b] > k)
-             min_pos32[cur_avg - 1][len - stats.min_len][b] = k;
-          cur_node.next();
-        }
-      }
-      delete [] min_pos_counts;
-      // int min32[4] = {0, 0, 0, 0};
       // for (int i = stats.min_len; i <= stats.max_len; i++) {
       //   printf("Len: %d:: ", i);
       //   for (int j = stats.min_b; j <= stats.max_b; j++) {
       //     int min = min_pos[i][j];
-      //     for (int k = 0; k < 4; k++)
-      //       min32[k] = ((i - stats.min_len) < 32 ? min_pos32[k][i - stats.min_len][j] : 0);
-      //     if (min != 255) {
-      //       printf("%c(%d): %d", j, j, min);
-      //       for (int k = 0; k < 4; k++)
-      //         printf("/%d", min32[k]);
-      //       printf(", ");
-      //     }
+      //     if (min != 255)
+      //       printf("%c(%d): %d, ", j, j, min);
       //   }
       //   printf("\n\n");
       // }
@@ -2610,17 +2513,6 @@ class builder : public builder_fwd {
           fputc(min_len, fp);
         }
       }
-      for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 32; j++) {
-          for (int k = 0; k < 256; k++) {
-            uint8_t min_len = min_pos32[i][j][k];
-            if (min_len == 0xFF)
-              min_len = 0;
-            min_len++;
-            fputc(min_len, fp);
-          }
-        }
-      }
     }
 
     uint32_t build() {
@@ -2633,11 +2525,8 @@ class builder : public builder_fwd {
       tp.opts_loc = 4 + 10 + 23 * 4; // 106
       if (!no_primary_trie) {
         memtrie.sort_node_sets();
-        if (opts.dart) {
-          tp.min_stats = make_min_positions();
-          tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
-        }
         set_node_id();
+        tp.min_stats = make_min_positions();
         tp.trie_tail_ptrs_data_sz = build_trie();
 
         if (trie_level > 0) {
@@ -2652,11 +2541,10 @@ class builder : public builder_fwd {
           tp.rev_cache_count = build_cache(false, true, tp.rev_cache_max_node_id);
           tp.rev_cache_size = tp.rev_cache_count * 6; // 6 = parent_node_id (3) + child_node_id (3)
         }
+        tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
         tp.sec_cache_size = 0;
-        if (opts.dart) {
+        if (opts.dart)
           tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256;
-          tp.sec_cache_size += 32768;
-        }
         tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
         tp.child_bvlt_sz = tp.term_bvlt_sz;
         tp.leaf_bvlt_sz = tp.term_bvlt_sz;
