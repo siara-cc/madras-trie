@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
   int out_val_len = 0;
   uint8_t key_buf[dict_reader.get_max_key_len() + 1];
   uint8_t val_buf[dict_reader.get_max_val_len() + 1];
-  madras_dv1::dict_iter_ctx dict_ctx;
+  madras_dv1::iter_ctx dict_ctx;
   dict_ctx.init(dict_reader.get_max_key_len(), dict_reader.get_max_level());
 
   if (!is_sorted) {
@@ -219,18 +219,21 @@ int main(int argc, char *argv[]) {
     }
 
     uint32_t node_id;
-    bool is_found = dict_reader.lookup(key, key_len, node_id);
+    madras_dv1::input_ctx in_ctx;
+    in_ctx.key = key;
+    in_ctx.key_len = key_len;
+    bool is_found = dict_reader.lookup(in_ctx);
     if (!is_found)
       std::cout << "Lookup fail: " << line << std::endl;
     else {
-      uint32_t leaf_id = dict_reader.get_leaf_rank(node_id);
+      uint32_t leaf_id = dict_reader.get_leaf_rank(in_ctx.node_id);
       bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
       if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
         printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", key, key_len, key_buf);
     }
 
-    success = dict_reader.get(key, key_len, &out_val_len, val_buf, node_id);
+    success = dict_reader.get(in_ctx, &out_val_len, val_buf);
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
