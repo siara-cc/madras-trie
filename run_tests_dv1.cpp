@@ -161,6 +161,8 @@ int main(int argc, char *argv[]) {
     is_sorted = true;
   }
 
+  madras_dv1::input_ctx in_ctx;
+
   line_count = 0;
   bool success = false;
   for (int i = 0; i < lines.size(); i++) {
@@ -168,8 +170,8 @@ int main(int argc, char *argv[]) {
     line_len = lines[i].second;
     // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
     //   continue;
-    prev_line = line;
-    prev_line_len = line_len;
+    // prev_line = line;
+    // prev_line_len = line_len;
     // if (line.compare("don't think there's anything wrong") == 0)
     //   std::cout << line << std::endl;;
     // if (line.compare("understand that there is a") == 0)
@@ -191,8 +193,6 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    uint8_t *key = line;
-    int key_len = line_len;
     uint8_t *val = line;
     int val_len;
     // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
@@ -204,24 +204,23 @@ int main(int argc, char *argv[]) {
     //   val_len = (line_len > 6 ? 7 : line_len);
     // }
 
+    in_ctx.key = line;
+    in_ctx.key_len = line_len;
+
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
       out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
-      if (out_key_len != key_len)
-        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", key_len, key, out_key_len, key_buf, key_len, out_key_len, out_val_len);
+      if (out_key_len != in_ctx.key_len)
+        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, out_key_len, key_buf, in_ctx.key_len, out_key_len, out_val_len);
       else {
-        if (memcmp(key, key_buf, key_len) != 0)
-          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", key_len, key, out_key_len, key_buf);
-        if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
+        if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0)
+          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", in_ctx.key_len, in_ctx.key, out_key_len, key_buf);
+        if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
           printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
         if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)
           printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
       }
     }
 
-    uint32_t node_id;
-    madras_dv1::input_ctx in_ctx;
-    in_ctx.key = key;
-    in_ctx.key_len = key_len;
     bool is_found = dict_reader.lookup(in_ctx);
     if (!is_found)
       std::cout << "Lookup fail: " << line << std::endl;
@@ -229,29 +228,29 @@ int main(int argc, char *argv[]) {
       uint32_t leaf_id = dict_reader.get_leaf_rank(in_ctx.node_id);
       bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
-      if (strncmp((const char *) key, (const char *) key_buf, key_len) != 0)
-        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", key, key_len, key_buf);
+      if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0)
+        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, in_ctx.key_len, key_buf);
     }
 
     success = dict_reader.get(in_ctx, &out_val_len, val_buf);
     if (success) {
       val_buf[out_val_len] = 0;
-      if (what == 2 && memcmp(key, val_buf, out_val_len) != 0)
+      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
         printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", out_key_len, key, out_val_len, val_buf);
+        printf("key: [%.*s], val: [%.*s]\n", out_key_len, in_ctx.key, out_val_len, val_buf);
     } else
-      std::cout << "Get fail: " << key << std::endl;
+      std::cout << "Get fail: " << in_ctx.key << std::endl;
 
     if (what == 0) {
-      dict_reader.get_col_val(node_id, 1, &out_val_len, val_buf);
+      dict_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
       if (atoi((const char *) val_buf) != line_len) {
         std::cout << "First val mismatch - expected: " << line_len << ", found: "
             << (const char *) val_buf << std::endl;
       }
 
-      dict_reader.get_col_val(node_id, 2, &out_val_len, val_buf);
+      dict_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
       int checksum = 0;
       for (int i = 0; i < strlen((const char *) line); i++) {
