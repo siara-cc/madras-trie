@@ -150,9 +150,7 @@ class ptr_groups {
     uint32_t grp_data_loc;
     uint32_t grp_data_size;
     uint32_t grp_ptrs_loc;
-    uint32_t two_byte_data_loc;
     uint32_t idx2_ptrs_map_loc;
-    uint32_t two_byte_count;
     uint32_t idx2_ptr_count;
     uint64_t tot_ptr_bit_count;
     uint32_t max_len;
@@ -372,8 +370,8 @@ class ptr_groups {
     }
     uint32_t get_total_size() {
       if (enc_type == 't')
-        return grp_data_size + get_ptrs_size() + ptr_lookup_tbl_sz + 8 * 4 + 4;
-      return grp_data_size + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl_sz + 8 * 4 + 4;
+        return grp_data_size + get_ptrs_size() + ptr_lookup_tbl_sz + 6 * 4 + 4;
+      return grp_data_size + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl_sz + 6 * 4 + 4;
     }
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
       ptr_lkup_tbl_ptr_width = width;
@@ -397,7 +395,7 @@ class ptr_groups {
           ptr_lkup_tbl_ptr_width = 4;
         build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec);
       }
-      ptr_lookup_tbl_loc = 8 * 4 + 4;
+      ptr_lookup_tbl_loc = 6 * 4 + 4;
       if (encoding_type == 't' || col_trie_size > 0)
         ptr_lookup_tbl_sz = 0;
       else {
@@ -408,14 +406,12 @@ class ptr_groups {
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
       if (encoding_type == 't' || col_trie_size > 0) {
-        two_byte_count = two_byte_data_loc = idx2_ptr_count = idx2_ptrs_map_loc = 0;
+        idx2_ptr_count = idx2_ptrs_map_loc = 0;
         grp_data_loc = grp_ptrs_loc + ptrs.size();
         grp_data_size = col_trie_size;
       } else {
-        two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
-        two_byte_data_loc = grp_ptrs_loc + ptrs.size();
         idx2_ptr_count = get_idx2_ptrs_count();
-        idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
+        idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
         grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
         grp_data_size = get_hdr_size() + get_data_size();
       }
@@ -641,18 +637,15 @@ class ptr_groups {
       gen::write_uint32(max_len, fp);
       gen::write_uint32(ptr_lookup_tbl_loc, fp);
       gen::write_uint32(grp_data_loc, fp);
-      gen::write_uint32(two_byte_count, fp);
       gen::write_uint32(idx2_ptr_count, fp);
-      gen::write_uint32(grp_ptrs_loc, fp);
-      gen::write_uint32(two_byte_data_loc, fp);
       gen::write_uint32(idx2_ptrs_map_loc, fp);
+      gen::write_uint32(grp_ptrs_loc, fp);
 
       if (enc_type == 't') {
         write_ptrs(fp);
       } else {
         write_ptr_lookup_tbl(fp);
         write_ptrs(fp);
-        //fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
         fwrite(idx2_ptrs_map->data(), 1, idx2_ptrs_map->size(), fp);
         write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
@@ -753,7 +746,6 @@ class tail_val_maps {
     leopard::uniq_info_vec& uniq_tails_rev;
     //leopard::uniq_info_vec uniq_tails_fwd;
     ptr_groups ptr_grps;
-    byte_vec two_byte_tails;
     gen::byte_blocks& uniq_vals;
     leopard::uniq_info_vec& uniq_vals_fwd;
     int start_nid, end_nid;
@@ -1961,27 +1953,22 @@ class builder : public builder_fwd {
       fputc(LPDT_WORDS, fp); // data type
       fputc(LPDT_WORDS, fp); // encoding type
       fputc(0, fp); // flags
-      uint32_t hdr_size = 8 * 4 + 4;
+      uint32_t hdr_size = 6 * 4 + 4;
       uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
       uint32_t ptr_lookup_tbl_loc = hdr_size;
       uint32_t grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
-      uint32_t two_byte_count = 0; // todo: fix two_byte_tails.size() / 2;
-      uint32_t two_byte_data_loc = grp_ptrs_loc + ptrs.size();
       uint32_t idx2_ptr_count = 0;
-      uint32_t idx2_ptrs_map_loc = two_byte_data_loc + 0; // todo: fix two_byte_tails.size();
+      uint32_t idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
       uint32_t grp_data_loc = idx2_ptrs_map_loc + 0;
       uint32_t grp_data_size = 2 + words_grp_count * 4 + total_trie_size;
       gen::write_uint32(memtrie.max_val_len, fp);
       gen::write_uint32(ptr_lookup_tbl_loc, fp); // ptr_lookup_tbl_loc
       gen::write_uint32(grp_data_loc, fp); // grp_data_loc
-      gen::write_uint32(two_byte_count, fp); // two_byte_count
       gen::write_uint32(idx2_ptr_count, fp); // idx2_ptr_count
-      gen::write_uint32(grp_ptrs_loc, fp); // grp_ptrs_loc
-      gen::write_uint32(two_byte_data_loc, fp); // two_byte_data_loc
       gen::write_uint32(idx2_ptrs_map_loc, fp); // idx2_ptrs_map_loc
+      gen::write_uint32(grp_ptrs_loc, fp); // grp_ptrs_loc
       fwrite(ptr_lkup_tbl.data(), 1, ptr_lkup_tbl.size(), fp);
       fwrite(ptrs.data(), 1, ptrs.size(), fp);
-      //fwrite(all_node_sets.data(), 0, 1, fp); // todo: fix two_byte_tails.size(), 1, fp);
       // fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
       fputc(words_grp_count, fp);
       fputc(0, fp); // grp_log2 (?)
