@@ -74,4 +74,23 @@ Total length: 359374121
      5   89129000  1092.68  1476.53  1788.26  1397.30   464.87
 ------+----------+--------+--------+--------+--------+--------
 
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_marisa ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MARISA", "build_ns_per_key": "992.493129", "lookup_ns_per_query": "2402.417518", "best_lookup_ns_per_query": "2388.601270", "decode_ns_per_query": "1980.367942", "best_decode_ns_per_query": "1966.187730", "memory_in_bytes": "90706608"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_marisa ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MARISA", "build_ns_per_key": "937.901481", "lookup_ns_per_query": "3200.768985", "best_lookup_ns_per_query": "3182.556410", "decode_ns_per_query": "1968.229165", "best_decode_ns_per_query": "1952.496450", "memory_in_bytes": "90706608"}
+
+64 entry ptr lt
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "2403.998967", "lookup_ns_per_query": "2980.203651", "best_lookup_ns_per_query": "2968.193630", "decode_ns_per_query": "2135.746874", "best_decode_ns_per_query": "2125.553240", "memory_in_bytes": "82664686"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "2292.958215", "lookup_ns_per_query": "3608.737253", "best_lookup_ns_per_query": "3588.087510", "decode_ns_per_query": "2207.770726", "best_decode_ns_per_query": "2190.558800", "memory_in_bytes": "83687535"}
+
+32 entry ptr lt
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "2356.714163", "lookup_ns_per_query": "2861.388836", "best_lookup_ns_per_query": "2853.302720", "decode_ns_per_query": "2111.877586", "best_decode_ns_per_query": "2102.862680", "memory_in_bytes": "83561878"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "2283.044750", "lookup_ns_per_query": "3434.815294", "best_lookup_ns_per_query": "3419.561980", "decode_ns_per_query": "2122.073197", "best_decode_ns_per_query": "2113.063580", "memory_in_bytes": "84603911"}
+
+Idx size: 83561878 Keys per sec: 1258.578463
+Idx size: 84603911 Keys per sec: 1195.323708
 
