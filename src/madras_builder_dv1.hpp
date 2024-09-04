@@ -1583,10 +1583,11 @@ class builder : public builder_fwd {
       byv.push_back(b64 >> 56);
     }
     void append_flags(byte_vec& byv, uint64_t bm_leaf, uint64_t bm_child, uint64_t bm_term, uint64_t bm_ptr) {
-      append64_t(byv, bm_leaf);
       append64_t(byv, bm_child);
       append64_t(byv, bm_term);
       append64_t(byv, bm_ptr);
+      if (opts.trie_leaf_count > 0)
+        append64_t(byv, bm_leaf);
     }
     void append_byte_vec(byte_vec& byv1, byte_vec& byv2) {
       for (size_t k = 0; k < byv2.size(); k++)
@@ -2098,6 +2099,8 @@ class builder : public builder_fwd {
 
     builder_fwd *new_instance() {
       bldr_options inner_trie_opts = inner_tries_dflt_opts;
+      inner_trie_opts.trie_leaf_count = 0;
+      inner_trie_opts.leaf_lt = false;
       inner_trie_opts.max_inner_tries = opts.max_inner_tries;
       if (opts.max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
@@ -2314,6 +2317,37 @@ class builder : public builder_fwd {
         }
         node_id += ns_hdr->last_node_idx;
         node_id++;
+        // if (ns_hdr->last_node_idx < 5)
+        //   continue;
+        // printf("nid: %u\t", node_id);
+        // leopard::node cur_node;
+        // cur_node = (uint8_t *) (ns_hdr + 1);
+        // uint8_t prev_b = cur_node.get_byte();
+        // uint8_t start_b = prev_b;
+        // printf("%d", prev_b);
+        // cur_node.next();
+        // int max_cont = 0;
+        // for (int k = 1; k <= ns_hdr->last_node_idx; k++) {
+        //   uint8_t b = cur_node.get_byte();
+        //   if (b - 1 != prev_b) {
+        //     if (start_b == prev_b)
+        //       printf(",%d", b);
+        //     else {
+        //       printf("-%d,%d", prev_b, b);
+        //       if (prev_b - start_b > max_cont)
+        //         max_cont = prev_b - start_b;
+        //     }
+        //     start_b = b;
+        //   }
+        //   prev_b = b;
+        //   cur_node.next();
+        // }
+        // if (start_b != prev_b) {
+        //   printf("-%d", prev_b);
+        //   if (prev_b - start_b > max_cont)
+        //     max_cont = prev_b - start_b;
+        // }
+        // printf("\tmax: %d\t%d\n", max_cont, ns_hdr->last_node_idx);
       }
     }
 
@@ -2545,7 +2579,7 @@ class builder : public builder_fwd {
           tp.term_bvlt_sz = tp.child_bvlt_sz = tp.leaf_bvlt_sz = 0;
           tp.term_select_lt_sz = tp.child_select_lt_sz = tp.leaf_select_lt_sz = 0;
         }
-        if (!opts.leaf_lt) {
+        if (!opts.leaf_lt || opts.trie_leaf_count == 0) {
           tp.leaf_select_lt_sz = 0;
           tp.leaf_bvlt_sz = 0;
         }
@@ -2674,7 +2708,7 @@ class builder : public builder_fwd {
         write_trie_tail_ptrs_data(fp);
 
         if (!opts.dessicate) {
-          if (opts.leaf_lt) {
+          if (opts.leaf_lt && opts.trie_leaf_count > 0) {
             write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
             write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
           }

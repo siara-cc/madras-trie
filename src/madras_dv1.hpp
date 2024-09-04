@@ -119,18 +119,18 @@ struct min_pos_stats {
 };
 
 typedef struct {
-  uint64_t bm_leaf;
   uint64_t bm_child;
   uint64_t bm_term;
   uint64_t bm_ptr;
+  uint64_t bm_leaf;
 } trie_flags;
 
 struct input_ctx {
   const uint8_t *key;
-  int key_len;
-  int key_pos;
+  uint32_t key_len;
+  uint32_t key_pos;
   uint32_t node_id;
-  int cmp;
+  int32_t cmp;
 };
 
 class lt_builder {
@@ -241,21 +241,19 @@ struct tail_vars {
 };
 
 struct ctx_vars {
-  const uint8_t *trie_loc;
   const uint8_t *tf0;
-  const int tf_multiplier;
+  int tf_multiplier;
   const trie_flags *tf;
-  const uint8_t *t;
   uint64_t bm_mask;
   tail_vars tail;
   ctx_vars() : tf_multiplier (32) {
   }
-  ctx_vars(uint8_t *_trie_loc, trie_flags *_tf) : tf_multiplier (32) {
-    init(_trie_loc, _tf);
+  ctx_vars(trie_flags *_tf, int _tf_multiplier) : tf_multiplier (_tf_multiplier) {
+    init(_tf, _tf_multiplier);
   }
-  void init(uint8_t *_trie_loc, trie_flags *_tf) {
-    trie_loc = _trie_loc;
+  void init(trie_flags *_tf, int _tf_multiplier) {
     tf0 = (const uint8_t *) _tf;
+    tf_multiplier = _tf_multiplier;
     tail.ptr_bit_count = UINT32_MAX;
   }
   void next_block(uint32_t node_id) {
@@ -264,8 +262,7 @@ struct ctx_vars {
       tf = (trie_flags *) (((const uint8_t *) tf) + tf_multiplier);
     }
   }
-  void update_cv_from_node_id(uint32_t node_id) {
-    t = trie_loc + node_id;
+  void update_tf(uint32_t node_id) {
     tf = (trie_flags *) (tf0 + node_id / nodes_per_bv_block_n * tf_multiplier);
     bm_mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
   }
@@ -362,25 +359,26 @@ class GCFC_rev_cache {
 
 class statssski {
   private:
+    uint8_t *trie_loc;
     min_pos_stats min_stats;
     uint8_t *min_pos_loc;
   public:
     statssski() {
     }
-    void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
+    void init(uint8_t *_trie_loc, min_pos_stats _stats, uint8_t *_min_pos_loc) {
+      trie_loc = _trie_loc;
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
     }
     void find_min_pos(uint32_t& node_id, uint8_t key_byte, ctx_vars& tv) {
       if ((tv.bm_mask & (tv.tf->bm_child | tv.tf->bm_leaf)) == 0) {
-        uint8_t min_offset = min_pos_loc[((*tv.t - min_stats.min_len) * 256) + key_byte];
+        uint8_t min_offset = min_pos_loc[((trie_loc[node_id] - min_stats.min_len) * 256) + key_byte];
         if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
-          tv.t += min_offset;
           node_id += min_offset;
           tv.bm_mask <<= min_offset;
         } else {
           node_id += min_offset;
-          tv.update_cv_from_node_id(node_id);
+          tv.update_tf(node_id);
         }
       }
     }
@@ -949,13 +947,13 @@ class tail_ptr_data_map : public ptr_data_map {
   public:
     void scan_ptr_bits_tail(uint32_t node_id, ctx_vars& cv) {
       int offset = node_id % nodes_per_ptr_block_n;
-      const uint8_t *t_from = cv.t - offset;
+      uint32_t node_id_from = node_id - offset;
       uint64_t bm_mask = cv.bm_mask >> offset;
-      while (t_from < cv.t) {
+      while (node_id_from < node_id) {
         if (bm_mask & cv.tf->bm_ptr)
-          cv.tail.ptr_bit_count += code_lt_bit_len[*t_from];
+          cv.tail.ptr_bit_count += code_lt_bit_len[trie_loc[node_id_from]];
         bm_mask <<= 1;
-        t_from++;
+        node_id_from++;
       }
     }
     void get_ptr_bit_count_tail(uint32_t node_id, ctx_vars& cv) {
@@ -1128,14 +1126,13 @@ class val_ptr_data_map : public ptr_data_map {
         get_val(node_id, in_size_out_value_len, ret_val, &cv.tail.ptr_bit_count);
         return true;
       }
-      cv.update_cv_from_node_id(node_id);
+      cv.update_tf(node_id);
       do {
         if (cv.bm_mask & cv.tf->bm_leaf) {
           get_val(node_id, in_size_out_value_len, ret_val, &cv.tail.ptr_bit_count);
           return true;
         }
         node_id++;
-        cv.t++;
         cv.bm_mask <<= 1;
         cv.next_block(node_id);
       } while (node_id < node_count);
@@ -1480,7 +1477,7 @@ class static_dict : public static_dict_fwd {
       names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
       val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
       node_count = gen::read_uint32(dict_buf + 14);
-      opts = (bldr_options *) dict_buf + gen::read_uint32(dict_buf + 18);
+      opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
       node_set_count = gen::read_uint32(dict_buf + 22);
       key_count = gen::read_uint32(dict_buf + 26);
       names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
@@ -1503,11 +1500,6 @@ class static_dict : public static_dict_fwd {
         uint8_t *min_pos_loc = dict_buf + gen::read_uint32(dict_buf + 70);
         if (min_pos_loc == dict_buf)
           min_pos_loc = nullptr;
-        if (min_pos_loc != nullptr) {
-          sski = new statssski();
-          sski->init(min_stats, min_pos_loc);
-        }
-
         fwd_cache.init(fwd_cache_loc, fwd_cache_count, fwd_cache_max_node_id);
         rev_cache.init(rev_cache_loc, rev_cache_count, rev_cache_max_node_id);
 
@@ -1527,6 +1519,11 @@ class static_dict : public static_dict_fwd {
         trie_flags_loc = (trie_flags *) (trie_loc + trie_size);
         tail_map.init(dict_buf, this, trie_loc, trie_flags_loc, tails_loc, node_count, true);
 
+        if (min_pos_loc != nullptr) {
+          sski = new statssski();
+          sski->init(trie_loc, min_stats, min_pos_loc);
+        }
+
         if (term_select_lkup_loc == dict_buf) term_select_lkup_loc = nullptr;
         if (term_lt_loc == dict_buf) term_lt_loc = nullptr;
         if (child_select_lkup_loc == dict_buf) child_select_lkup_loc = nullptr;
@@ -1534,11 +1531,14 @@ class static_dict : public static_dict_fwd {
         if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
         if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
 
-        leaf_lt.init(leaf_lt_loc,   leaf_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, 32, 0, BV_LT_TYPE_LEAF);
-        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_flags_loc, 32, 8, BV_LT_TYPE_CHILD);
-        term_lt.init(term_lt_loc,   term_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, 32, 16, BV_LT_TYPE_TERM);
+        int flags_width = 32;
+        if (opts->trie_leaf_count == 0)
+          flags_width = 24;
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 0, BV_LT_TYPE_CHILD);
+        term_lt.init(term_lt_loc,   term_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 8, BV_LT_TYPE_TERM);
         if (opts->tail_tries)
-          tail_lt.init(tail_lt_loc, nullptr, node_count, node_set_count, key_count, trie_flags_loc, 32, 24, BV_LT_TYPE_TAIL);
+          tail_lt.init(tail_lt_loc, nullptr, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 16, BV_LT_TYPE_TAIL);
+        leaf_lt.init(leaf_lt_loc,   leaf_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 24, BV_LT_TYPE_LEAF);
       }
 
       if (val_count > 0) {
@@ -1647,13 +1647,12 @@ class static_dict : public static_dict_fwd {
       in_ctx.key_pos = 0;
       in_ctx.node_id = 2;
       uint8_t tail_str_buf[max_tail_len];
-      ctx_vars tv(trie_loc, trie_flags_loc);
+      ctx_vars tv(trie_flags_loc, opts->trie_leaf_count == 0 ? 24 : 32);
       tv.tail.str.set_buf_max_len(tail_str_buf, max_tail_len);
-      uint8_t trie_byte;
-      uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
+      uint8_t trie_byte, key_byte;
       do {
         int ret = fwd_cache.try_find(in_ctx);
-        tv.update_cv_from_node_id(in_ctx.node_id);
+        tv.update_tf(in_ctx.node_id);
         if (ret == 0) {
           if (tv.is_leaf_set())
             return true;
@@ -1665,9 +1664,9 @@ class static_dict : public static_dict_fwd {
           #endif
           tv.tail.ptr_bit_count = UINT32_MAX;
           do {
-            uint8_t node_byte = trie_byte = *tv.t;
+            trie_byte = trie_loc[in_ctx.node_id];
             if (tv.is_ptr_set())
-              trie_byte = tail_map.get_first_byte(node_byte, in_ctx.node_id, tv);
+              trie_byte = tail_map.get_first_byte(trie_byte, in_ctx.node_id, tv);
             #ifndef MDX_IN_ORDER
               if (key_byte == trie_byte)
                 break;
@@ -1677,7 +1676,6 @@ class static_dict : public static_dict_fwd {
             #endif
             if (tv.is_term_set())
               return false;
-            tv.t++;
             in_ctx.node_id++;
             tv.bm_mask <<= 1;
             if (tv.bm_mask == 0) {
@@ -1770,20 +1768,19 @@ class static_dict : public static_dict_fwd {
     uint32_t read_from_ctx(iter_ctx& ctx, ctx_vars& cv, uint32_t& child_count) {
       child_count = ctx.child_count[ctx.cur_idx];
       uint32_t node_id = ctx.node_path[ctx.cur_idx];
-      cv.update_cv_from_node_id(node_id);
+      cv.update_tf(node_id);
       return node_id;
     }
 
     int next(iter_ctx& ctx, uint8_t *key_buf, uint8_t *val_buf = nullptr, int *val_buf_len = nullptr) {
-      ctx_vars cv(trie_loc, trie_flags_loc);
+      ctx_vars cv(trie_flags_loc, opts->trie_leaf_count == 0 ? 24 : 32);
       uint8_t tail[max_tail_len + 1];
       cv.tail.str.set_buf_max_len(tail, max_tail_len);
       uint32_t child_count;
       uint32_t node_id = read_from_ctx(ctx, cv, child_count);
       while (node_id < 2) {
         node_id++;
-        uint8_t trie_byte = *cv.t;
-        cv.t++;
+        uint8_t trie_byte = trie_loc[node_id];
         cv.bm_mask <<= 1;
         if (node_id == 1 && trie_byte == 0xFF) {
           if (val_count > 0)
@@ -1801,7 +1798,6 @@ class static_dict : public static_dict_fwd {
       while (node_id < node_count) {
         if ((cv.bm_mask & cv.tf->bm_child) == 0 && (cv.bm_mask & cv.tf->bm_leaf) == 0) {
           node_id++;
-          cv.t++;
           cv.bm_mask <<= 1;
           cv.next_block(node_id);
           continue;
@@ -1816,7 +1812,6 @@ class static_dict : public static_dict_fwd {
               }
               node_id++;
               cv.bm_mask <<= 1;
-              cv.t++;
               update_ctx(ctx, cv, node_id, child_count);
               ctx.to_skip_first_leaf = false;
               cv.next_block(node_id);
@@ -1824,10 +1819,10 @@ class static_dict : public static_dict_fwd {
             }
           } else {
             if (cv.bm_mask & cv.tf->bm_ptr)
-              tail_map.get_tail_str(node_id, *cv.t, cv);
+              tail_map.get_tail_str(node_id, trie_loc[node_id], cv);
             else {
               cv.tail.str.clear();
-              cv.tail.str.append(*cv.t);
+              cv.tail.str.append(trie_loc[node_id]);
             }
             update_ctx(ctx, cv, node_id, child_count);
             memcpy(key_buf, ctx.key, ctx.key_len);
@@ -1841,15 +1836,15 @@ class static_dict : public static_dict_fwd {
         if (cv.bm_mask & cv.tf->bm_child) {
           child_count++;
           if (cv.bm_mask & cv.tf->bm_ptr)
-            tail_map.get_tail_str(node_id, *cv.t, cv);
+            tail_map.get_tail_str(node_id, trie_loc[node_id], cv);
           else {
             cv.tail.str.clear();
-            cv.tail.str.append(*cv.t);
+            cv.tail.str.append(trie_loc[node_id]);
           }
           update_ctx(ctx, cv, node_id, child_count);
           term_lt.select(node_id, child_count);
           child_count = child_lt.rank(node_id);
-          cv.update_cv_from_node_id(node_id);
+          cv.update_tf(node_id);
           cv.tail.ptr_bit_count = UINT32_MAX;
           push_to_ctx(ctx, cv, node_id, child_count);
         }
@@ -1916,7 +1911,7 @@ class static_dict : public static_dict_fwd {
         return true;
       }
       #endif
-      ctx_vars cv(trie_loc, trie_flags_loc);
+      ctx_vars cv(trie_flags_loc, opts->trie_leaf_count == 0 ? 24 : 32);
       uint8_t tail[max_tail_len + 1];
       cv.tail.str.set_buf_max_len(tail, max_tail_len);
       int key_len = 0;
@@ -1924,10 +1919,10 @@ class static_dict : public static_dict_fwd {
       *in_size_out_key_len = 1;
       do {
         node_id--;
-        cv.update_cv_from_node_id(node_id);
+        cv.update_tf(node_id);
         if (cv.bm_mask & cv.tf->bm_ptr) {
           cv.tail.ptr_bit_count = UINT32_MAX;
-          tail_map.get_tail_str(node_id, *cv.t, cv);
+          tail_map.get_tail_str(node_id, trie_loc[node_id], cv);
           int i = cv.tail.str.length() - 1;
           ret_key[key_len] = cv.tail.str[i];
           if (return_first_byte)
@@ -1936,7 +1931,7 @@ class static_dict : public static_dict_fwd {
           while (i >= 0)
             ret_key[key_len++] = cv.tail.str[i--];
         } else {
-          ret_key[key_len++] = *cv.t;
+          ret_key[key_len++] = trie_loc[node_id];
           if (return_first_byte)
             return true;
         }
@@ -1948,11 +1943,12 @@ class static_dict : public static_dict_fwd {
     }
 
     // bool find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
-    //   int cmp;
-    //   uint32_t lkup_node_id;
-    //   bool is_found = lookup(prefix, prefix_len, lkup_node_id, &cmp);
-    //   if (!is_found && cmp == 0)
-    //     cmp = 10000;
+    //   input_ctx in_ctx;
+    //   in_ctx.key = prefix;
+    //   in_ctx.key_len = prefix_len;
+    //   bool is_found = lookup(in_ctx);
+    //   if (!is_found && in_ctx.cmp == 0)
+    //     in_ctx.cmp = 10000;
     //     uint8_t key_buf[max_key_len];
     //     int key_len;
     //     // TODO: set last_key_len
