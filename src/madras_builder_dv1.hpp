@@ -113,6 +113,7 @@ class builder_fwd {
     bldr_options opts;
     bool maintain_seq;
     bool no_primary_trie;
+    int trie_level;
     builder_fwd(bldr_options _opts, bool _maintain_seq, bool _no_primary_trie)
       : opts (_opts), maintain_seq (_maintain_seq), no_primary_trie (_no_primary_trie) {
     }
@@ -1107,10 +1108,12 @@ class tail_val_maps {
         while (freq_idx < uniq_tails_freq.size()) {
           leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
           uint8_t rev[ti->len];
-          uint8_t *ti_data = uniq_tails[ti->pos];
-          for (uint32_t j = 0; j < ti->len; j++)
-            rev[j] = ti_data[ti->len - j - 1];
-          inner_trie->insert(rev, ti->len, nullptr, 0, freq_idx);
+          if (bldr->trie_level == 0) {
+            uint8_t *ti_data = uniq_tails[ti->pos];
+            for (uint32_t j = 0; j < ti->len; j++)
+              rev[j] = ti_data[ti->len - j - 1];
+          }
+          inner_trie->insert(bldr->trie_level == 0 ? rev : uniq_tails[ti->pos], ti->len, nullptr, 0, freq_idx);
           ptr_grps.update_current_grp(grp_no, 1, ti->freq_count);
           ti->grp_no = grp_no;
           trie_entry_idx++;
@@ -1611,7 +1614,6 @@ class builder : public builder_fwd {
     builder *col_trie_builder;
     builder *tail_trie_builder;
     trie_parts tp;
-    int trie_level;
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
         bool _maintain_seq = true, bool _no_primary_trie = false,
@@ -2112,17 +2114,22 @@ class builder : public builder_fwd {
 
     uint32_t build_tail_trie(uint32_t tot_freq_count) {
       bldr_options tt_opts = tail_tries_dflt_opts;
-      tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", 0, false, false, tt_opts);
+      tt_opts.trie_leaf_count = 0;
+      tt_opts.leaf_lt = false;
+      tt_opts.tail_tries = true;
+      tt_opts.max_inner_tries = opts.max_inner_tries;
+      tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", trie_level + 1, false, false, tt_opts);
       for (size_t i = 0; i < memtrie.uniq_tails_rev.size(); i++) {
         leopard::uniq_info *ti = memtrie.uniq_tails_rev[i];
         uint8_t rev[ti->len];
         uint8_t *ti_data = memtrie.uniq_tails[ti->pos];
-        for (uint32_t j = 0; j < ti->len; j++)
-          rev[j] = ti_data[ti->len - j - 1];
-        tail_trie_builder->insert(rev, ti->len, nullptr, 0, i);
+        if (trie_level == 0) {
+          for (uint32_t j = 0; j < ti->len; j++)
+            rev[j] = ti_data[ti->len - j - 1];
+        }
+        tail_trie_builder->insert(trie_level == 0 ? rev : ti_data, ti->len, nullptr, 0, i);
       }
       uint32_t trie_size = tail_trie_builder->build();
-      byte_vec *tail_ptrs = tail_vals.get_tail_grp_ptrs()->get_ptrs();
       int bit_len = ceil(log2(tail_trie_builder->memtrie.node_count + 1)) - 8;
       tail_vals.get_tail_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Tail trie bit_len: %d [log(%u) - 8]\n", bit_len, tail_trie_builder->memtrie.node_count);
@@ -2137,6 +2144,7 @@ class builder : public builder_fwd {
         node_id++;
         cur_node = ni_tt.next();
       }
+      byte_vec *tail_ptrs = tail_vals.get_tail_grp_ptrs()->get_ptrs();
       gen::int_bit_vector int_bv(tail_ptrs, bit_len, memtrie.uniq_tails_rev.size());
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       cur_node = ni.next();
@@ -2157,10 +2165,12 @@ class builder : public builder_fwd {
           memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
       uint32_t tail_trie_size = 0;
       if (memtrie.uniq_tails_rev.size() > 0) {
-        if (opts.tail_tries && memtrie.uniq_tails_rev.size() > 1000) {
+        if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && memtrie.uniq_tails_rev.size() > 1000) {
           tail_trie_size = build_tail_trie(tot_freq_count);
-        } else
+        } else {
+          opts.tail_tries = false;
           tail_vals.build_tail_maps(memtrie.all_node_sets, tot_freq_count, memtrie.max_tail_len);
+        }
       }
       uint32_t flag_counts[8];
       uint32_t char_counts[8];
