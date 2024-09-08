@@ -945,7 +945,7 @@ class tail_val_maps {
       uint32_t last_data_len;
       uint8_t start_bits = 7;
       uint32_t cumu_freq_idx = make_uniq_freq((leopard::uniq_info_vec&) uniq_tails_rev, (leopard::uniq_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
-      ptr_grps.set_idx_info(start_bits, grp_no, last_data_len > 65535 ? 3 : 2);
+      ptr_grps.set_idx_info(start_bits, grp_no, 3); //last_data_len > 65535 ? 3 : 2);
       ptr_grps.set_max_len(_max_len);
 
       uint32_t freq_idx = cumu_freq_idx;
@@ -2165,7 +2165,7 @@ class builder : public builder_fwd {
           memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
       uint32_t tail_trie_size = 0;
       if (memtrie.uniq_tails_rev.size() > 0) {
-        if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && memtrie.uniq_tails_rev.size() > 1000) {
+        if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && memtrie.uniq_tails_rev.size() > 255) {
           tail_trie_size = build_tail_trie(tot_freq_count);
         } else {
           opts.tail_tries = false;
