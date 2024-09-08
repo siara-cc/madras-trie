@@ -21,23 +21,18 @@ namespace madras_dv1 {
 #define MDX_REV_MRU_NID_CACHE 2
 
 // #define nodes_per_bv_block 128
-// #define bytes_per_bv_block 192
 // #define width_of_bv_block 5
 // #define width_of_bv_block_n 1
 #define nodes_per_bv_block 256
-#define bytes_per_bv_block 352
 #define width_of_bv_block 7
 #define width_of_bv_block_n 3
 // #define nodes_per_bv_block 512
-// #define bytes_per_bv_block 704
 // #define width_of_bv_block 11
 // #define width_of_bv_block_n 7
 // #define nodes_per_bv_block 1024
-// #define bytes_per_bv_block 1536
 // #define width_of_bv_block 19
 // #define width_of_bv_block_n 15
 #define nodes_per_bv_block_n 64
-#define bytes_per_bv_block_n 88
 
 // #define nodes_per_ptr_block 64
 // #define nodes_per_ptr_block_n 16
@@ -49,7 +44,6 @@ namespace madras_dv1 {
 
 #define nodes_per_ptr_block 256
 #define nodes_per_ptr_block_n 64
-#define bytes_per_ptr_block_n 88
 
 #define sel_divisor 256
 
@@ -118,7 +112,7 @@ const static bldr_options preset_opts[] = {
 };
 
 const static bldr_options dflt_opts =
-  {false, false,  true, false, false, false,  true,  true,  false, false,  4,  3,  3,  1,  2,  2,  1,  1, 64};
+  {true, false,  true, false, false, false,  true,  true,  false, false,  4,  3,  3,  1,  2,  2,  1,  16, 64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false,  true, false,  true, false,  4,  3,  3,  0,  2,  2,  1, 16, 64};
