@@ -42,7 +42,7 @@ namespace madras_dv1 {
 // #define nodes_per_ptr_block_n 32
 // #define bytes_per_ptr_block_n 48
 
-#define nodes_per_ptr_block 256
+#define nodes_per_ptr_block 2048
 #define nodes_per_ptr_block_n 64
 
 #define sel_divisor 256
