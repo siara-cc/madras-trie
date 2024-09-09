@@ -224,6 +224,92 @@ class lt_builder {
       }
       return ptr_lt_loc;
     }
+    static uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
+      if (node_id && (node_id % nodes_per_bv_block) == 0) {
+        memcpy(lt_pos, buf3, 3); lt_pos += 3;
+        gen::copy_uint32(count, lt_pos); lt_pos += 4;
+        count3 = 0;
+        memset(buf3, 0, 3);
+        pos3 = 0;
+      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
+        buf3[pos3] = count3;
+        //count3 = 0;
+        pos3++;
+      }
+      return lt_pos;
+    }
+    static uint8_t *create_rank_lt_from_trie(int lt_type, uint32_t node_count, uint8_t *bm_start_loc, int bm_multiplier, int bm_pos) {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t count = 0;
+      uint32_t count3 = 0;
+      uint8_t buf3[3];
+      uint8_t pos3 = 0;
+      memset(buf3, 0, 3);
+      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      uint8_t *lt_rank_loc = lt_pos;
+      uint64_t bm_flags, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+      gen::copy_uint32(0, lt_pos); lt_pos += 4;
+      do {
+        if ((node_id % nodes_per_bv_block_n) == 0) {
+          bm_mask = bm_init_mask;
+          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+        }
+        lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
+        uint32_t ct = (bm_mask & bm_flags ? 1 : 0);
+        count += ct;
+        count3 += ct;
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+      // extra (guard)
+      gen::copy_uint32(count, lt_pos); lt_pos += 4;
+      memcpy(lt_pos, buf3, 3); lt_pos += 3;
+      return lt_rank_loc;
+    }
+    static uint8_t *create_select_lt_from_trie(int lt_type, uint32_t key_count, uint32_t node_set_count, uint32_t node_count, uint8_t *bm_start_loc, int bm_multiplier, int bm_pos) {
+      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
+      uint32_t sel_count = 0;
+      uint32_t lt_size = 0;
+      if (lt_type == BV_LT_TYPE_LEAF)
+        lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
+      else if (lt_type == BV_LT_TYPE_CHILD) {
+        lt_size = 0;
+        if (node_set_count > 1)
+          lt_size = gen::get_lkup_tbl_size2(node_set_count - 1, sel_divisor, 3);
+      } else
+        lt_size = gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3);
+
+      uint8_t *lt_pos = new uint8_t[lt_size];
+      uint8_t *lt_sel_loc = lt_pos;
+      uint64_t bm_flags, bm_mask;
+      bm_mask = bm_init_mask << node_id;
+      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+      gen::copy_uint24(0, lt_pos); lt_pos += 3;
+      do {
+        if ((node_id % nodes_per_bv_block_n) == 0) {
+          bm_mask = bm_init_mask;
+          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
+        }
+        bool node_qualifies_for_select = (bm_mask & bm_flags) ? true : false;
+        if (node_qualifies_for_select) {
+          if (sel_count && (sel_count % sel_divisor) == 0) {
+            uint32_t val_to_write = node_id / nodes_per_bv_block;
+            gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
+            if (val_to_write > (1 << 24))
+              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+          }
+          sel_count++;
+        }
+        node_id++;
+        bm_mask <<= 1;
+      } while (node_id < node_count);
+      gen::copy_uint24(node_count / nodes_per_bv_block, lt_pos);
+      return lt_sel_loc;
+    }
 };
 
 struct tail_vars {
@@ -283,8 +369,6 @@ struct ctx_vars {
 class GCFC_fwd_cache {
   private:
     fwd_cache *cche0;
-    uint8_t *loc;
-    uint32_t count;
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
@@ -292,9 +376,8 @@ class GCFC_fwd_cache {
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
       cche0 = (fwd_cache *) _loc;
-      count = _count;
       max_node_id = _max_node_id;
-      cache_mask = count - 1;
+      cache_mask = _count - 1;
     }
     int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id > max_node_id)
@@ -326,8 +409,6 @@ class GCFC_fwd_cache {
 class GCFC_rev_cache {
   private:
     nid_cache *cche0;
-    uint8_t *loc;
-    uint32_t count;
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
@@ -335,12 +416,11 @@ class GCFC_rev_cache {
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
       cche0 = (nid_cache *) _loc;
-      count = _count;
       max_node_id = _max_node_id;
-      cache_mask = count - 1;
+      cache_mask = _count - 1;
     }
     int try_find(uint32_t& node_id) {
-      if (count == 0 || node_id > max_node_id)
+      if (node_id > max_node_id)
         return -1;
       uint32_t cache_idx = node_id;
       int times = MDX_CACHE_TIMES_REV;
@@ -359,20 +439,18 @@ class GCFC_rev_cache {
 
 class statssski {
   private:
-    uint8_t *trie_loc;
-    min_pos_stats min_stats;
     uint8_t *min_pos_loc;
+    min_pos_stats min_stats;
   public:
     statssski() {
     }
-    void init(uint8_t *_trie_loc, min_pos_stats _stats, uint8_t *_min_pos_loc) {
-      trie_loc = _trie_loc;
+    void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
     }
-    void find_min_pos(uint32_t& node_id, uint8_t key_byte, ctx_vars& tv) {
+    void find_min_pos(uint32_t& node_id, uint8_t node_byte, uint8_t key_byte, ctx_vars& tv) {
       if ((tv.bm_mask & (tv.tf->bm_child | tv.tf->bm_leaf)) == 0) {
-        uint8_t min_offset = min_pos_loc[((trie_loc[node_id] - min_stats.min_len) * 256) + key_byte];
+        uint8_t min_offset = min_pos_loc[((node_byte - min_stats.min_len) * 256) + key_byte];
         if ((node_id % nodes_per_bv_block_n) + min_offset < nodes_per_bv_block_n) {
           node_id += min_offset;
           tv.bm_mask <<= min_offset;
@@ -496,8 +574,8 @@ class bv_lookup_tbl {
       lt_given = true;
       if (lt_rank_loc == nullptr) {
         lt_given = false;
-        create_rank_lt_from_trie();
-        create_select_lt_from_trie();
+        lt_rank_loc = lt_builder::create_rank_lt_from_trie(lt_type, node_count, bm_start_loc, bm_multiplier, bm_pos);
+        lt_sel_loc = lt_builder::create_select_lt_from_trie(lt_type, key_count, node_set_count, node_count, bm_start_loc, bm_multiplier, bm_pos);
       }
     }
     ~bv_lookup_tbl() {
@@ -505,90 +583,6 @@ class bv_lookup_tbl {
         delete [] lt_rank_loc;
         delete [] lt_sel_loc;
       }
-    }
-    uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
-      if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        memcpy(lt_pos, buf3, 3); lt_pos += 3;
-        gen::copy_uint32(count, lt_pos); lt_pos += 4;
-        count3 = 0;
-        memset(buf3, 0, 3);
-        pos3 = 0;
-      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
-        buf3[pos3] = count3;
-        //count3 = 0;
-        pos3++;
-      }
-      return lt_pos;
-    }
-    void create_rank_lt_from_trie() {
-      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
-      uint32_t count = 0;
-      uint32_t count3 = 0;
-      uint8_t buf3[3];
-      uint8_t pos3 = 0;
-      memset(buf3, 0, 3);
-      uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_bv_block, 7);
-      uint8_t *lt_pos = new uint8_t[lt_size];
-      lt_rank_loc = lt_pos;
-      uint64_t bm_flags, bm_mask;
-      bm_mask = bm_init_mask << node_id;
-      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-      gen::copy_uint32(0, lt_pos); lt_pos += 4;
-      do {
-        if ((node_id % nodes_per_bv_block_n) == 0) {
-          bm_mask = bm_init_mask;
-          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-        }
-        lt_pos = write_bv3(node_id, count, count3, buf3, pos3, lt_pos);
-        uint32_t ct = (bm_mask & bm_flags ? 1 : 0);
-        count += ct;
-        count3 += ct;
-        node_id++;
-        bm_mask <<= 1;
-      } while (node_id < node_count);
-      memcpy(lt_pos, buf3, 3); lt_pos += 3;
-      // extra (guard)
-      gen::copy_uint32(count, lt_pos); lt_pos += 4;
-      memcpy(lt_pos, buf3, 3); lt_pos += 3;
-    }
-    void create_select_lt_from_trie() {
-      uint32_t node_id = (lt_type == BV_LT_TYPE_LEAF ? 0 : 2);
-      uint32_t sel_count = 0;
-      uint32_t lt_size = 0;
-      if (lt_type == BV_LT_TYPE_LEAF)
-        lt_size = gen::get_lkup_tbl_size2(key_count, sel_divisor, 3);
-      else if (lt_type == BV_LT_TYPE_CHILD) {
-        lt_size = 0;
-        if (node_set_count > 1)
-          lt_size = gen::get_lkup_tbl_size2(node_set_count - 1, sel_divisor, 3);
-      } else
-        lt_size = gen::get_lkup_tbl_size2(node_set_count, sel_divisor, 3);
-
-      uint8_t *lt_pos = new uint8_t[lt_size];
-      lt_sel_loc = lt_pos;
-      uint64_t bm_flags, bm_mask;
-      bm_mask = bm_init_mask << node_id;
-      bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-      gen::copy_uint24(0, lt_pos); lt_pos += 3;
-      do {
-        if ((node_id % nodes_per_bv_block_n) == 0) {
-          bm_mask = bm_init_mask;
-          bm_flags = gen::read_uint64(bm_start_loc + node_id / nodes_per_bv_block_n * bm_multiplier + bm_pos);
-        }
-        bool node_qualifies_for_select = (bm_mask & bm_flags) ? true : false;
-        if (node_qualifies_for_select) {
-          if (sel_count && (sel_count % sel_divisor) == 0) {
-            uint32_t val_to_write = node_id / nodes_per_bv_block;
-            gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
-            if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
-          }
-          sel_count++;
-        }
-        node_id++;
-        bm_mask <<= 1;
-      } while (node_id < node_count);
-      gen::copy_uint24(node_count / nodes_per_bv_block, lt_pos);
     }
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
@@ -1419,8 +1413,8 @@ class static_dict : public static_dict_fwd {
     tail_ptr_data_map *tail_map;
     GCFC_fwd_cache *fwd_cache;
     GCFC_rev_cache *rev_cache;
-    bv_lookup_tbl *term_lt;
-    bv_lookup_tbl *child_lt;
+    bv_lookup_tbl term_lt;
+    bv_lookup_tbl child_lt;
     bv_lookup_tbl *leaf_lt;
     val_ptr_data_map *val_map;
     int max_val_len;
@@ -1440,7 +1434,7 @@ class static_dict : public static_dict_fwd {
       tail_map = nullptr;
       fwd_cache = nullptr;
       rev_cache = nullptr;
-      tail_lt = child_lt = term_lt = leaf_lt = nullptr;
+      tail_lt = leaf_lt = nullptr;
       val_map = nullptr;
       is_mmapped = false;
       to_release_dict_buf = true;
@@ -1474,10 +1468,6 @@ class static_dict : public static_dict_fwd {
         delete sski;
       if (tail_lt != nullptr)
         delete tail_lt;
-      if (child_lt != nullptr)
-        delete child_lt;
-      if (term_lt != nullptr)
-        delete term_lt;
       if (leaf_lt != nullptr)
         delete leaf_lt;
     }
@@ -1544,7 +1534,7 @@ class static_dict : public static_dict_fwd {
 
         if (min_pos_loc != nullptr) {
           sski = new statssski();
-          sski->init(trie_loc, min_stats, min_pos_loc);
+          sski->init(min_stats, min_pos_loc);
         }
 
         if (term_select_lkup_loc == dict_buf) term_select_lkup_loc = nullptr;
@@ -1554,10 +1544,8 @@ class static_dict : public static_dict_fwd {
         if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
         if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
 
-        child_lt = new bv_lookup_tbl();
-        term_lt = new bv_lookup_tbl();
-        child_lt->init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 0, BV_LT_TYPE_CHILD);
-        term_lt->init(term_lt_loc,   term_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 8, BV_LT_TYPE_TERM);
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 0, BV_LT_TYPE_CHILD);
+        term_lt.init(term_lt_loc,   term_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 8, BV_LT_TYPE_TERM);
         if (tail_lt_loc != dict_buf) {
           tail_lt = new bv_lookup_tbl();
           tail_lt->init(tail_lt_loc, nullptr, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 16, BV_LT_TYPE_TAIL);
@@ -1689,7 +1677,7 @@ class static_dict : public static_dict_fwd {
         key_byte = in_ctx.key[in_ctx.key_pos];
           #ifndef MDX_NO_DART
           if (sski != nullptr)
-            sski->find_min_pos(in_ctx.node_id, key_byte, tv);
+            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], key_byte, tv);
           #endif
           tv.tail.ptr_bit_count = UINT32_MAX;
           do {
@@ -1723,7 +1711,7 @@ class static_dict : public static_dict_fwd {
         if (in_ctx.key_pos < in_ctx.key_len && (in_ctx.cmp == 0 || abs(in_ctx.cmp) - 1 == tail_len)) {
           if (!tv.is_child_set())
             return false;
-          term_lt->select(in_ctx.node_id, child_lt->rank(in_ctx.node_id) + 1);
+          term_lt.select(in_ctx.node_id, child_lt.rank(in_ctx.node_id) + 1);
           continue;
         }
         if (in_ctx.cmp == 0 && in_ctx.key_pos == in_ctx.key_len && (tv.tf->bm_leaf & tv.bm_mask))
@@ -1871,8 +1859,8 @@ class static_dict : public static_dict_fwd {
             cv.tail.str.append(trie_loc[node_id]);
           }
           update_ctx(ctx, cv, node_id, child_count);
-          term_lt->select(node_id, child_count);
-          child_count = child_lt->rank(node_id);
+          term_lt.select(node_id, child_count);
+          child_count = child_lt.rank(node_id);
           cv.update_tf(node_id);
           cv.tail.ptr_bit_count = UINT32_MAX;
           push_to_ctx(ctx, cv, node_id, child_count);
@@ -1965,7 +1953,7 @@ class static_dict : public static_dict_fwd {
             return true;
         }
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1)
-          child_lt->select(node_id, term_lt->rank(node_id));
+          child_lt.select(node_id, term_lt.rank(node_id));
       } while (node_id > 2);
       if (trie_level > 1) {
         int i = key_len / 2;

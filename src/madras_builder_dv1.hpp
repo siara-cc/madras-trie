@@ -2424,27 +2424,27 @@ class builder : public builder_fwd {
           uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
           if (build_fwd_cache) {
             int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
-              uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
+            uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
             int times = MDX_CACHE_TIMES_FWD;
-              do {
-                fwd_cache *fc = f_cache + cache_loc;
+            do {
+              fwd_cache *fc = f_cache + cache_loc;
               if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
-                  f_cache_freq[cache_loc] = node_freq;
-                  gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
-                  gen::copy_uint24(child_node_id, &fc->child_node_id1);
-                  fc->node_offset = node_offset;
-                  fc->node_byte = node_byte;
-                  break;
-                }
-                cache_loc <<= MDX_CACHE_SHIFT;
-                cache_loc ^= ns_hdr->node_id;
-                cache_loc ^= node_byte;
-                cache_loc &= (cache_count - 1);
-                // cache_loc %= (cache_count - 1);
-                // cache_loc++;
-              } while (--times);
-            }
+                f_cache_freq[cache_loc] = node_freq;
+                gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
+                gen::copy_uint24(child_node_id, &fc->child_node_id1);
+                fc->node_offset = node_offset;
+                fc->node_byte = node_byte;
+                break;
+              }
+              cache_loc <<= MDX_CACHE_SHIFT;
+              cache_loc ^= ns_hdr->node_id;
+              cache_loc ^= node_byte;
+              cache_loc &= (cache_count - 1);
+              // cache_loc %= (cache_count - 1);
+              // cache_loc++;
+            } while (--times);
           }
+        }
         if (build_rev_cache) {
           uint32_t cache_loc = (cur_node_id ^ (cur_node_id << MDX_CACHE_SHIFT)) & (cache_count - 1);
           int times = MDX_CACHE_TIMES_REV;
