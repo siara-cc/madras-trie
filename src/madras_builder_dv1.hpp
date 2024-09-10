@@ -1108,12 +1108,10 @@ class tail_val_maps {
         while (freq_idx < uniq_tails_freq.size()) {
           leopard::uniq_info *ti = uniq_tails_freq[freq_idx];
           uint8_t rev[ti->len];
-          if (bldr->trie_level == 0) {
-            uint8_t *ti_data = uniq_tails[ti->pos];
-            for (uint32_t j = 0; j < ti->len; j++)
-              rev[j] = ti_data[ti->len - j - 1];
-          }
-          inner_trie->insert(bldr->trie_level == 0 ? rev : uniq_tails[ti->pos], ti->len, nullptr, 0, freq_idx);
+          uint8_t *ti_data = uniq_tails[ti->pos];
+          for (uint32_t j = 0; j < ti->len; j++)
+            rev[j] = ti_data[ti->len - j - 1];
+          inner_trie->insert(rev, ti->len, nullptr, 0, freq_idx);
           ptr_grps.update_current_grp(grp_no, 1, ti->freq_count);
           ti->grp_no = grp_no;
           trie_entry_idx++;
@@ -2043,7 +2041,7 @@ class builder : public builder_fwd {
         } else {
           leopard::val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, memtrie.uniq_vals);
           uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
-            memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, data_type);
+            memtrie.uniq_vals, memtrie.uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, 0, data_type);
           if (data_type == 't')
             tail_vals.build_text_val_maps(tot_freq_count, memtrie.max_val_len);
           else
@@ -2123,11 +2121,9 @@ class builder : public builder_fwd {
         leopard::uniq_info *ti = memtrie.uniq_tails_rev[i];
         uint8_t rev[ti->len];
         uint8_t *ti_data = memtrie.uniq_tails[ti->pos];
-        if (trie_level == 0) {
-          for (uint32_t j = 0; j < ti->len; j++)
-            rev[j] = ti_data[ti->len - j - 1];
-        }
-        tail_trie_builder->insert(trie_level == 0 ? rev : ti_data, ti->len, nullptr, 0, i);
+        for (uint32_t j = 0; j < ti->len; j++)
+          rev[j] = ti_data[ti->len - j - 1];
+        tail_trie_builder->insert(rev, ti->len, nullptr, 0, i);
       }
       uint32_t trie_size = tail_trie_builder->build();
       int bit_len = ceil(log2(tail_trie_builder->memtrie.node_count + 1)) - 8;
@@ -2162,7 +2158,7 @@ class builder : public builder_fwd {
       clock_t t = clock();
       leopard::tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, *memtrie.all_tails, memtrie.uniq_tails);
       uint32_t tot_freq_count = leopard::uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_tails,
-          memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, LPDT_BIN);
+          memtrie.uniq_tails, memtrie.uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, LPDT_BIN);
       uint32_t tail_trie_size = 0;
       if (memtrie.uniq_tails_rev.size() > 0) {
         if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && memtrie.uniq_tails_rev.size() > 255) {

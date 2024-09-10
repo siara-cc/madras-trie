@@ -1924,13 +1924,22 @@ class static_dict : public static_dict_fwd {
         if (cv.bm_mask & cv.tf->bm_ptr) {
           cv.tail.ptr_bit_count = UINT32_MAX;
           tail_map->get_tail_str(node_id, trie_loc[node_id], cv, return_first_byte);
-          int i = cv.tail.str.length() - 1;
-          ret_key[key_len] = cv.tail.str[i];
-          if (return_first_byte)
-            return true;
-          key_len++; i--;
-          while (i >= 0)
-            ret_key[key_len++] = cv.tail.str[i--];
+          if (trie_level == 0) {
+            int i = cv.tail.str.length() - 1;
+            ret_key[key_len] = cv.tail.str[i];
+            if (return_first_byte)
+              return true;
+            key_len++; i--;
+            while (i >= 0)
+              ret_key[key_len++] = cv.tail.str[i--];
+          } else {
+            int i = 0;
+            ret_key[key_len] = cv.tail.str[i];
+            if (return_first_byte)
+              return true;
+            memcpy(ret_key + key_len, cv.tail.str.data(), cv.tail.str.length());
+            key_len += cv.tail.str.length();
+          }
         } else {
           ret_key[key_len++] = trie_loc[node_id];
           if (return_first_byte)
@@ -1939,8 +1948,6 @@ class static_dict : public static_dict_fwd {
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1)
           child_lt.select(node_id, term_lt.rank(node_id));
       } while (node_id > 2);
-      if (trie_level > 1)
-        to_reverse = true;
       if (to_reverse) {
         int i = key_len / 2;
         while (i--) {
