@@ -697,11 +697,9 @@ class static_dict_fwd {
     virtual ~static_dict_fwd() {
     }
     virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
-    virtual void map_from_memory(uint8_t *mem) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false) = 0;
+    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool to_reverse = true) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false, bool to_reverse = false) = 0;
 };
 
 class ptr_bits_lookup_table {
@@ -1893,31 +1891,17 @@ class static_dict : public static_dict_fwd {
       return leaf_lt->rank(node_id);
     }
 
-    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool return_first_byte = false, bool to_reverse = true) {
+    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool to_reverse = true) {
       leaf_id++;
       uint32_t node_id;
       leaf_lt->select(node_id, leaf_id);
       node_id--;
-      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, in_size_out_value_len, ret_val, 0, nullptr, return_first_byte, to_reverse);
-    }
-
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, int cmp = 0, iter_ctx *ctx = nullptr, bool return_first_byte = false, bool to_reverse = true) {
-      bool ret = reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, return_first_byte);
-      if (ret_val != nullptr) // && val_map[0].exists())
+      if (val_count > 0 && ret_val != nullptr)
         val_map[0].get_val(node_id, in_size_out_value_len, ret_val);
-      int key_len = *in_size_out_key_len;
-      if (key_len > 1 && to_reverse) {
-        int i = key_len / 2;
-        while (i--) {
-          uint8_t b = ret_key[i];
-          ret_key[i] = ret_key[key_len - i - 1];
-          ret_key[key_len - i - 1] = b;
-        }
-      }
-      return ret;
+      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, false, to_reverse);
     }
 
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false) {
+    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false, bool to_reverse = false) {
       #ifndef MDX_NO_NULLS
       if (node_id == 0) {
         *in_size_out_key_len = -1; // unconditional?
@@ -1955,7 +1939,9 @@ class static_dict : public static_dict_fwd {
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1)
           child_lt.select(node_id, term_lt.rank(node_id));
       } while (node_id > 2);
-      if (trie_level > 1) {
+      if (trie_level > 1)
+        to_reverse = true;
+      if (to_reverse) {
         int i = key_len / 2;
         while (i--) {
           uint8_t b = ret_key[i];
