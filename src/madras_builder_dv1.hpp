@@ -391,9 +391,7 @@ class ptr_groups {
       dessicate = dessicat;
       enc_type = encoding_type;
       if (encoding_type != 't' && col_trie_size == 0) {
-        ptr_lkup_tbl_ptr_width = 3;
-        if (tot_ptr_bit_count >= (1 << 24))
-          ptr_lkup_tbl_ptr_width = 4;
+        ptr_lkup_tbl_ptr_width = 4;
         build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec);
       }
       ptr_lookup_tbl_loc = 6 * 4 + 4;

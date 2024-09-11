@@ -44,6 +44,8 @@ namespace madras_dv1 {
 
 #define nodes_per_ptr_block 2048
 #define nodes_per_ptr_block_n 64
+// 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
+#define ptr_lt_blk_width 66
 
 #define sel_divisor 256
 
@@ -112,7 +114,7 @@ const static bldr_options preset_opts[] = {
 };
 
 const static bldr_options dflt_opts =
-  { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3, 127,  2,  2,  1, 16,  64};
+  { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  64};
