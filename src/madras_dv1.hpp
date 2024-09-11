@@ -1,5 +1,5 @@
-#ifndef STATIC_DICT_H
-#define STATIC_DICT_H
+#ifndef STATIC_TRIE_H
+#define STATIC_TRIE_H
 
 #include <math.h>
 #include <time.h>
@@ -429,7 +429,7 @@ class GCFC_rev_cache {
         nid_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
         if (node_id == cache_node_id) {
-          node_id = gen::read_uint24(&cche->parent_node_id1) + 1;
+          node_id = gen::read_uint24(&cche->parent_node_id1);
           return 0;
         }
       } while (--times);
@@ -689,17 +689,18 @@ class bv_lookup_tbl {
 
 };
 
-class static_dict_fwd {
+class inner_trie_fwd {
   public:
     int key_count;
     uint16_t max_tail_len;
     bv_lookup_tbl *tail_lt;
-    virtual ~static_dict_fwd() {
+    virtual ~inner_trie_fwd() {
     }
-    virtual static_dict_fwd *new_instance(uint8_t *mem) = 0;
+    virtual inner_trie_fwd *new_instance(uint8_t *mem) = 0;
+    virtual bool match_tail(uint32_t node_id, tail_vars& tv, bool return_first_byte = false) = 0;
     virtual uint32_t leaf_rank(uint32_t node_id) = 0;
-    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool to_reverse = true) = 0;
-    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false, bool to_reverse = false) = 0;
+    virtual bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) = 0;
+    virtual bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = false) = 0;
 };
 
 class ptr_bits_lookup_table {
@@ -813,9 +814,9 @@ class ptr_data_map {
     char encoding_type;
     uint8_t flags;
     uint32_t max_len;
-    static_dict_fwd *dict_obj;
-    static_dict_fwd *col_trie;
-    static_dict_fwd **inner_tries;
+    inner_trie_fwd *dict_obj;
+    inner_trie_fwd *col_trie;
+    inner_trie_fwd **inner_tries;
 
     ptr_data_map() {
       trie_loc = nullptr;
@@ -856,7 +857,7 @@ class ptr_data_map {
         delete int_ptr_bv;
     }
 
-    void init(uint8_t *_dict_buf, static_dict_fwd *_dict_obj, uint8_t *_trie_loc, trie_flags *_tf, uint8_t *data_loc, uint32_t _node_count, bool is_tail) {
+    void init(uint8_t *_dict_buf, inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, trie_flags *_tf, uint8_t *data_loc, uint32_t _node_count, bool is_tail) {
 
       dict_obj = _dict_obj;
       trie_loc = _trie_loc;
@@ -902,9 +903,9 @@ class ptr_data_map {
         code_lt_code_len = code_lt_bit_len + 256;
         uint8_t *grp_data_idx_start = code_lt_bit_len + (data_type == 'w' ? 0 : 512);
         grp_data = new uint8_t*[group_count]();
-        inner_tries = new static_dict_fwd*[group_count]();
+        inner_tries = new inner_trie_fwd*[group_count]();
         if (data_type == 'w')
-          inner_tries = new static_dict_fwd*[group_count]();
+          inner_tries = new inner_trie_fwd*[group_count]();
         for (int i = 0; i < group_count; i++) {
           grp_data[i] = (data_type == 'w' ? grp_data_loc : data_loc);
           grp_data[i] += gen::read_uint32(grp_data_idx_start + i * 4);
@@ -989,14 +990,12 @@ class tail_ptr_data_map : public ptr_data_map {
       cv.tail.tail_ptr = get_tail_ptr(node_byte, node_id, cv);
       if (encoding_type == 't') {
         //uint8_t tail_byte_str[dict_obj->max_tail_len];
-        int tail_str_len;
-        col_trie->reverse_lookup_from_node_id(cv.tail.tail_ptr, &tail_str_len, cv.tail.str.data() + cv.tail.str.length(), true);
+        col_trie->match_tail(cv.tail.tail_ptr, cv.tail, true);
         return cv.tail.str[cv.tail.str.length()];
       }
       uint8_t *tail = grp_data[cv.tail.grp_no];
       if (*tail != 0) {
-        int tail_str_len;
-        inner_tries[cv.tail.grp_no]->reverse_lookup_from_node_id(cv.tail.tail_ptr, &tail_str_len, cv.tail.str.data() + cv.tail.str.length(), true);
+        inner_tries[cv.tail.grp_no]->match_tail(cv.tail.tail_ptr, cv.tail, true);
         return cv.tail.str[cv.tail.str.length()];
       }
       tail += cv.tail.tail_ptr;
@@ -1013,19 +1012,15 @@ class tail_ptr_data_map : public ptr_data_map {
     }
     void get_tail_str(tail_vars& tv, bool return_first_byte = false) {
       if (encoding_type == 't') {
-        int tail_str_len;
-        col_trie->reverse_lookup_from_node_id(tv.tail_ptr, &tail_str_len, tv.str.data(), return_first_byte);
-        tv.str.set_length(tail_str_len);
+        col_trie->match_tail(tv.tail_ptr, tv, false);
         return;
       }
       uint8_t *tail = grp_data[tv.grp_no];
       if (*tail != 0) {
-        int tail_str_len;
-        inner_tries[tv.grp_no]->reverse_lookup_from_node_id(tv.tail_ptr, &tail_str_len, tv.str.data(), return_first_byte);
-        tv.str.set_length(tail_str_len);
+        inner_tries[tv.grp_no]->match_tail(tv.tail_ptr, tv, false);
         return;
       }
-      tv.str.clear();
+      //tv.str.clear();
       uint8_t *t = tail + tv.tail_ptr;
       if (*t < 32) {
         uint8_t len_len;
@@ -1387,138 +1382,66 @@ class val_ptr_data_map : public ptr_data_map {
     }
 };
 
-class static_dict : public static_dict_fwd {
-
-  private:
-    bool is_mmapped;
-    bool to_release_dict_buf;
-
-    uint16_t max_level;
-
-    static_dict(static_dict const&);
-    static_dict& operator=(static_dict const&);
-
-  public:
-    uint8_t *dict_buf;
-    int max_key_len;
-    uint8_t trie_level;
-    uint8_t flags_width;
-    uint32_t node_count;
-    uint32_t node_set_count;
-    uint8_t *trie_loc;
-    trie_flags *trie_flags_loc;
-    statssski *sski;
-    tail_ptr_data_map *tail_map;
-    GCFC_fwd_cache *fwd_cache;
+class inner_trie : public inner_trie_fwd {
+  protected:
     GCFC_rev_cache *rev_cache;
+    uint32_t node_set_count;
+    tail_ptr_data_map *tail_map;
+    bv_lookup_tbl *leaf_lt;
     bv_lookup_tbl term_lt;
     bv_lookup_tbl child_lt;
-    bv_lookup_tbl *leaf_lt;
-    val_ptr_data_map *val_map;
-    int max_val_len;
-    bldr_options *opts;
-    uint32_t val_count;
-    uint8_t *names_loc;
-    char *names_start;
-    const char *column_encoding;
-    static_dict(uint8_t _trie_level = 0) {
-      init_vars();
+    uint32_t node_count;
+    trie_flags *trie_flags_loc;
+    uint8_t flags_width;
+    uint8_t trie_level;
+    uint8_t *trie_loc;
+    inner_trie(uint8_t _trie_level) {
       trie_level = _trie_level;
-    }
-
-    void init_vars() {
-
-      dict_buf = nullptr;
+      max_tail_len = 0;
       tail_map = nullptr;
-      fwd_cache = nullptr;
-      rev_cache = nullptr;
-      tail_lt = leaf_lt = nullptr;
-      val_map = nullptr;
-      is_mmapped = false;
-      to_release_dict_buf = true;
-
-      max_key_len = max_tail_len = max_level = 0;
-      trie_level = 0;
       trie_loc = nullptr;
       trie_flags_loc = nullptr;
-      sski = nullptr;
-
+      tail_lt = nullptr;
+      leaf_lt = nullptr;
     }
-
-    virtual ~static_dict() {
-      if (is_mmapped)
-        map_unmap();
-      if (dict_buf != nullptr) {
-        if (to_release_dict_buf)
-          free(dict_buf);
-      }
+  public:
+    inner_trie() {
+    }
+    ~inner_trie() {
       if (tail_map != nullptr) {
         delete tail_map;
       }
-      if (val_map != nullptr) {
-        delete [] val_map;
-      }
-      if (fwd_cache != nullptr)
-        delete fwd_cache;
       if (rev_cache != nullptr)
         delete rev_cache;
-      if (sski != nullptr)
-        delete sski;
       if (tail_lt != nullptr)
         delete tail_lt;
       if (leaf_lt != nullptr)
         delete leaf_lt;
     }
-
-    void set_print_enabled(bool to_print_messages = true) {
-      gen::is_gen_print_enabled = to_print_messages;
-    }
-
-    void load_into_vars() {
-
-      val_count = gen::read_uint16(dict_buf + 4);
-      names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
-      uint8_t *val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
+    void load_inner_trie_vars(uint8_t *dict_buf) {
       node_count = gen::read_uint32(dict_buf + 14);
-      opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
       node_set_count = gen::read_uint32(dict_buf + 22);
-      key_count = gen::read_uint32(dict_buf + 26);
-      names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
-      column_encoding = names_start + gen::read_uint16(names_loc);
+      bldr_options *opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
       flags_width = opts->trie_leaf_count > 0 ? 32 : 24;
-
-      max_val_len = gen::read_uint32(dict_buf + 34);
-
+      key_count = gen::read_uint32(dict_buf + 26);
       if (key_count > 0) {
-        max_key_len = gen::read_uint32(dict_buf + 30);
         max_tail_len = gen::read_uint16(dict_buf + 38) + 1;
-        max_level = gen::read_uint16(dict_buf + 40);
-        uint32_t fwd_cache_count = gen::read_uint32(dict_buf + 42);
         uint32_t rev_cache_count = gen::read_uint32(dict_buf + 46);
-        uint32_t fwd_cache_max_node_id = gen::read_uint32(dict_buf + 50);
         uint32_t rev_cache_max_node_id = gen::read_uint32(dict_buf + 54);
-        min_pos_stats min_stats;
-        memcpy(&min_stats, dict_buf + 58, 4);
-        uint8_t *fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
         uint8_t *rev_cache_loc = dict_buf + gen::read_uint32(dict_buf + 66);
-        uint8_t *min_pos_loc = dict_buf + gen::read_uint32(dict_buf + 70);
-        if (min_pos_loc == dict_buf)
-          min_pos_loc = nullptr;
-        if (fwd_cache_count > 0) {
-          fwd_cache = new GCFC_fwd_cache();
-          fwd_cache->init(fwd_cache_loc, fwd_cache_count, fwd_cache_max_node_id);
-        }
         if (rev_cache_count > 0) {
           rev_cache = new GCFC_rev_cache();
           rev_cache->init(rev_cache_loc, rev_cache_count, rev_cache_max_node_id);
         }
-
         uint8_t *term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
         uint8_t *term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
         uint8_t *child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
         uint8_t *child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
         uint8_t *leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 90);
         uint8_t *leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 94);
+        if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
+        if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
+
         uint8_t *tail_lt_loc = dict_buf + gen::read_uint32(dict_buf + 98);
         uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 102);
 
@@ -1529,19 +1452,10 @@ class static_dict : public static_dict_fwd {
         trie_flags_loc = (trie_flags *) (trie_loc + trie_size);
         tail_map = new tail_ptr_data_map();
         tail_map->init(dict_buf, this, trie_loc, trie_flags_loc, tails_loc, node_count, true);
-
-        if (min_pos_loc != nullptr) {
-          sski = new statssski();
-          sski->init(min_stats, min_pos_loc);
-        }
-
         if (term_select_lkup_loc == dict_buf) term_select_lkup_loc = nullptr;
         if (term_lt_loc == dict_buf) term_lt_loc = nullptr;
         if (child_select_lkup_loc == dict_buf) child_select_lkup_loc = nullptr;
         if (child_lt_loc == dict_buf) child_lt_loc = nullptr;
-        if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
-        if (leaf_lt_loc == dict_buf) leaf_lt_loc = nullptr;
-
         child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, node_set_count, key_count, trie_flags_loc, flags_width, 0, BV_LT_TYPE_CHILD);
         term_lt.init(term_lt_loc,   term_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 8, BV_LT_TYPE_TERM);
         if (tail_lt_loc != dict_buf) {
@@ -1552,6 +1466,200 @@ class static_dict : public static_dict_fwd {
           leaf_lt = new bv_lookup_tbl();
           leaf_lt->init(leaf_lt_loc,   leaf_select_lkup_loc,  node_count, node_set_count, key_count, trie_flags_loc, flags_width, 24, BV_LT_TYPE_LEAF);
         }
+      }
+    }
+
+    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
+      leaf_id++;
+      uint32_t node_id;
+      leaf_lt->select(node_id, leaf_id);
+      node_id--;
+      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, to_reverse);
+    }
+
+    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = false) {
+      #ifndef MDX_NO_NULLS
+      if (node_id == 0) {
+        *in_size_out_key_len = -1; // unconditional?
+        return true;
+      }
+      if (node_id == 1) {
+        *in_size_out_key_len = 0; // unconditional?
+        return true;
+      }
+      #endif
+      ctx_vars cv(trie_flags_loc, flags_width);
+      uint8_t tail[max_tail_len + 1];
+      cv.tail.str.set_buf_max_len(tail, max_tail_len);
+      int key_len = 0;
+      do {
+        cv.update_tf(node_id);
+        if (cv.bm_mask & cv.tf->bm_ptr) {
+          cv.tail.ptr_bit_count = UINT32_MAX;
+          cv.tail.str.clear();
+          tail_map->get_tail_str(node_id, trie_loc[node_id], cv);
+          if (trie_level == 0) {
+            int i = cv.tail.str.length() - 1;
+            while (i >= 0)
+              ret_key[key_len++] = cv.tail.str[i--];
+          } else {
+            memcpy(ret_key + key_len, cv.tail.str.data(), cv.tail.str.length());
+            key_len += cv.tail.str.length();
+          }
+        } else {
+          ret_key[key_len++] = trie_loc[node_id];
+        }
+        if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1) {
+          child_lt.select(node_id, term_lt.rank(node_id));
+          node_id--;
+        }
+      } while (node_id >= 2);
+      if (to_reverse) {
+        int i = key_len / 2;
+        while (i--) {
+          uint8_t b = ret_key[i];
+          int im = key_len - i - 1;
+          ret_key[i] = ret_key[im];
+          ret_key[im] = b;
+        }
+      }
+      *in_size_out_key_len = key_len;
+      return true;
+    }
+
+    inner_trie_fwd *new_instance(uint8_t *mem) {
+      inner_trie *it = new inner_trie(trie_level + 1);
+      it->load_inner_trie_vars(mem);
+      return it;
+    }
+
+    uint32_t leaf_rank(uint32_t node_id) {
+      return leaf_lt->rank(node_id);
+    }
+
+    bool match_tail(uint32_t node_id, tail_vars& tv, bool return_first_byte = false) {
+      ctx_vars cv(trie_flags_loc, flags_width);
+      cv.tail.str.set_buf_max_len(tv.str.data() + tv.str.length(), tv.str.get_limit() - tv.str.length() + 1); // +1 ?
+      do {
+        cv.update_tf(node_id);
+        if (cv.bm_mask & cv.tf->bm_ptr) {
+          cv.tail.ptr_bit_count = UINT32_MAX;
+          int prev_tail_len = cv.tail.str.length();
+          tail_map->get_tail_str(node_id, trie_loc[node_id], cv, return_first_byte);
+          if (return_first_byte)
+            return true;
+          tv.str.set_length(tv.str.length() + cv.tail.str.length() - prev_tail_len);
+        } else {
+          cv.tail.str.append(trie_loc[node_id]);
+          if (return_first_byte)
+            return true;
+          tv.str.append(trie_loc[node_id]);
+        }
+        if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1) {
+          child_lt.select(node_id, term_lt.rank(node_id));
+          node_id--;
+        }
+      } while (node_id >= 2);
+      return true;
+    }
+
+};
+
+class static_trie_map : public inner_trie {
+
+  private:
+    statssski *sski;
+    GCFC_fwd_cache *fwd_cache;
+    val_ptr_data_map *val_map;
+    int max_key_len;
+    int max_val_len;
+    bldr_options *opts;
+    uint8_t *dict_buf;
+    uint32_t val_count;
+    uint8_t *names_loc;
+    char *names_start;
+    const char *column_encoding;
+    bool is_mmapped;
+    bool to_release_dict_buf;
+    uint16_t max_level;
+
+    static_trie_map(static_trie_map const&);
+    static_trie_map& operator=(static_trie_map const&);
+
+  public:
+    static_trie_map() {
+      init_vars();
+      trie_level = 0;
+    }
+
+    void init_vars() {
+
+      dict_buf = nullptr;
+      fwd_cache = nullptr;
+      rev_cache = nullptr;
+      val_map = nullptr;
+      is_mmapped = false;
+      to_release_dict_buf = true;
+
+      max_key_len = max_level = 0;
+      sski = nullptr;
+
+    }
+
+    virtual ~static_trie_map() {
+      if (is_mmapped)
+        map_unmap();
+      if (dict_buf != nullptr) {
+        if (to_release_dict_buf)
+          free(dict_buf);
+      }
+      if (val_map != nullptr) {
+        delete [] val_map;
+      }
+      if (fwd_cache != nullptr)
+        delete fwd_cache;
+      if (sski != nullptr)
+        delete sski;
+    }
+
+    void set_print_enabled(bool to_print_messages = true) {
+      gen::is_gen_print_enabled = to_print_messages;
+    }
+
+    void load_into_vars() {
+
+      load_inner_trie_vars(dict_buf);
+      val_count = gen::read_uint16(dict_buf + 4);
+      names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
+      uint8_t *val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
+      opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
+      names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
+      column_encoding = names_start + gen::read_uint16(names_loc);
+
+      max_val_len = gen::read_uint32(dict_buf + 34);
+
+      if (key_count > 0) {
+        max_key_len = gen::read_uint32(dict_buf + 30);
+        max_level = gen::read_uint16(dict_buf + 40);
+        uint32_t fwd_cache_count = gen::read_uint32(dict_buf + 42);
+        uint32_t fwd_cache_max_node_id = gen::read_uint32(dict_buf + 50);
+        uint8_t *fwd_cache_loc = dict_buf + gen::read_uint32(dict_buf + 62);
+
+        min_pos_stats min_stats;
+        memcpy(&min_stats, dict_buf + 58, 4);
+        uint8_t *min_pos_loc = dict_buf + gen::read_uint32(dict_buf + 70);
+        if (min_pos_loc == dict_buf)
+          min_pos_loc = nullptr;
+        if (fwd_cache_count > 0) {
+          fwd_cache = new GCFC_fwd_cache();
+          fwd_cache->init(fwd_cache_loc, fwd_cache_count, fwd_cache_max_node_id);
+        }
+
+        if (min_pos_loc != nullptr) {
+          sski = new statssski();
+          sski->init(min_stats, min_pos_loc);
+        }
+
       }
 
       if (val_count > 0) {
@@ -1664,6 +1772,7 @@ class static_dict : public static_dict_fwd {
       tv.tail.str.set_buf_max_len(tail_str_buf, max_tail_len);
       uint8_t trie_byte, key_byte;
       do {
+        tv.tail.str.set_length(0);
         int ret = -1;
         if (fwd_cache != nullptr)
           ret = fwd_cache->try_find(in_ctx);
@@ -1699,6 +1808,7 @@ class static_dict : public static_dict_fwd {
           } while (1);
         // if (key_byte == trie_byte) {
         in_ctx.cmp = 0;
+        tv.tail.str.set_length(0);
         int tail_len = 1;
         if (tv.is_ptr_set()) {
           tail_map->get_tail_str(tv.tail);
@@ -1720,11 +1830,6 @@ class static_dict : public static_dict_fwd {
       return false;
     }
 
-    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = nullptr) {
-      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
-      return true;
-    }
-
     bool get(input_ctx& in_ctx, int *in_size_out_value_len, void *val) {
       bool is_found = lookup(in_ctx);
       if (is_found && in_ctx.node_id >= 0) {
@@ -1733,6 +1838,11 @@ class static_dict : public static_dict_fwd {
         return true;
       }
       return false;
+    }
+
+    bool get_col_val(uint32_t node_id, int col_val_idx, int *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = nullptr) {
+      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
+      return true;
     }
 
     void push_to_ctx(iter_ctx& ctx, ctx_vars& cv, uint32_t node_id, uint32_t child_count) {
@@ -1887,80 +1997,6 @@ class static_dict : public static_dict_fwd {
       return val_map[col_val_idx].max_len;
     }
 
-    uint32_t get_leaf_rank(uint32_t node_id) {
-      return leaf_lt->rank(node_id);
-    }
-
-    bool reverse_lookup(uint32_t leaf_id, int *in_size_out_key_len, uint8_t *ret_key, int *in_size_out_value_len = nullptr, void *ret_val = nullptr, bool to_reverse = true) {
-      leaf_id++;
-      uint32_t node_id;
-      leaf_lt->select(node_id, leaf_id);
-      node_id--;
-      if (val_count > 0 && ret_val != nullptr)
-        val_map[0].get_val(node_id, in_size_out_value_len, ret_val);
-      return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, false, to_reverse);
-    }
-
-    bool reverse_lookup_from_node_id(uint32_t node_id, int *in_size_out_key_len, uint8_t *ret_key, bool return_first_byte = false, bool to_reverse = false) {
-      #ifndef MDX_NO_NULLS
-      if (node_id == 0) {
-        *in_size_out_key_len = -1; // unconditional?
-        return true;
-      }
-      if (node_id == 1) {
-        *in_size_out_key_len = 0; // unconditional?
-        return true;
-      }
-      #endif
-      ctx_vars cv(trie_flags_loc, flags_width);
-      uint8_t tail[max_tail_len + 1];
-      cv.tail.str.set_buf_max_len(tail, max_tail_len);
-      int key_len = 0;
-      node_id++;
-      *in_size_out_key_len = 1;
-      do {
-        node_id--;
-        cv.update_tf(node_id);
-        if (cv.bm_mask & cv.tf->bm_ptr) {
-          cv.tail.ptr_bit_count = UINT32_MAX;
-          tail_map->get_tail_str(node_id, trie_loc[node_id], cv, return_first_byte);
-          if (trie_level == 0) {
-            int i = cv.tail.str.length() - 1;
-            ret_key[key_len] = cv.tail.str[i];
-            if (return_first_byte)
-              return true;
-            key_len++; i--;
-            while (i >= 0)
-              ret_key[key_len++] = cv.tail.str[i--];
-          } else {
-            int i = 0;
-            ret_key[key_len] = cv.tail.str[i];
-            if (return_first_byte)
-              return true;
-            memcpy(ret_key + key_len, cv.tail.str.data(), cv.tail.str.length());
-            key_len += cv.tail.str.length();
-          }
-        } else {
-          ret_key[key_len++] = trie_loc[node_id];
-          if (return_first_byte)
-            return true;
-        }
-        if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1)
-          child_lt.select(node_id, term_lt.rank(node_id));
-      } while (node_id > 2);
-      if (to_reverse) {
-        int i = key_len / 2;
-        while (i--) {
-          uint8_t b = ret_key[i];
-          int im = key_len - i - 1;
-          ret_key[i] = ret_key[im];
-          ret_key[im] = b;
-        }
-      }
-      *in_size_out_key_len = key_len;
-      return true;
-    }
-
     // bool find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
     //   input_ctx in_ctx;
     //   in_ctx.key = prefix;
@@ -2052,16 +2088,6 @@ class static_dict : public static_dict_fwd {
 
     void map_from_memory(uint8_t *mem) {
       load_from_mem(mem);
-    }
-
-    uint32_t leaf_rank(uint32_t node_id) {
-      return leaf_lt->rank(node_id);
-    }
-
-    static_dict_fwd *new_instance(uint8_t *mem) {
-      static_dict *dict = new static_dict(trie_level + 1);
-      dict->load_from_mem(mem);
-      return dict;
     }
 
 };

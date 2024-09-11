@@ -143,16 +143,16 @@ int main(int argc, char *argv[]) {
 
   t = print_time_taken(t, "Time taken for insert/append: ");
 
-  madras_dv1::static_dict dict_reader;
-  dict_reader.set_print_enabled(true);
-  dict_reader.load(out_file.c_str());
+  madras_dv1::static_trie_map trie_reader;
+  trie_reader.set_print_enabled(true);
+  trie_reader.load(out_file.c_str());
 
   int out_key_len = 0;
   int out_val_len = 0;
-  uint8_t key_buf[dict_reader.get_max_key_len() + 1];
-  uint8_t val_buf[dict_reader.get_max_val_len() + 1];
+  uint8_t key_buf[trie_reader.get_max_key_len() + 1];
+  uint8_t val_buf[trie_reader.get_max_val_len() + 1];
   madras_dv1::iter_ctx dict_ctx;
-  dict_ctx.init(dict_reader.get_max_key_len(), dict_reader.get_max_level());
+  dict_ctx.init(trie_reader.get_max_key_len(), trie_reader.get_max_level());
 
   if (!is_sorted) {
     std::sort(lines.begin(), lines.end(), [](const pair<uint8_t *, int> lhs, const pair<uint8_t *, int> rhs) -> bool {
@@ -182,8 +182,8 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    // if (strcmp((const char *) line, "a 1 in") == 0)
-    //   int ret = 1;
+    if (strcmp((const char *) line, "content removal request for getvidbot") == 0)
+      int ret = 1;
     // if (line.compare("really act") == 0)
     //   ret = 1;
     // if (line.compare("they argued") == 0)
@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
     in_ctx.key_len = line_len;
 
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
-      out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+      out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
       if (out_key_len != in_ctx.key_len)
         printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, out_key_len, key_buf, in_ctx.key_len, out_key_len, out_val_len);
       else {
@@ -221,18 +221,18 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    bool is_found = dict_reader.lookup(in_ctx);
+    bool is_found = trie_reader.lookup(in_ctx);
     if (!is_found)
       std::cout << "Lookup fail: " << line << std::endl;
     else {
-      uint32_t leaf_id = dict_reader.get_leaf_rank(in_ctx.node_id);
-      bool success = dict_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
+      uint32_t leaf_id = trie_reader.leaf_rank(in_ctx.node_id);
+      bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
       if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0)
         printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, in_ctx.key_len, key_buf);
     }
 
-    success = dict_reader.get(in_ctx, &out_val_len, val_buf);
+    success = trie_reader.get(in_ctx, &out_val_len, val_buf);
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
@@ -243,14 +243,14 @@ int main(int argc, char *argv[]) {
       std::cout << "Get fail: " << in_ctx.key << std::endl;
 
     if (what == 0) {
-      dict_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
+      trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
       if (atoi((const char *) val_buf) != line_len) {
         std::cout << "First val mismatch - expected: " << line_len << ", found: "
             << (const char *) val_buf << std::endl;
       }
 
-      dict_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
+      trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
       int checksum = 0;
       for (int i = 0; i < strlen((const char *) line); i++) {
@@ -276,7 +276,7 @@ int main(int argc, char *argv[]) {
       cout.flush();
     }
   }
-  // out_key_len = dict_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+  // out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
   // if (out_key_len != -1)
   //   printf("Expected Eof: [%.*s], %d\n", out_key_len, key_buf, out_key_len);
 
