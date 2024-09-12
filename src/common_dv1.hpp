@@ -72,6 +72,10 @@ struct PACKED_STRUCT fwd_cache {
   uint8_t child_node_id2;
   uint8_t child_node_id3;
   uint8_t node_byte;
+  uint8_t flags;
+  uint8_t tail_ptr1;
+  uint8_t tail_ptr2;
+  uint8_t tail_ptr3;
 };
 
 struct PACKED_STRUCT nid_cache {
@@ -121,7 +125,7 @@ const static bldr_options word_tries_dflt_opts =
 const static bldr_options inner_tries_dflt_opts =
   { true, false,  true, false, false, false, false, false,  true, false,  4,  3,  3,  99,  2,  2,  1, 16,  64};
 const static bldr_options tail_tries_dflt_opts =
-  {false, false, false, false, false, false, false, false, false, false,  4,  3,  3,  99,  2,  2,  1, 16,  64};
+  {false, false, false, false, false, false, false, false, false, false,  4,  3,  3,  99,  2,  2,  1,  1,  64};
 
 #if defined(_MSC_VER)
 #pragma pack(pop)

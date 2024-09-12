@@ -2412,10 +2412,18 @@ class builder : public builder_fwd {
       for (int i = 0; i <= ns_hdr->last_node_idx; i++) {
         uint32_t node_freq = build_cache(n.get_child(), cur_node_id, cache_count, level + 1, build_fwd_cache, build_rev_cache);
         freq_count += node_freq;
-        if ((n.get_flags() & NFLAG_TAIL) == 0 && n.get_child() > 0) {
+        if (n.get_child() > 0 && (n.get_flags() & NFLAG_TAIL) == 0) {
           uint8_t node_byte = n.get_byte();
           leopard::node_set_handler child_nsh(memtrie.all_node_sets, n.get_child());
           uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
+          uint8_t grp_no_and_flags = 0;
+          uint32_t tail_ptr = 0;
+          if ((n.get_flags() & NFLAG_TAIL) > 0) {
+            leopard::uniq_info *ti = memtrie.uniq_tails_rev[n.get_tail()];
+            grp_no_and_flags = (ti->grp_no - 1) | 0x80;
+            tail_ptr = tail_vals.get_tail_ptr(ti->grp_no, ti);
+            // printf("Tail: %d, %u, [%.*s]\n", ti->grp_no, tail_ptr, ti->len, grp_data.data() + ti->ptr);
+          }
           if (build_fwd_cache) {
             int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
             uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
@@ -2428,6 +2436,8 @@ class builder : public builder_fwd {
                 gen::copy_uint24(child_node_id, &fc->child_node_id1);
                 fc->node_offset = node_offset;
                 fc->node_byte = node_byte;
+                fc->flags = grp_no_and_flags;
+                gen::copy_uint24(tail_ptr, &fc->tail_ptr1);
                 break;
               }
               cache_loc <<= MDX_CACHE_SHIFT;
@@ -2559,7 +2569,7 @@ class builder : public builder_fwd {
         }
         if (opts.fwd_cache) {
           tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
-          tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
+          tp.fwd_cache_size = tp.fwd_cache_count * 12; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
         }
         if (opts.rev_cache) {
           tp.rev_cache_count = build_cache(false, true, tp.rev_cache_max_node_id);
