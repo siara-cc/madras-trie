@@ -2258,15 +2258,15 @@ class builder : public builder_fwd {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
       gen::write_uint32(tail_size, fp);
-      gen::write_uint32(trie.size(), fp);
+      gen::write_uint32(trie_flags.size(), fp);
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       if (opts.tail_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->write_trie(NULL);
       }
-      fwrite(trie.data(), 1, trie.size(), fp);
       fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
+      fwrite(trie.data(), 1, trie.size(), fp);
       return 8 + tail_size + trie.size() + trie_flags.size();
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val) {
@@ -2417,11 +2417,15 @@ class builder : public builder_fwd {
           leopard::node_set_handler child_nsh(memtrie.all_node_sets, n.get_child());
           uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
           uint8_t grp_no_and_flags = 0;
-          uint32_t tail_ptr = 0;
+          uint8_t tail_bytes[3] = {0, 0, 0};
           if ((n.get_flags() & NFLAG_TAIL) > 0) {
             leopard::uniq_info *ti = memtrie.uniq_tails_rev[n.get_tail()];
-            grp_no_and_flags = (ti->grp_no - 1) | 0x80;
-            tail_ptr = tail_vals.get_tail_ptr(ti->grp_no, ti);
+            if (ti->len > 3)
+              continue;
+            grp_no_and_flags = ti->len | 0x80;
+            uint8_t *tail_str = memtrie.uniq_tails[ti->pos];
+            for (int j = 0; j < ti->len; j++)
+              tail_bytes[j] = tail_str[j];
             // printf("Tail: %d, %u, [%.*s]\n", ti->grp_no, tail_ptr, ti->len, grp_data.data() + ti->ptr);
           }
           if (build_fwd_cache) {
@@ -2437,7 +2441,9 @@ class builder : public builder_fwd {
                 fc->node_offset = node_offset;
                 fc->node_byte = node_byte;
                 fc->flags = grp_no_and_flags;
-                gen::copy_uint24(tail_ptr, &fc->tail_ptr1);
+                fc->tail_ptr1 = tail_bytes[0];
+                fc->tail_ptr2 = tail_bytes[1];
+                fc->tail_ptr3 = tail_bytes[2];
                 break;
               }
               cache_loc <<= MDX_CACHE_SHIFT;
