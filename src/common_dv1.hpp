@@ -72,10 +72,6 @@ struct PACKED_STRUCT fwd_cache {
   uint8_t child_node_id2;
   uint8_t child_node_id3;
   uint8_t node_byte;
-  uint8_t flags;
-  uint8_t tail_ptr1;
-  uint8_t tail_ptr2;
-  uint8_t tail_ptr3;
 };
 
 struct PACKED_STRUCT nid_cache {
