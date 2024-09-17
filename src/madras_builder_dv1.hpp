@@ -769,7 +769,7 @@ class tail_val_maps {
 
     uint8_t *get_tail(gen::byte_blocks& all_tails, leopard::node n, uint32_t& len) {
       uint8_t *v = all_tails[n.get_tail()];
-      int8_t vlen;
+      size_t vlen;
       len = gen::read_vint32(v, &vlen);
       v += vlen;
       return v;

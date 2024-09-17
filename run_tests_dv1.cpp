@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
   bool is_sorted = true;
   const uint8_t *prev_line = (const uint8_t *) "";
   size_t prev_line_len = 0;
-  int line_len = 0;
+  size_t line_len = 0;
   uint8_t *line = gen::extract_line(file_buf, line_len, file_stat.st_size);
   do {
     if (gen::compare(line, line_len, prev_line, prev_line_len) != 0) {
@@ -114,22 +114,22 @@ int main(int argc, char *argv[]) {
 
   if (what == 0) {
     sb->reset_for_next_col();
-    for (int i = 0; i < line_count; i++) {
+    for (size_t i = 0; i < line_count; i++) {
       line = lines[i].first;
       line_len = lines[i].second;
       char val[30];
-      snprintf(val, 30, "%d", line_len);
+      snprintf(val, 30, "%zu", line_len);
       // printf("[%.*s]]\n", (int) strlen(val), val);
       sb->insert_col_val(val, strlen(val));
     }
     sb->build_and_write_col_val();
 
     sb->reset_for_next_col();
-    for (int i = 0; i < line_count; i++) {
+    for (size_t i = 0; i < line_count; i++) {
       line = lines[i].first;
       int checksum = 0;
-      for (int i = 0; i < strlen((const char *) line); i++) {
-        checksum += line[i];
+      for (size_t j = 0; i < strlen((const char *) line); j++) {
+        checksum += line[j];
       }
       char val[30];
       snprintf(val, 30, "%d", checksum);
@@ -147,8 +147,8 @@ int main(int argc, char *argv[]) {
   trie_reader.set_print_enabled(true);
   trie_reader.load(out_file.c_str());
 
-  int out_key_len = 0;
-  int out_val_len = 0;
+  size_t out_key_len = 0;
+  size_t out_val_len = 0;
   uint8_t key_buf[trie_reader.get_max_key_len() + 1];
   uint8_t val_buf[trie_reader.get_max_val_len() + 1];
   madras_dv1::iter_ctx dict_ctx;
@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
 
   line_count = 0;
   bool success = false;
-  for (int i = 0; i < lines.size(); i++) {
+  for (size_t i = 0; i < lines.size(); i++) {
     line = lines[i].first;
     line_len = lines[i].second;
     // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
     //   ret = 1;
 
     uint8_t *val = line;
-    int val_len;
+    size_t val_len;
     // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
     // if (tab_loc != NULL) {
     //   key_len = tab_loc - line;
@@ -210,14 +210,14 @@ int main(int argc, char *argv[]) {
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
       if (out_key_len != in_ctx.key_len)
-        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, out_key_len, key_buf, in_ctx.key_len, out_key_len, out_val_len);
+        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
       else {
         if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0)
-          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", in_ctx.key_len, in_ctx.key, out_key_len, key_buf);
+          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf);
         if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
-          printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
+          printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
         if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)
-          printf("Val mismatch: [%.*s], [%.*s]\n", val_len, val, out_val_len, val_buf);
+          printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
       }
     }
 
@@ -236,9 +236,9 @@ int main(int argc, char *argv[]) {
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
-        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", val_len, val, out_val_len, val_buf);
+        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
-        printf("key: [%.*s], val: [%.*s]\n", out_key_len, in_ctx.key, out_val_len, val_buf);
+        printf("key: [%.*s], val: [%.*s]\n", (int) out_key_len, in_ctx.key, (int) out_val_len, val_buf);
     } else
       std::cout << "Get fail: " << in_ctx.key << std::endl;
 
