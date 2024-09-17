@@ -182,8 +182,8 @@ int main(int argc, char *argv[]) {
     //   std::cout << line << std::endl;
     // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
     //   std::cout << line << std::endl;
-    if (strcmp((const char *) line, "content removal request for getvidbot") == 0)
-      int ret = 1;
+    // if (strcmp((const char *) line, "a 10 episode") == 0)
+    //   int ret = 1;
     // if (line.compare("really act") == 0)
     //   ret = 1;
     // if (line.compare("they argued") == 0)
