@@ -1698,13 +1698,11 @@ class static_trie_map : public inner_trie_fwd {
           tail_map->get_tail_str(node_id, trie_loc[node_id], tail_str, cv);
         } else
           tail_str.append(trie_loc[node_id]);
-        if (node_id == 0)
-          break;
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1) {
           child_lt.select(node_id, term_lt.rank(node_id));
           node_id--;
         }
-      } while (node_id != UINT32_MAX);
+      } while (node_id != 0);
       return true;
     }
 
@@ -1721,19 +1719,17 @@ class static_trie_map : public inner_trie_fwd {
             return false;
           in_ctx.key_pos++;
         }
-        if (node_id == 0)
-          break;
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1) {
           child_lt.select(node_id, term_lt.rank(node_id));
           node_id--;
         }
-      } while (node_id != UINT32_MAX);
+      } while (node_id != 0);
       return true;
     }
 
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
-      in_ctx.node_id = 0;
+      in_ctx.node_id = 1;
       uint8_t tail_str_buf[max_tail_len];
       gen::byte_str tail_str(tail_str_buf, max_tail_len);
       ctx_vars tv(trie_flags_loc, flags_width);
@@ -1743,7 +1739,7 @@ class static_trie_map : public inner_trie_fwd {
           ret = fwd_cache->try_find(in_ctx, tail_map);
         tv.update_tf(in_ctx.node_id);
         if (ret == 0) {
-          // if (tv.is_leaf_set())
+          if (tv.is_leaf_set())
             return true;
         }
           #ifndef MDX_NO_DART
@@ -1774,7 +1770,7 @@ class static_trie_map : public inner_trie_fwd {
             tv.bm_mask <<= 1;
             tv.next_block();
           } while (1);
-        if (in_ctx.key_pos == in_ctx.key_len) // && tv.is_leaf_set())
+        if (in_ctx.key_pos == in_ctx.key_len && tv.is_leaf_set())
           return true;
         if (!tv.is_child_set())
           return false;

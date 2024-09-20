@@ -542,7 +542,7 @@ class ptr_groups {
         else
           gen::append_uint24(bit_count, ptr_lookup_tbl);
       }
-      leopard::node_iterator ni(all_node_sets, 1);
+      leopard::node_iterator ni(all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
@@ -1126,7 +1126,7 @@ class tail_val_maps {
       for (size_t it_idx = 0; it_idx < ptr_grps.inner_tries.size(); it_idx++) {
         builder_fwd *inner_trie = ptr_grps.inner_tries[it_idx];
         uint32_t trie_size = inner_trie->build();
-        leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets);
+        leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets, 0);
         leopard::node n = ni.next();
         //int leaf_id = 0;
         uint32_t node_id = 0;
@@ -1771,7 +1771,7 @@ class builder : public builder_fwd {
       delta_vals->push_back("\0", 2);
       int64_t prev_val = 0;
       uint32_t node_id = 0;
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NODE_SET_LEAP) {
@@ -1827,7 +1827,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Col trie bit_len: %d [log(%u)]\n", bit_len, max_node_id);
       gen::int_bit_vector int_bv(ptr_grps, bit_len, memtrie.node_count);
       int counter = 0;
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_LEAF) {
@@ -1873,7 +1873,7 @@ class builder : public builder_fwd {
         idx_sizes.push_back(trie_size);
         total_trie_size += trie_size;
         uint32_t leaf_id = 0;
-        leopard::node_iterator ni(word_tries[i]->memtrie.all_node_sets);
+        leopard::node_iterator ni(word_tries[i]->memtrie.all_node_sets, 0);
         leopard::node n = ni.next();
         while (n != nullptr) {
           uint32_t col_val_pos = n.get_col_val();
@@ -1897,7 +1897,7 @@ class builder : public builder_fwd {
       int rpt_count = 0;
       int tot_rpt_count = 0;
       size_t last_line_sz = 0;
-      leopard::node_iterator ni(memtrie.all_node_sets);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node n = ni.next();
       while (n != nullptr) {
         if (n.get_flags() & NFLAG_LEAF) {
@@ -1989,7 +1989,7 @@ class builder : public builder_fwd {
 
     uint32_t store_col_val() {
       gen::word_matcher wm(*memtrie.all_vals);
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NODE_SET_LEAP) {
@@ -2048,7 +2048,7 @@ class builder : public builder_fwd {
           uint32_t rpt_count = 0;
           uint32_t prev1_val_pos, prev2_val_pos, prev3_val_pos;
           prev1_val_pos = prev2_val_pos = prev3_val_pos = UINT32_MAX;
-          leopard::node_iterator ni(memtrie.all_node_sets, 1);
+          leopard::node_iterator ni(memtrie.all_node_sets, 0);
           leopard::node cur_node = ni.next();
           while (cur_node != nullptr) {
             if (cur_node.get_flags() & NODE_SET_LEAP) {
@@ -2128,7 +2128,7 @@ class builder : public builder_fwd {
       tail_vals.get_tail_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Tail trie bit_len: %d [log(%u) - 8]\n", bit_len, tail_trie_builder->memtrie.node_count);
       uint32_t node_id = 0;
-      leopard::node_iterator ni_tt(tail_trie_builder->memtrie.all_node_sets, 1);
+      leopard::node_iterator ni_tt(tail_trie_builder->memtrie.all_node_sets, 0);
       leopard::node cur_node = ni_tt.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_LEAF) {
@@ -2140,7 +2140,7 @@ class builder : public builder_fwd {
       }
       byte_vec *tail_ptrs = tail_vals.get_tail_grp_ptrs()->get_ptrs();
       gen::int_bit_vector int_bv(tail_ptrs, bit_len, memtrie.uniq_tails_rev.size());
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       cur_node = ni.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_TAIL) {
@@ -2181,7 +2181,7 @@ class builder : public builder_fwd {
       //trie.reserve(node_count + (node_count >> 1));
       uint32_t ptr_count = 0;
       uint32_t node_count = 0;
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t node_byte, cur_node_flags;
@@ -2303,7 +2303,7 @@ class builder : public builder_fwd {
 
     void set_node_id() {
       uint32_t node_id = 0;
-      for (size_t i = 1; i < memtrie.all_node_sets.size(); i++) {
+      for (size_t i = 0; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
         ns_hdr->node_id = node_id;
         if (ns_hdr->last_node_idx > 4 && trie_level == 0 && opts.dart) {
@@ -2365,7 +2365,7 @@ class builder : public builder_fwd {
         r_cache = new nid_cache[cache_count + 1]();
         r_cache_freq = new uint32_t[cache_count]();
       }
-      build_cache(1, UINT32_MAX, cache_count, 1, build_fwd_cache, build_rev_cache);
+      build_cache(1, 0, cache_count, 1, build_fwd_cache, build_rev_cache);
       max_node_id = 0;
       int sum_freq = 0;
       for (uint32_t i = 0; i < cache_count; i++) {
@@ -2826,7 +2826,7 @@ class builder : public builder_fwd {
       uint8_t pos_n = 0;
       memset(bit_counts_n, 0, u8_arr_count + 1);
       gen::write_uint32(0, fp);
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
@@ -2883,7 +2883,7 @@ class builder : public builder_fwd {
       uint32_t node_id = 0;
       uint32_t one_count = 0;
       gen::write_uint24(0, fp);
-      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
