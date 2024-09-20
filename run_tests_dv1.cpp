@@ -166,8 +166,6 @@ int main(int argc, char *argv[]) {
   line_count = 0;
   bool success = false;
   for (size_t i = 0; i < lines.size(); i++) {
-    line = lines[i].first;
-    line_len = lines[i].second;
     // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
     //   continue;
     // prev_line = line;
@@ -193,7 +191,7 @@ int main(int argc, char *argv[]) {
     // if (line.compare("understand that there is a") == 0)
     //   ret = 1;
 
-    uint8_t *val = line;
+    uint8_t *val = lines[i].first;
     size_t val_len;
     // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
     // if (tab_loc != NULL) {
@@ -204,8 +202,8 @@ int main(int argc, char *argv[]) {
     //   val_len = (line_len > 6 ? 7 : line_len);
     // }
 
-    in_ctx.key = line;
-    in_ctx.key_len = line_len;
+    in_ctx.key = lines[i].first;
+    in_ctx.key_len = lines[i].second;
 
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
@@ -223,7 +221,7 @@ int main(int argc, char *argv[]) {
 
     bool is_found = trie_reader.lookup(in_ctx);
     if (!is_found)
-      std::cout << "Lookup fail: " << line << std::endl;
+      std::cout << "Lookup fail: " << in_ctx.key << std::endl;
     else {
       uint32_t leaf_id = trie_reader.leaf_rank(in_ctx.node_id);
       bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
@@ -245,16 +243,16 @@ int main(int argc, char *argv[]) {
     if (what == 0) {
       trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
-      if (atoi((const char *) val_buf) != line_len) {
-        std::cout << "First val mismatch - expected: " << line_len << ", found: "
+      if (atoi((const char *) val_buf) != in_ctx.key_len) {
+        std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << (const char *) val_buf << std::endl;
       }
 
       trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
       val_buf[out_val_len] = 0;
       int checksum = 0;
-      for (int i = 0; i < strlen((const char *) line); i++) {
-        checksum += line[i];
+      for (int i = 0; i < strlen((const char *) in_ctx.key); i++) {
+        checksum += in_ctx.key[i];
       }
       if (atoi((const char *) val_buf) != checksum) {
         std::cout << "Second val mismatch - expected: " << checksum << ", found: "
@@ -262,13 +260,13 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // success = sb.get(line, line_len, &val_len, val_buf);
+    // success = sb.get(in_ctx.key, in_ctx.key_len, &val_len, val_buf);
     // if (success) {
     //   val_buf[val_len] = 0;
-    //   if (strncmp((const char *) line, (const char *) val_buf, 7) != 0)
-    //     printf("key: [%.*s], val: [%.*s]\n", (int) line_len, line, val_len, val_buf);
+    //   if (strncmp((const char *) in_ctx.key, (const char *) val_buf, 7) != 0)
+    //     printf("key: [%.*s], val: [%.*s]\n", (int) in_ctx.key_len, in_ctx.key, val_len, val_buf);
     // } else
-    //   std::cout << line << std::endl;
+    //   std::cout << in_ctx.key << std::endl;
 
     line_count++;
     if ((line_count % 100000) == 0) {

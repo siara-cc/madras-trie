@@ -60,6 +60,8 @@ class iter_ctx {
       memset(node_path, 0, max_level * sizeof(uint32_t));
       memset(child_count, 0, max_level * sizeof(uint32_t));
       memset(last_tail_len, 0, max_level * sizeof(uint16_t));
+      node_path[0] = 1;
+      child_count[0] = 1;
       cur_idx = key_len = 0;
       to_skip_first_leaf = false;
       is_allocated = true;
@@ -1659,13 +1661,11 @@ class static_trie_map : public inner_trie_fwd {
         } else {
           ret_key[key_len++] = trie_loc[node_id];
         }
-        if (node_id == 0)
-          break;
         if (rev_cache == nullptr || rev_cache->try_find(node_id) == -1) {
           child_lt.select(node_id, term_lt.rank(node_id));
           node_id--;
         }
-      } while (node_id != UINT32_MAX);
+      } while (node_id != 0);
       if (to_reverse) {
         int i = key_len / 2;
         while (i--) {

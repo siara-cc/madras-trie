@@ -400,7 +400,7 @@ class ptr_groups {
       else {
         if (dessicate)
           ptr_lookup_tbl_sz = 0;
-        else
+        else // TODO: PTR LT gets created unnecessarily for last level of tail tries
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1) * 2);
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
@@ -479,7 +479,7 @@ class ptr_groups {
     }
     void write_ptr_lookup_tbl(FILE *fp) {
       fwrite(ptr_lookup_tbl.data(), 1, ptr_lookup_tbl.size(), fp);
-   }
+    }
     void write_ptrs(FILE *fp) {
       fwrite(ptrs.data(), 1, ptrs.size(), fp);
     }
