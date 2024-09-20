@@ -2585,12 +2585,12 @@ class builder : public builder_fwd {
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
         tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
         tp.term_bv_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
-        tp.child_bv_loc = tp.term_bv_loc + tp.term_bvlt_sz;
+        tp.child_select_lkup_loc = tp.term_bv_loc + tp.term_bvlt_sz;
+        tp.child_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
         tp.trie_tail_ptrs_data_loc = tp.child_bv_loc + tp.child_bvlt_sz;
         tp.leaf_select_lkup_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
-        tp.child_select_lkup_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
-        tp.tail_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
+        tp.tail_bv_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
         if (!opts.dart)
           tp.sec_cache_loc = 0;
       } else {
@@ -2698,6 +2698,7 @@ class builder : public builder_fwd {
         if (!opts.dessicate) {
           write_bv_select_lt(BV_LT_TYPE_TERM, fp);
           write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
+          write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
           write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
         }
 
@@ -2708,7 +2709,6 @@ class builder : public builder_fwd {
             write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
             write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
           }
-          write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
           if (tp.tail_bvlt_sz > 0)
             write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
         }
