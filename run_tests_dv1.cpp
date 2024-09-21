@@ -170,26 +170,12 @@ int main(int argc, char *argv[]) {
     //   continue;
     // prev_line = line;
     // prev_line_len = line_len;
-    // if (line.compare("don't think there's anything wrong") == 0)
-    //   std::cout << line << std::endl;;
-    // if (line.compare("understand that there is a") == 0)
-    //   std::cout << line << std::endl;;
-    // if (line.compare("a 18 year old") == 0) // child aligns to 64
-    //   std::cout << line << std::endl;;
-    // if (line.compare("!Adios_Amigos!") == 0)
-    //   std::cout << line << std::endl;
-    // if (line.compare("National_Register_of_Historic_Places_listings_in_Jackson_County,_Missouri:_Downtown_Kansas_City") == 0)
-    //   std::cout << line << std::endl;
-    // if (strcmp((const char *) line, "a 10 episode") == 0)
+
+    in_ctx.key = lines[i].first;
+    in_ctx.key_len = lines[i].second;
+
+    // if (strcmp((const char *) in_ctx.key, "a 10 episode") == 0)
     //   int ret = 1;
-    // if (line.compare("really act") == 0)
-    //   ret = 1;
-    // if (line.compare("they argued") == 0)
-    //   ret = 1;
-    // if (line.compare("they achieve") == 0)
-    //   ret = 1;
-    // if (line.compare("understand that there is a") == 0)
-    //   ret = 1;
 
     uint8_t *val = lines[i].first;
     size_t val_len;
@@ -201,9 +187,6 @@ int main(int argc, char *argv[]) {
     // } else {
     //   val_len = (line_len > 6 ? 7 : line_len);
     // }
-
-    in_ctx.key = lines[i].first;
-    in_ctx.key_len = lines[i].second;
 
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);

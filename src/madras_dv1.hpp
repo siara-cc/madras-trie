@@ -701,20 +701,20 @@ class ptr_data_map {
     }
 
     uint32_t read_len(uint8_t *t, uint8_t& len_len) {
-      len_len = 1;
-      if (*t < 15)
-        return *t;
-      t++;
-      uint32_t ret = 0;
-      while (*t & 0x80) {
-        ret <<= 7;
-        ret |= (*t++ & 0x7F);
+      while (*t & 0x10 && *t < 32)
+        t++;
+      t--;
+      return read_len_bw(t, len_len);
+    }
+    uint32_t read_len_bw(uint8_t *t, uint8_t& len_len) {
+      len_len = 0;
+      uint32_t len = 0;
+      while (*t & 0x10 && *t < 32) {
+        len <<= 4;
+        len += (*t-- & 0x0F);
         len_len++;
       }
-      len_len++;
-      ret <<= 4;
-      ret |= (*t & 0x0F);
-      return ret + 15;
+      return len;
     }
 
   public:
@@ -901,11 +901,12 @@ class tail_ptr_data_map : public ptr_data_map {
         } while (*tail >= 32);
         if (*tail == 0)
           return true;
-        uint8_t tail_str_buf[max_len];
-        gen::byte_str tail_str(tail_str_buf, max_len);
-        read_suffix(tail_str, tail, grp_data[grp_no], tail_ptr);
-        if (memcmp(tail_str.data(), in_ctx.key + in_ctx.key_pos, tail_str.length()) == 0) {
-          in_ctx.key_pos += tail_str.length();
+        uint8_t len_len;
+        uint32_t sfx_len = read_len(tail, len_len);
+        uint8_t tail_str_buf[sfx_len];
+        read_suffix(tail_str_buf, grp_data[grp_no] + tail_ptr - 1, sfx_len);
+        if (memcmp(tail_str_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
+          in_ctx.key_pos += sfx_len;
           return true;
         }
       }
@@ -946,45 +947,30 @@ class tail_ptr_data_map : public ptr_data_map {
       }
       if (byt == 0)
         return;
-      read_suffix(tail_str, t, tail, tail_ptr);
-    }
-    void read_suffix(gen::byte_str& tail_str, uint8_t *t, uint8_t *tail, uint32_t tail_ptr) {
-      uint8_t len_len = 0;
+      uint8_t len_len;
       uint32_t sfx_len = read_len(t, len_len);
-      uint8_t *t_end = tail + tail_ptr;
-      t = t_end;
-      uint8_t byt;
-      do {
-        byt = *t--;
-      } while (byt != 0 && t > tail);
-      do {
-        byt = *t--;
-      } while (byt > 31 && t >= tail);
-      t += 2;
-      uint8_t prev_str_buf[max_len];
-      gen::byte_str prev_str(prev_str_buf, max_len);
-      byt = *t++;
-      while (byt != 0) {
-        prev_str.append(byt);
-        byt = *t++;
-      }
-      uint8_t last_str_buf[max_len];
-      gen::byte_str last_str(last_str_buf, max_len);
-      while (t < t_end) {
-        last_str.clear();
-        byt = *t;
-        while (byt > 31) {
-          t++;
-          last_str.append(byt);
-          byt = *t;
+      read_suffix(tail_str.data() + tail_str.length(), tail + tail_ptr - 1, sfx_len);
+      tail_str.set_length(tail_str.length() + sfx_len);
+    }
+    uint8_t *read_suffix(uint8_t *tail_str, uint8_t *t, uint32_t sfx_len) {
+      while (*t > 31)
+        t--;
+      uint8_t len_len;
+      while (*t > 0) {
+        uint32_t prev_sfx_len = read_len_bw(t, len_len);
+        t -= len_len;
+        while (sfx_len > prev_sfx_len) {
+          sfx_len--;
+          *tail_str++ = *(t + prev_sfx_len - sfx_len);
         }
-        uint32_t prev_sfx_len = read_len(t, len_len);
-        last_str.append(prev_str.data() + prev_str.length()-prev_sfx_len, prev_sfx_len);
-        t += len_len;
-        prev_str.clear();
-        prev_str.append(last_str.data(), last_str.length());
+        while (*t > 31)
+          t--;
       }
-      tail_str.append(prev_str.data() + prev_str.length()-sfx_len, sfx_len);
+      while (sfx_len > 0) {
+        *tail_str++ = *(t - sfx_len);
+        sfx_len--;
+      }
+      return tail_str;
     }
 };
 

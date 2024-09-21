@@ -278,25 +278,15 @@ class ptr_groups {
       }
       return grp_data[grp_no];
     }
-    uint32_t get_var_len(uint32_t len, byte_vec *vec = NULL) {
-      uint32_t var_len = (len < 16 ? 2 : (len < 2048 ? 3 : (len < 262144 ? 4 : 5)));
-      if (vec != NULL) {
-        vec->push_back(15);
-        int bit7s = var_len - 2;
-        for (int i = bit7s - 1; i >= 0; i--)
-          vec->push_back(0x80 + ((len >> (i * 7 + 4)) & 0x7F));
-        vec->push_back(0x10 + (len & 0x0F));
-      }
-      return var_len;
-    }
     uint32_t get_set_len_len(uint32_t len, byte_vec *vec = NULL) {
-      if (len < 15) {
+      uint32_t len_len = 0;
+      do {
+        len_len++;
         if (vec != NULL)
-          vec->push_back(len);
-        return 1;
-      }
-      len -= 15;
-      return get_var_len(len, vec);
+          vec->push_back((len & 0x0F) | 0x10);
+        len >>= 4;
+      } while (len > 0);
+      return len_len;
     }
     uint32_t append_text_tail(uint32_t grp_no, uint8_t *val, uint32_t len, bool append0 = false) {
       byte_vec& grp_data_vec = get_data(grp_no);
