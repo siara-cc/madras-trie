@@ -700,23 +700,6 @@ class ptr_data_map {
       //ptr = gen::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
     }
 
-    uint32_t read_len(uint8_t *t, uint8_t& len_len) {
-      while (*t & 0x10 && *t < 32)
-        t++;
-      t--;
-      return read_len_bw(t, len_len);
-    }
-    uint32_t read_len_bw(uint8_t *t, uint8_t& len_len) {
-      len_len = 0;
-      uint32_t len = 0;
-      while (*t & 0x10 && *t < 32) {
-        len <<= 4;
-        len += (*t-- & 0x0F);
-        len_len++;
-      }
-      return len;
-    }
-
   public:
     uint8_t data_type;
     uint8_t encoding_type;
@@ -838,6 +821,22 @@ class ptr_data_map {
       ptr_lt->init(ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);
 
     }
+    uint32_t read_len(uint8_t *t) {
+      while (*t & 0x10 && *t < 32)
+        t++;
+      t--;
+      uint32_t ret;
+      read_len_bw(t, ret);
+      return ret;
+    }
+    uint8_t *read_len_bw(uint8_t *t, uint32_t& out_len) {
+      out_len = 0;
+      while (*t & 0x10 && *t < 32) {
+        out_len <<= 4;
+        out_len += (*t-- & 0x0F);
+      }
+      return t;
+    }
 
 };
 
@@ -901,8 +900,7 @@ class tail_ptr_data_map : public ptr_data_map {
         } while (*tail >= 32);
         if (*tail == 0)
           return true;
-        uint8_t len_len;
-        uint32_t sfx_len = read_len(tail, len_len);
+        uint32_t sfx_len = read_len(tail);
         uint8_t tail_str_buf[sfx_len];
         read_suffix(tail_str_buf, grp_data[grp_no] + tail_ptr - 1, sfx_len);
         if (memcmp(tail_str_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
@@ -932,9 +930,9 @@ class tail_ptr_data_map : public ptr_data_map {
       //tv.str.clear();
       uint8_t *t = tail + tail_ptr;
       if (*t < 32) {
-        uint8_t len_len;
-        uint32_t bin_len = read_len(t, len_len);
-        t += len_len;
+        uint32_t bin_len = read_len(t);
+        while (*t < 32)
+          t++;
         while (bin_len--)
           tail_str.append(*t++);
         return;
@@ -947,30 +945,27 @@ class tail_ptr_data_map : public ptr_data_map {
       }
       if (byt == 0)
         return;
-      uint8_t len_len;
-      uint32_t sfx_len = read_len(t, len_len);
+      uint32_t sfx_len = read_len(t);
       read_suffix(tail_str.data() + tail_str.length(), tail + tail_ptr - 1, sfx_len);
       tail_str.set_length(tail_str.length() + sfx_len);
     }
-    uint8_t *read_suffix(uint8_t *tail_str, uint8_t *t, uint32_t sfx_len) {
+    void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
       while (*t > 31)
         t--;
-      uint8_t len_len;
       while (*t > 0) {
-        uint32_t prev_sfx_len = read_len_bw(t, len_len);
-        t -= len_len;
+        uint32_t prev_sfx_len;
+        t = read_len_bw(t, prev_sfx_len);
         while (sfx_len > prev_sfx_len) {
           sfx_len--;
-          *tail_str++ = *(t + prev_sfx_len - sfx_len);
+          *out_str++ = *(t + prev_sfx_len - sfx_len);
         }
         while (*t > 31)
           t--;
       }
       while (sfx_len > 0) {
-        *tail_str++ = *(t - sfx_len);
+        *out_str++ = *(t - sfx_len);
         sfx_len--;
       }
-      return tail_str;
     }
 };
 
@@ -1285,9 +1280,9 @@ class val_ptr_data_map : public ptr_data_map {
       ret.clear();
       uint8_t *t = val + val_ptr;
       if (*t < 32) {
-        uint8_t len_len;
-        uint32_t bin_len = read_len(t, len_len);
-        t += len_len;
+        uint32_t bin_len = read_len(t);
+        while (*t < 32)
+          t++;
         while (bin_len--)
           ret.append(*t++);
         return;
@@ -1311,8 +1306,9 @@ class val_ptr_data_map : public ptr_data_map {
           return;
         ret.clear();
       }
-      uint8_t len_len = 0;
-      read_len(t, len_len);
+      read_len(t);
+      while (*t < 32)
+        t++;
       uint8_t *t_end = t;
       uint8_t byt;
       do {
@@ -1340,10 +1336,11 @@ class val_ptr_data_map : public ptr_data_map {
           last_str.append(byt);
           byt = *t++;
         }
-        uint32_t prev_pfx_len = read_len(t - 1, len_len);
+        uint32_t prev_pfx_len = read_len(t - 1);
         prev_str.set_length(prev_pfx_len);
         prev_str.append(last_str.data(), last_str.length());
-        t += len_len;
+        while (*t < 32)
+          t++;
         t--;
         last_str.clear();
       }
