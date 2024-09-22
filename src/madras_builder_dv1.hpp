@@ -2375,6 +2375,7 @@ class builder : public builder_fwd {
         }
         // printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
       }
+      max_node_id++;
       gen::gen_printf("Sum of cache freq: %d, Max node id: %d\n", sum_freq, max_node_id);
       gen::print_time_taken(t, "Time taken for build_cache(): ");
       return cache_count;
@@ -2542,11 +2543,13 @@ class builder : public builder_fwd {
         if (opts.fwd_cache) {
           tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
           tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
-        }
+        } else
+          tp.fwd_cache_max_node_id = 0;
         if (opts.rev_cache) {
           tp.rev_cache_count = build_cache(false, true, tp.rev_cache_max_node_id);
           tp.rev_cache_size = tp.rev_cache_count * 6; // 6 = parent_node_id (3) + child_node_id (3)
-        }
+        } else
+          tp.rev_cache_max_node_id = 0;
         tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
         tp.sec_cache_size = 0;
         if (opts.dart)
