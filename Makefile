@@ -6,13 +6,13 @@ L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lcds
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
 
-opt: CXXFLAGS += -g -O3 -DNDEBUG
+opt: CXXFLAGS += -g -O2 -DNDEBUG
 opt: run_tests
 
 debug: CXXFLAGS += -g -O0 -fno-inline
 debug: run_tests
 
-release: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
+release: CXXFLAGS += -O2 -funroll-loops -DNDEBUG
 release: run_tests
 
 asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer

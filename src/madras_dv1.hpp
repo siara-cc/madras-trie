@@ -104,8 +104,6 @@ class iter_ctx {
 #define DCT_U15_DEC1 'X'
 #define DCT_U15_DEC2 'Z'
 
-#define bm_init_mask 0x0000000000000001UL
-
 struct min_pos_stats {
   uint8_t min_b;
   uint8_t max_b;
@@ -313,21 +311,15 @@ struct ctx_vars {
   uint64_t bm_mask;
   uint32_t ptr_bit_count;
   uint8_t tf_multiplier;
-  ctx_vars() {
-  }
-  ctx_vars(trie_flags *_tf, uint8_t _tf_multiplier) {
-    tf0 = (const uint8_t *) _tf;
-    tf_multiplier = _tf_multiplier;
+  void update_tf(uint32_t node_id) {
+    tf = (trie_flags *) (tf0 + node_id / nodes_per_bv_block_n * tf_multiplier);
+    bm_mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
   }
   void next_block() {
     if (bm_mask == 0) {
       bm_mask = bm_init_mask;
       tf = (trie_flags *) (((const uint8_t *) tf) + tf_multiplier);
     }
-  }
-  void update_tf(uint32_t node_id) {
-    tf = (trie_flags *) (tf0 + node_id / nodes_per_bv_block_n * tf_multiplier);
-    bm_mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
   }
   bool is_leaf_set() {
     return (bm_mask & tf->bm_leaf);
@@ -340,6 +332,12 @@ struct ctx_vars {
   }
   bool is_ptr_set() {
     return (bm_mask & tf->bm_ptr);
+  }
+  ctx_vars() {
+  }
+  ctx_vars(trie_flags *_tf, uint8_t _tf_multiplier) {
+    tf0 = (const uint8_t *) _tf;
+    tf_multiplier = _tf_multiplier;
   }
 };
 
@@ -486,9 +484,6 @@ class bv_lookup_tbl {
       }
       return rank;
     }
-    uint8_t *get_rank_loc() {
-      return lt_rank_loc;
-    }
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
         const uint32_t middle = (first + last) >> 1;
@@ -573,6 +568,9 @@ class bv_lookup_tbl {
     uint8_t *get_select_loc() {
       return lt_sel_loc;
     }
+    uint8_t *get_rank_loc() {
+      return lt_rank_loc;
+    }
     void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, trie_flags *_bm_start_loc, size_t _bm_multiplier, size_t _bm_pos) {
       lt_rank_loc = _lt_rank_loc;
       lt_sel_loc = _lt_sel_loc;
@@ -604,16 +602,6 @@ class ptr_bits_lookup_table {
     uint8_t *ptr_lt_loc;
     bool release_lt_loc;
   public:
-    ptr_bits_lookup_table() {
-    }
-    ~ptr_bits_lookup_table() {
-      if (release_lt_loc)
-        delete [] ptr_lt_loc;
-    }
-    void init(uint8_t *_lt_loc, uint32_t _lt_ptr_width, bool _release_lt_loc) {
-      ptr_lt_loc = _lt_loc;
-      release_lt_loc = _release_lt_loc;
-    }
     uint32_t get_ptr_block_t(uint32_t node_id) {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width;
       uint32_t ptr_bit_count = gen::read_uint32(block_ptr);
@@ -626,25 +614,22 @@ class ptr_bits_lookup_table {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block_n) * 4;
       return gen::read_uint32(block_ptr);
     }
-
+    ptr_bits_lookup_table() {
+    }
+    ~ptr_bits_lookup_table() {
+      if (release_lt_loc)
+        delete [] ptr_lt_loc;
+    }
+    void init(uint8_t *_lt_loc, uint32_t _lt_ptr_width, bool _release_lt_loc) {
+      ptr_lt_loc = _lt_loc;
+      release_lt_loc = _release_lt_loc;
+    }
 };
 
 class ptr_bits_reader {
   private:
     uint8_t *ptrs_loc;
   public:
-    ptr_bits_reader() {
-    }
-    void init(uint8_t *_ptrs_loc) {
-      ptrs_loc = _ptrs_loc;
-    }
-    uint8_t read8(uint32_t& ptr_bit_count) {
-      uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
-      uint8_t bits_filled = (ptr_bit_count % 8);
-      uint8_t ret = (uint8_t) (*ptr_loc++ << bits_filled);
-      ret |= (*ptr_loc >> (8 - bits_filled));
-      return ret;
-    }
     uint32_t read(uint32_t& ptr_bit_count, int bits_to_read) {
       uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
       int bit_pos = (ptr_bit_count % 64);
@@ -653,6 +638,18 @@ class ptr_bits_reader {
       if (bit_pos + bits_to_read <= 64)
         return ret >> (64 - bits_to_read);
       return (ret | (*ptr_loc >> (64 - bit_pos))) >> (64 - bits_to_read);
+    }
+    uint8_t read8(uint32_t& ptr_bit_count) {
+      uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
+      uint8_t bits_filled = (ptr_bit_count % 8);
+      uint8_t ret = (uint8_t) (*ptr_loc++ << bits_filled);
+      ret |= (*ptr_loc >> (8 - bits_filled));
+      return ret;
+    }
+    ptr_bits_reader() {
+    }
+    void init(uint8_t *_ptrs_loc) {
+      ptrs_loc = _ptrs_loc;
     }
     uint8_t *get_ptrs_loc() {
       return ptrs_loc;
@@ -1532,34 +1529,32 @@ class static_trie_map : public inner_trie_fwd {
           if (cv.is_leaf_set())
             return true;
         }
-          #ifndef MDX_NO_DART
-          if (sski != nullptr)
-            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos], cv);
-          #endif
-          cv.ptr_bit_count = UINT32_MAX;
-          do {
-            if (!cv.is_ptr_set()) {
-              #ifndef MDX_IN_ORDER
-                if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
-              #else
-                if (in_ctx.key[in_ctx.key_pos] <= trie_loc[in_ctx.node_id]) {
-              #endif
-                  in_ctx.key_pos++;
-                  break;
-                }
-            } else {
-              uint32_t prev_key_pos = in_ctx.key_pos;
-              if (tail_map->compare_tail(in_ctx.node_id, in_ctx, cv))
+        if (sski != nullptr)
+          sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos], cv);
+        cv.ptr_bit_count = UINT32_MAX;
+        do {
+          if (!cv.is_ptr_set()) {
+            #ifndef MDX_IN_ORDER
+              if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
+            #else
+              if (in_ctx.key[in_ctx.key_pos] <= trie_loc[in_ctx.node_id]) {
+            #endif
+                in_ctx.key_pos++;
                 break;
-              if (prev_key_pos != in_ctx.key_pos)
-                return false;
-            }
-            if (cv.is_term_set())
+              }
+          } else {
+            uint32_t prev_key_pos = in_ctx.key_pos;
+            if (tail_map->compare_tail(in_ctx.node_id, in_ctx, cv))
+              break;
+            if (prev_key_pos != in_ctx.key_pos)
               return false;
-            in_ctx.node_id++;
-            cv.bm_mask <<= 1;
-            cv.next_block();
-          } while (1);
+          }
+          if (cv.is_term_set())
+            return false;
+          in_ctx.node_id++;
+          cv.bm_mask <<= 1;
+          cv.next_block();
+        } while (1);
         if (in_ctx.key_pos == in_ctx.key_len && cv.is_leaf_set())
           return true;
         if (!cv.is_child_set())
