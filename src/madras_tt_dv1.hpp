@@ -104,8 +104,6 @@ class iter_ctx {
 #define DCT_U15_DEC1 'X'
 #define DCT_U15_DEC2 'Z'
 
-#define bm_init_mask 0x0000000000000001UL
-
 struct min_pos_stats {
   uint8_t min_b;
   uint8_t max_b;
@@ -134,21 +132,15 @@ struct ctx_vars {
   uint64_t bm_mask;
   uint32_t ptr_bit_count;
   uint8_t tf_multiplier;
-  ctx_vars() {
-  }
-  ctx_vars(trie_flags *_tf, uint8_t _tf_multiplier) {
-    tf0 = (const uint8_t *) _tf;
-    tf_multiplier = _tf_multiplier;
+  void update_tf(uint32_t node_id) {
+    tf = (trie_flags *) (tf0 + node_id / nodes_per_bv_block_n * tf_multiplier);
+    bm_mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
   }
   void next_block() {
     if (bm_mask == 0) {
       bm_mask = bm_init_mask;
       tf = (trie_flags *) (((const uint8_t *) tf) + tf_multiplier);
     }
-  }
-  void update_tf(uint32_t node_id) {
-    tf = (trie_flags *) (tf0 + node_id / nodes_per_bv_block_n * tf_multiplier);
-    bm_mask = bm_init_mask << (node_id % nodes_per_bv_block_n);
   }
   bool is_leaf_set() {
     return (bm_mask & tf->bm_leaf);
@@ -161,6 +153,12 @@ struct ctx_vars {
   }
   bool is_ptr_set() {
     return (bm_mask & tf->bm_ptr);
+  }
+  ctx_vars() {
+  }
+  ctx_vars(trie_flags *_tf, uint8_t _tf_multiplier) {
+    tf0 = (const uint8_t *) _tf;
+    tf_multiplier = _tf_multiplier;
   }
 };
 
@@ -307,9 +305,6 @@ class bv_lookup_tbl {
       }
       return rank;
     }
-    uint8_t *get_rank_loc() {
-      return lt_rank_loc;
-    }
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
         const uint32_t middle = (first + last) >> 1;
@@ -393,6 +388,9 @@ class bv_lookup_tbl {
     }
     uint8_t *get_select_loc() {
       return lt_sel_loc;
+    }
+    uint8_t *get_rank_loc() {
+      return lt_rank_loc;
     }
     void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, trie_flags *_bm_start_loc, size_t _bm_multiplier, size_t _bm_pos) {
       lt_rank_loc = _lt_rank_loc;
@@ -520,14 +518,12 @@ class GCFC_fwd_cache {
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    int try_find(input_ctx& in_ctx, tail_ptr_map *tail) {
+    int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
-      int times = MDX_CACHE_TIMES_FWD;
-      uint32_t cache_idx = in_ctx.node_id;
       do {
-        cache_idx = (in_ctx.node_id ^ (cache_idx << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+        uint32_t cache_idx = (in_ctx.node_id ^ (in_ctx.node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
         madras_dv1::fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (in_ctx.node_id == cache_node_id && cche->node_byte == key_byte) {
@@ -535,14 +531,13 @@ class GCFC_fwd_cache {
           if (in_ctx.key_pos < in_ctx.key_len) {
             in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
             key_byte = in_ctx.key[in_ctx.key_pos];
-            cache_idx = in_ctx.node_id;
-            times = MDX_CACHE_TIMES_FWD;
             continue;
           }
           in_ctx.node_id += cche->node_offset;
           return 0;
         }
-      } while (--times);
+        return -1;
+      } while (1);
       return -1;
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
@@ -561,17 +556,11 @@ class GCFC_rev_cache {
     int try_find(uint32_t& node_id) {
       if (node_id >= max_node_id)
         return -1;
-      uint32_t cache_idx = node_id;
-      int times = MDX_CACHE_TIMES_REV;
-      do {
-        cache_idx = ((cache_idx << MDX_CACHE_SHIFT) ^ node_id) & cache_mask;
-        madras_dv1::nid_cache *cche = cche0 + cache_idx;
-        uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
-        if (node_id == cache_node_id) {
-          node_id = gen::read_uint24(&cche->parent_node_id1);
-          return 0;
-        }
-      } while (--times);
+      madras_dv1::nid_cache *cche = cche0 + (node_id & cache_mask);
+      if (node_id == gen::read_uint24(&cche->child_node_id1)) {
+        node_id = gen::read_uint24(&cche->parent_node_id1);
+        return 0;
+      }
       return -1;
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
@@ -722,40 +711,36 @@ class static_trie_map : public inner_trie_fwd {
       in_ctx.node_id = 1;
       ctx_vars cv(trie_flags_loc, flags_width);
       do {
-        int ret = fwd_cache.try_find(in_ctx, tail_map);
+        int ret = fwd_cache.try_find(in_ctx);
         cv.update_tf(in_ctx.node_id);
-        if (ret == 0) {
-          if (cv.is_leaf_set())
-            return true;
-        }
-          #ifndef MDX_NO_DART
-          if (sski != nullptr)
-            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos], cv);
-          #endif
-          cv.ptr_bit_count = UINT32_MAX;
-          do {
-            if (!cv.is_ptr_set()) {
-              #ifndef MDX_IN_ORDER
-                if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
-              #else
-                if (in_ctx.key[in_ctx.key_pos] <= trie_loc[in_ctx.node_id]) {
-              #endif
-                  in_ctx.key_pos++;
-                  break;
-                }
-            } else {
-              uint32_t prev_key_pos = in_ctx.key_pos;
-              if (tail_map->compare_tail(in_ctx.node_id, in_ctx, cv))
+        if (ret == 0)
+          return cv.is_leaf_set();
+        if (sski != nullptr)
+          sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos], cv);
+        cv.ptr_bit_count = UINT32_MAX;
+        do {
+          if (!cv.is_ptr_set()) {
+            #ifndef MDX_IN_ORDER
+              if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
+            #else
+              if (in_ctx.key[in_ctx.key_pos] <= trie_loc[in_ctx.node_id]) {
+            #endif
+                in_ctx.key_pos++;
                 break;
-              if (prev_key_pos != in_ctx.key_pos)
-                return false;
-            }
-            if (cv.is_term_set())
+              }
+          } else {
+            uint32_t prev_key_pos = in_ctx.key_pos;
+            if (tail_map->compare_tail(in_ctx.node_id, in_ctx, cv))
+              break;
+            if (prev_key_pos != in_ctx.key_pos)
               return false;
-            in_ctx.node_id++;
-            cv.bm_mask <<= 1;
-            cv.next_block();
-          } while (1);
+          }
+          if (cv.is_term_set())
+            return false;
+          in_ctx.node_id++;
+          cv.bm_mask <<= 1;
+          cv.next_block();
+        } while (1);
         if (in_ctx.key_pos == in_ctx.key_len && cv.is_leaf_set())
           return true;
         if (!cv.is_child_set())
@@ -1003,11 +988,9 @@ class static_trie_map : public inner_trie_fwd {
 
         uint8_t encoding_type = tails_loc[2];
         uint8_t *tail_data_loc = tails_loc + gen::read_uint32(tails_loc + 12);
-        if (encoding_type == 't' || *tail_data_loc == 1) {
-          tail_ptr_flat_map *tail_flat_map = new tail_ptr_flat_map();
-          tail_flat_map->init(this, trie_loc, tails_loc);
-          tail_map = tail_flat_map;
-        }
+        tail_ptr_flat_map *tail_flat_map = new tail_ptr_flat_map();
+        tail_flat_map->init(this, trie_loc, tails_loc);
+        tail_map = tail_flat_map;
 
         lt_not_given = 0;
         if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;

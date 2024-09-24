@@ -12,8 +12,6 @@ namespace madras_dv1 {
 #define PACKED_STRUCT
 #endif
 
-#define MDX_CACHE_TIMES_FWD 3
-#define MDX_CACHE_TIMES_REV 3
 #define MDX_CACHE_SHIFT 5
 
 // not used
@@ -51,10 +49,12 @@ namespace madras_dv1 {
 
 // #define sel_divisor 512
 
+#define bm_init_mask 0x0000000000000001UL
+
 #define BV_LT_TYPE_LEAF 1
 #define BV_LT_TYPE_TERM 2
-#define BV_LT_TYPE_CHILD 3
-#define BV_LT_TYPE_TAIL 4
+#define BV_LT_TYPE_CHILD 4
+#define BV_LT_TYPE_TAIL 8
 
 #define NFLAG_LEAF 1
 #define NFLAG_CHILD 2
@@ -113,18 +113,18 @@ const static bldr_options preset_opts[] = {
   { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  64}
 };
 
-// const static bldr_options dflt_opts =
-//   { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  64};
-
 const static bldr_options dflt_opts =
-  {false,  true,  true, false, false, false,  true,  true, false, false,  4,  3,  3,  2,  2,  2,  1,   1,  64};
+  { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  64};
+
+// const static bldr_options dflt_opts =
+//   {false,  true,  true, false, false, false,  true,  true, false, false,  4,  3,  3,  2,  2,  2,  1,   1,  64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  64};
 const static bldr_options inner_tries_dflt_opts =
-  { true, false,  true, false, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  64};
+  { true, false, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  64};
 const static bldr_options tail_tries_dflt_opts =
-  {false, false, false, false, false, false, false, false, false, false,  4,  3,  3, 127,  2,  3,  1,  1,  64};
+  {false, false, false,  true, false, false, false, false, false, false,  4,  3,  3, 127,  2,  3,  1,  1,  64};
 
 #if defined(_MSC_VER)
 #pragma pack(pop)

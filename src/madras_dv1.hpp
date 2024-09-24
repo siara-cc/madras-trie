@@ -1012,14 +1012,12 @@ class GCFC_fwd_cache {
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    int try_find(input_ctx& in_ctx, tail_ptr_map *tail) {
+    int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
-      int times = MDX_CACHE_TIMES_FWD;
-      uint32_t cache_idx = in_ctx.node_id;
       do {
-        cache_idx = (in_ctx.node_id ^ (cache_idx << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+        uint32_t cache_idx = (in_ctx.node_id ^ (in_ctx.node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
         fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
         if (in_ctx.node_id == cache_node_id && cche->node_byte == key_byte) {
@@ -1027,14 +1025,13 @@ class GCFC_fwd_cache {
           if (in_ctx.key_pos < in_ctx.key_len) {
             in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
             key_byte = in_ctx.key[in_ctx.key_pos];
-            cache_idx = in_ctx.node_id;
-            times = MDX_CACHE_TIMES_FWD;
             continue;
           }
           in_ctx.node_id += cche->node_offset;
           return 0;
         }
-      } while (--times);
+        return -1;
+      } while (1);
       return -1;
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
@@ -1053,17 +1050,11 @@ class GCFC_rev_cache {
     int try_find(uint32_t& node_id) {
       if (node_id >= max_node_id)
         return -1;
-      uint32_t cache_idx = node_id;
-      int times = MDX_CACHE_TIMES_REV;
-      do {
-        cache_idx = ((cache_idx << MDX_CACHE_SHIFT) ^ node_id) & cache_mask;
-        nid_cache *cche = cche0 + cache_idx;
-        uint32_t cache_node_id = gen::read_uint24(&cche->child_node_id1);
-        if (node_id == cache_node_id) {
-          node_id = gen::read_uint24(&cche->parent_node_id1);
-          return 0;
-        }
-      } while (--times);
+      nid_cache *cche = cche0 + (node_id & cache_mask);
+      if (node_id == gen::read_uint24(&cche->child_node_id1)) {
+        node_id = gen::read_uint24(&cche->parent_node_id1);
+        return 0;
+      }
       return -1;
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
@@ -1523,12 +1514,10 @@ class static_trie_map : public inner_trie_fwd {
       in_ctx.node_id = 1;
       ctx_vars cv(trie_flags_loc, flags_width);
       do {
-        int ret = fwd_cache.try_find(in_ctx, tail_map);
+        int ret = fwd_cache.try_find(in_ctx);
         cv.update_tf(in_ctx.node_id);
-        if (ret == 0) {
-          if (cv.is_leaf_set())
-            return true;
-        }
+        if (ret == 0)
+          return cv.is_leaf_set();
         if (sski != nullptr)
           sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos], cv);
         cv.ptr_bit_count = UINT32_MAX;

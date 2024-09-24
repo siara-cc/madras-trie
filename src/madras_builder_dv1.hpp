@@ -2386,7 +2386,7 @@ class builder : public builder_fwd {
         return 1;
       if (memtrie.max_level < level)
         memtrie.max_level = level;
-      uint32_t node_id_limit = (memtrie.node_count / 2);
+      uint32_t node_id_limit = memtrie.node_count;
       leopard::node_set_handler ns(memtrie.all_node_sets, ns_id);
       leopard::node n = ns.first_node();
       leopard::node_set_header *ns_hdr = ns.get_ns_hdr();
@@ -2402,41 +2402,24 @@ class builder : public builder_fwd {
           if (build_fwd_cache) {
             int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
             uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
-            int times = MDX_CACHE_TIMES_FWD;
-            do {
-              fwd_cache *fc = f_cache + cache_loc;
-              if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
-                f_cache_freq[cache_loc] = node_freq;
-                gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
-                gen::copy_uint24(child_node_id, &fc->child_node_id1);
-                fc->node_offset = node_offset;
-                fc->node_byte = node_byte;
-                break;
-              }
-              cache_loc <<= MDX_CACHE_SHIFT;
-              cache_loc ^= ns_hdr->node_id;
-              cache_loc ^= node_byte;
-              cache_loc &= (cache_count - 1);
-              // cache_loc %= (cache_count - 1);
-              // cache_loc++;
-            } while (--times);
+            fwd_cache *fc = f_cache + cache_loc;
+            if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
+              f_cache_freq[cache_loc] = node_freq;
+              gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
+              gen::copy_uint24(child_node_id, &fc->child_node_id1);
+              fc->node_offset = node_offset;
+              fc->node_byte = node_byte;
+            }
           }
         }
         if (build_rev_cache) {
-          uint32_t cache_loc = (cur_node_id ^ (cur_node_id << MDX_CACHE_SHIFT)) & (cache_count - 1);
-          int times = MDX_CACHE_TIMES_REV;
-          do {
-            nid_cache *rc = r_cache + cache_loc;
-            if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
-              r_cache_freq[cache_loc] = node_freq;
-              gen::copy_uint24(parent_node_id, &rc->parent_node_id1);
-              gen::copy_uint24(cur_node_id, &rc->child_node_id1);
-              break;
-            }
-            cache_loc <<= MDX_CACHE_SHIFT;
-            cache_loc ^= ns_hdr->node_id;
-            cache_loc &= (cache_count - 1);
-          } while (--times);
+          uint32_t cache_loc = cur_node_id & (cache_count - 1);
+          nid_cache *rc = r_cache + cache_loc;
+          if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
+            r_cache_freq[cache_loc] = node_freq;
+            gen::copy_uint24(parent_node_id, &rc->parent_node_id1);
+            gen::copy_uint24(cur_node_id, &rc->child_node_id1);
+          }
         }
         n.next();
         cur_node_id++;
