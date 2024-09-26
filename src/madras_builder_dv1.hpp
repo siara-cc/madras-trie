@@ -65,6 +65,10 @@ struct trie_parts {
   uint32_t rev_cache_max_node_id;
   uint32_t sec_cache_count;
   uint32_t sec_cache_size;
+  uint32_t term_flags_loc;
+  uint32_t child_flags_loc;
+  uint32_t ptr_flags_loc;
+  uint32_t leaf_flags_loc;
   uint32_t term_bvlt_sz;
   uint32_t child_bvlt_sz;
   uint32_t leaf_bvlt_sz;
@@ -1588,6 +1592,10 @@ class builder : public builder_fwd {
     char *out_filename;
     byte_vec trie;
     byte_vec trie_flags;
+    byte_vec trie_flags_child;
+    byte_vec trie_flags_term;
+    byte_vec trie_flags_ptr;
+    byte_vec trie_flags_leaf;
     uint32_t end_loc;
     tail_val_maps tail_vals;
     uint32_t column_count;
@@ -2184,7 +2192,12 @@ class builder : public builder_fwd {
         }
         //dump_ptr(&cur_node, node_count);
         if (node_count && (node_count % 64) == 0) {
-          append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
+          // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
+          append64_t(trie_flags_child, bm_child);
+          append64_t(trie_flags_term, bm_term);
+          append64_t(trie_flags_ptr, bm_ptr);
+          if (opts.trie_leaf_count > 0)
+            append64_t(trie_flags_leaf, bm_leaf);
           append_byte_vec(trie, byte_vec64);
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
           bm_mask = 1UL;
@@ -2223,7 +2236,12 @@ class builder : public builder_fwd {
         cur_node = ni.next();
       }
       // TODO: write on all cases?
-      append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
+      // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
+      append64_t(trie_flags_child, bm_child);
+      append64_t(trie_flags_term, bm_term);
+      append64_t(trie_flags_ptr, bm_ptr);
+      if (opts.trie_leaf_count > 0)
+        append64_t(trie_flags_leaf, bm_leaf);
       append_byte_vec(trie, byte_vec64);
       for (int i = 0; i < 8; i++) {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
@@ -2240,14 +2258,14 @@ class builder : public builder_fwd {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
       gen::write_uint32(tail_size, fp);
-      gen::write_uint32(trie_flags.size(), fp);
+      gen::write_uint32(trie_flags_child.size(), fp);
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       if (opts.tail_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->write_trie(NULL);
       }
-      fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
+      // fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
       fwrite(trie.data(), 1, trie.size(), fp);
       return 8 + tail_size + trie.size() + trie_flags.size();
     }
@@ -2512,7 +2530,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       tp = {};
-      tp.opts_loc = 4 + 10 + 23 * 4; // 106
+      tp.opts_loc = 4 + 10 + 27 * 4; // 122
       if (!no_primary_trie) {
         memtrie.sort_node_sets();
         set_node_id();
@@ -2559,28 +2577,39 @@ class builder : public builder_fwd {
         tp.fwd_cache_loc = tp.opts_loc + opts_size;
         tp.rev_cache_loc = tp.fwd_cache_loc + tp.fwd_cache_size;
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
+
         tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
         tp.term_bv_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
-        tp.child_select_lkup_loc = tp.term_bv_loc + tp.term_bvlt_sz;
+        tp.term_flags_loc = tp.term_bv_loc + tp.term_bvlt_sz;
+
+        tp.child_select_lkup_loc = tp.term_flags_loc + trie_flags_term.size();
         tp.child_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-        tp.trie_tail_ptrs_data_loc = tp.child_bv_loc + tp.child_bvlt_sz;
+        tp.child_flags_loc = tp.child_bv_loc + tp.child_bvlt_sz;
+
+        tp.trie_tail_ptrs_data_loc = tp.child_flags_loc + trie_flags_child.size();
+
         tp.leaf_select_lkup_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
-        tp.tail_bv_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
+        tp.leaf_flags_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
+
+        tp.tail_bv_loc = tp.leaf_flags_loc + trie_flags_leaf.size();
+        tp.ptr_flags_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
+
         if (!opts.dart)
           tp.sec_cache_loc = 0;
       } else {
-        tp.tail_bv_loc = tp.opts_loc + opts_size;
+        tp.ptr_flags_loc = tp.opts_loc + opts_size;
         tp.tail_bvlt_sz = 0;
       }
 
-      tp.names_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
+      tp.names_loc = tp.ptr_flags_loc + trie_flags_ptr.size();
       tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
       tp.col_val_table_loc = tp.names_loc + tp.names_sz;
       int val_count = column_count - (no_primary_trie ? 0 : 1);
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
       tp.col_val_loc0 = tp.col_val_table_loc + tp.col_val_table_sz;
       tp.total_idx_size = tp.opts_loc + opts_size +
+                trie_flags_child.size() * (opts.trie_leaf_count > 0 ? 4 : 3) +
                 tp.fwd_cache_size + tp.rev_cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
                 tp.leaf_select_lt_sz + tp.child_select_lt_sz +
@@ -2663,6 +2692,10 @@ class builder : public builder_fwd {
       gen::write_uint32(tp.leaf_bv_loc, fp);
       gen::write_uint32(tp.tail_bv_loc, fp);
       gen::write_uint32(tp.trie_tail_ptrs_data_loc, fp);
+      gen::write_uint32(tp.child_flags_loc, fp);
+      gen::write_uint32(tp.term_flags_loc, fp);
+      gen::write_uint32(tp.ptr_flags_loc, fp);
+      gen::write_uint32(tp.leaf_flags_loc, fp);
 
       fwrite(&opts, 1, opts_size, fp);
 
@@ -2674,8 +2707,10 @@ class builder : public builder_fwd {
         if (!opts.dessicate) {
           write_bv_select_lt(BV_LT_TYPE_TERM, fp);
           write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
+          fwrite(trie_flags_term.data(), 1, trie_flags_term.size(), fp);
           write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
           write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
+          fwrite(trie_flags_child.data(), 1, trie_flags_child.size(), fp);
         }
 
         write_trie_tail_ptrs_data(fp);
@@ -2684,9 +2719,11 @@ class builder : public builder_fwd {
           if (opts.leaf_lt && opts.trie_leaf_count > 0) {
             write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
             write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
+            fwrite(trie_flags_leaf.data(), 1, trie_flags_leaf.size(), fp);
           }
           if (tp.tail_bvlt_sz > 0)
             write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
+          fwrite(trie_flags_ptr.data(), 1, trie_flags_ptr.size(), fp);
         }
       }
 
