@@ -622,8 +622,8 @@ class ptr_group_map {
     uint8_t *code_lt_bit_len;
     uint8_t *code_lt_code_len;
     uint8_t **grp_data;
-    ptr_bits_lookup_table *ptr_lt;
-    ptr_bits_reader *ptr_reader;
+    ptr_bits_lookup_table ptr_lt;
+    ptr_bits_reader ptr_reader;
 
     uint8_t *trie_loc;
     trie_flags_reader tf;
@@ -647,8 +647,6 @@ class ptr_group_map {
       trie_loc = nullptr;
       grp_data = nullptr;
       inner_tries = nullptr;
-      ptr_lt = nullptr;
-      ptr_reader = nullptr;
     }
 
     virtual ~ptr_group_map() {
@@ -670,10 +668,6 @@ class ptr_group_map {
       }
       if (idx_map_arr != nullptr)
         delete [] idx_map_arr;
-      if (ptr_lt != nullptr)
-        delete ptr_lt;
-      if (ptr_reader != nullptr)
-        delete ptr_reader;
     }
 
     void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_tf_loc, uint8_t *data_loc, uint32_t _key_count, uint32_t _node_count, bool is_tail) {
@@ -699,8 +693,7 @@ class ptr_group_map {
       idx2_ptrs_map_loc = data_loc + gen::read_uint32(data_loc + 20);
 
       uint8_t *ptrs_loc = data_loc + gen::read_uint32(data_loc + 24);
-      ptr_reader = new ptr_bits_reader();
-      ptr_reader->init(ptrs_loc);
+      ptr_reader.init(ptrs_loc);
 
       uint8_t ptr_lt_ptr_width = data_loc[0];
       bool release_ptr_lt = false;
@@ -732,8 +725,7 @@ class ptr_group_map {
           ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, tf, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width);
           release_ptr_lt = true;
         }
-      ptr_lt = new ptr_bits_lookup_table();
-      ptr_lt->init(ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);
+      ptr_lt.init(ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);
 
     }
     uint32_t read_len(uint8_t *t) {
@@ -758,16 +750,18 @@ class ptr_group_map {
 class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
   public:
     void scan_ptr_bits_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t offset = node_id % nodes_per_ptr_block_n;
-      uint32_t node_id_from = node_id - offset;
+      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
+      uint64_t bm_ptr = tf.flags_loc[node_id_from / nodes_per_bv_block_n];
+      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
       while (node_id_from < node_id) {
-        if (tf[node_id_from])
+        if (bm_mask & bm_ptr)
           ptr_bit_count += code_lt_bit_len[trie_loc[node_id_from]];
         node_id_from++;
+        bm_mask <<= 1;
       }
     }
     void get_ptr_bit_count_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
-      ptr_bit_count = ptr_lt->get_ptr_block_t(node_id);
+      ptr_bit_count = ptr_lt.get_ptr_block_t(node_id);
       scan_ptr_bits_tail(node_id, ptr_bit_count);
     }
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
@@ -779,7 +773,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       if (bit_len > 0) {
         if (ptr_bit_count == UINT32_MAX)
           get_ptr_bit_count_tail(node_id, ptr_bit_count);
-        ptr |= (ptr_reader->read(ptr_bit_count, bit_len) << (8 - code_len));
+        ptr |= (ptr_reader.read(ptr_bit_count, bit_len) << (8 - code_len));
       }
       if (grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(grp_no, ptr);
@@ -1516,7 +1510,7 @@ class val_ptr_group_map : public ptr_group_map {
       uint32_t start_node_id = node_id / nodes_per_ptr_block_n * nodes_per_ptr_block_n;
       while (start_node_id < node_id) {
         if (bm_leaf & bm_mask) {
-          uint8_t code = ptr_reader->read8(ptr_bit_count);
+          uint8_t code = ptr_reader.read8(ptr_bit_count);
           ptr_bit_count += code_lt_bit_len[code];
         }
         bm_mask <<= 1;
@@ -1525,7 +1519,7 @@ class val_ptr_group_map : public ptr_group_map {
       return ptr_bit_count;
     }
     uint32_t get_ptr_bit_count_val(uint32_t node_id) {
-      uint32_t ptr_bit_count = ptr_lt->get_ptr_block_t(node_id);
+      uint32_t ptr_bit_count = ptr_lt.get_ptr_block_t(node_id);
       return scan_ptr_bits_val(node_id, ptr_bit_count);
     }
 
@@ -1552,8 +1546,8 @@ class val_ptr_group_map : public ptr_group_map {
       if (p_ptr_byt_count == nullptr)
         p_ptr_byt_count = &ptr_byt_count;
       if (*p_ptr_byt_count == UINT32_MAX)
-        *p_ptr_byt_count = ptr_lt->get_ptr_byts_words(node_id);
-      uint8_t *w = ptr_reader->get_ptrs_loc() + *p_ptr_byt_count;
+        *p_ptr_byt_count = ptr_lt.get_ptr_byts_words(node_id);
+      uint8_t *w = ptr_reader.get_ptrs_loc() + *p_ptr_byt_count;
       // printf("%u\n", *p_ptr_byt_count);
       int skip_count = node_id % nodes_per_bv_block_n;
       while (skip_count--) {
@@ -1576,12 +1570,12 @@ class val_ptr_group_map : public ptr_group_map {
         p_ptr_bit_count = &ptr_bit_count;
       if (*p_ptr_bit_count == UINT32_MAX)
         *p_ptr_bit_count = get_ptr_bit_count_val(node_id);
-      uint8_t code = ptr_reader->read8(*p_ptr_bit_count);
+      uint8_t code = ptr_reader.read8(*p_ptr_bit_count);
       uint8_t bit_len = code_lt_bit_len[code];
       *p_grp_no = code_lt_code_len[code] & 0x0F;
       uint8_t code_len = code_lt_code_len[code] >> 4;
       *p_ptr_bit_count += code_len;
-      uint32_t ptr = ptr_reader->read(*p_ptr_bit_count, bit_len - code_len);
+      uint32_t ptr = ptr_reader.read(*p_ptr_bit_count, bit_len - code_len);
       if (*p_grp_no < grp_idx_limit)
         ptr = read_ptr_from_idx(*p_grp_no, ptr);
       if (ptr == 0)
@@ -1690,7 +1684,7 @@ class val_ptr_group_map : public ptr_group_map {
           break;
         case 'w': {
           uint8_t *line_loc = (p_ptr_bit_count == nullptr || *p_ptr_bit_count == UINT32_MAX ?
-                            get_words_loc(node_id, p_ptr_bit_count) : ptr_reader->get_ptrs_loc() + *p_ptr_bit_count);
+                            get_words_loc(node_id, p_ptr_bit_count) : ptr_reader.get_ptrs_loc() + *p_ptr_bit_count);
           uint8_t val_type = (*line_loc & 0xC0);
           if (val_type == 0x40 || val_type == 0x80) {
             (*p_ptr_bit_count)++;

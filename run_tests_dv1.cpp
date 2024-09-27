@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
     // }
 
     if (is_sorted && !sb->opts.sort_nodes_on_freq) {
-      out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
+      out_key_len = trie_reader.next(dict_ctx, key_buf);
       if (out_key_len != in_ctx.key_len)
         printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
       else {
