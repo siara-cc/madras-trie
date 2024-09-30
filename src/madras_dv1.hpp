@@ -996,8 +996,9 @@ class inner_trie : public inner_trie_fwd {
           in_ctx.key_pos++;
         }
         if (!rev_cache.try_find(node_id)) {
-          child_lt.select(node_id, term_lt.rank(node_id));
-          node_id--;
+          uint32_t child_node_id = node_id + 1;
+          term_lt.select(node_id, child_node_id);
+          node_id = node_id - child_node_id - 1;
         }
       } while (node_id != 0);
       return true;
@@ -1010,8 +1011,9 @@ class inner_trie : public inner_trie_fwd {
         } else
           tail_str.append(trie_loc[node_id]);
         if (!rev_cache.try_find(node_id)) {
-          child_lt.select(node_id, term_lt.rank(node_id));
-          node_id--;
+          uint32_t child_node_id = node_id + 1;
+          term_lt.select(node_id, child_node_id);
+          node_id = node_id - child_node_id - 1;
         }
       } while (node_id != 0);
       return true;
@@ -1090,7 +1092,7 @@ class inner_trie : public inner_trie_fwd {
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_child_loc);
         }
         child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc);
-        term_lt.init(term_lt_loc,   term_select_lkup_loc,  node_count, tf_term_loc);
+        term_lt.init(term_lt_loc,   term_select_lkup_loc, node_count * (trie_level > 0 ? 2 : 1), tf_term_loc);
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bv_lookup_tbl();
