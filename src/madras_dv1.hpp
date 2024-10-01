@@ -480,25 +480,23 @@ class bv_lookup_tbl {
       // }
       return cur_count;
     }
-    void select(uint32_t& node_id, uint32_t target_count) {
-      if (target_count == 0) {
-        node_id = 0;
-        return;
-      }
+    uint32_t select(uint32_t target_count) {
+      if (target_count == 0)
+        return 0;
+      uint32_t node_id = 0;
       uint32_t block_count = block_select(target_count, node_id);
       if (block_count == target_count)
-        return;
-      uint64_t bm = bm_loc[node_id / nodes_per_bv_block_n];
+        return node_id;
+      return node_id + bm_select(target_count - block_count - 1, bm_loc[node_id / nodes_per_bv_block_n]);
+    }
+    uint32_t bm_select(uint32_t remaining, uint64_t bm) {
 
-      uint32_t remaining = target_count - block_count - 1;
       uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
       size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
-      // size_t bit_loc = find_nth_set_bit(bm, i) + 1;
       if (bit_loc == 65) {
-        printf("WARNING: UNEXPECTED bit_loc=65, node_id: %u, nc: %u, bc: %u, ttc: %u\n", node_id, node_count, block_count, target_count);
-        return;
+        printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
+        return 64;
       }
-      node_id += bit_loc;
 
       // size_t bit_loc = 0;
       // while (bit_loc < 64) {
@@ -510,7 +508,6 @@ class bv_lookup_tbl {
       // }
       // if (block_count < target_count)
       //   bit_loc += select_lookup_tbl[target_count - block_count - 1][(bm >> bit_loc) & 0xFF];
-      // node_id += bit_loc;
 
       // uint64_t bm_mask = bm_init_mask << bit_loc;
       // while (block_count < target_count) {
@@ -519,7 +516,7 @@ class bv_lookup_tbl {
       //   bit_loc++;
       //   bm_mask <<= 1;
       // }
-      // node_id += bit_loc;
+      return bit_loc;
     }
     uint8_t *get_select_loc() {
       return lt_sel_loc;
@@ -995,11 +992,8 @@ class inner_trie : public inner_trie_fwd {
             return false;
           in_ctx.key_pos++;
         }
-        if (!rev_cache.try_find(node_id)) {
-          uint32_t child_node_id = node_id + 1;
-          term_lt.select(node_id, child_node_id);
-          node_id = node_id - child_node_id - 1;
-        }
+        if (!rev_cache.try_find(node_id))
+          node_id = term_lt.select(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
@@ -1010,11 +1004,8 @@ class inner_trie : public inner_trie_fwd {
           tail_map->get_tail_str(node_id, trie_loc[node_id], tail_str, ptr_bit_count);
         } else
           tail_str.append(trie_loc[node_id]);
-        if (!rev_cache.try_find(node_id)) {
-          uint32_t child_node_id = node_id + 1;
-          term_lt.select(node_id, child_node_id);
-          node_id = node_id - child_node_id - 1;
-        }
+        if (!rev_cache.try_find(node_id))
+          node_id = term_lt.select(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
@@ -1211,16 +1202,14 @@ class static_trie : public inner_trie {
           return true;
         if (!child_lt[in_ctx.node_id])
           return false;
-        term_lt.select(in_ctx.node_id, child_lt.rank(in_ctx.node_id) + 1);
+        in_ctx.node_id = term_lt.select(child_lt.rank(in_ctx.node_id) + 1);
       } while (in_ctx.node_id < node_count);
       return false;
     }
 
     bool reverse_lookup(uint32_t leaf_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
       leaf_id++;
-      uint32_t node_id;
-      leaf_lt->select(node_id, leaf_id);
-      node_id--;
+      uint32_t node_id = leaf_lt->select(leaf_id) - 1;
       return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, to_reverse);
     }
 
@@ -1244,10 +1233,8 @@ class static_trie : public inner_trie {
         } else {
           ret_key[key_len++] = trie_loc[node_id];
         }
-        if (!rev_cache.try_find(node_id)) {
-          child_lt.select(node_id, term_lt.rank(node_id));
-          node_id--;
-        }
+        if (!rev_cache.try_find(node_id))
+          node_id = child_lt.select(term_lt.rank(node_id)) - 1;
       } while (node_id != 0);
       if (to_reverse) {
         int i = key_len / 2;
@@ -1364,7 +1351,7 @@ class static_trie : public inner_trie {
           else
             cv.tail.append(trie_loc[node_id]);
           update_ctx(ctx, cv, node_id, child_count);
-          term_lt.select(node_id, child_count);
+          node_id = term_lt.select(child_count);
           child_count = child_lt.rank(node_id);
           push_to_ctx(ctx, cv, node_id, child_count);
         }
