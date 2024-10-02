@@ -1125,14 +1125,13 @@ class GCFC_fwd_cache {
         uint32_t cache_idx = (in_ctx.node_id ^ (in_ctx.node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
         fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
-        if (in_ctx.node_id == cache_node_id && cche->node_byte == key_byte) {
+        if (in_ctx.node_id == cache_node_id) {
           in_ctx.key_pos++;
+          in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
           if (in_ctx.key_pos < in_ctx.key_len) {
-            in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
             key_byte = in_ctx.key[in_ctx.key_pos];
             continue;
           }
-          in_ctx.node_id += cche->node_offset;
           return 0;
         }
         return -1;
@@ -1167,11 +1166,14 @@ class static_trie : public inner_trie {
   public:
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
-      in_ctx.node_id = 1;
+      in_ctx.node_id = 0;
       do {
         int ret = fwd_cache.try_find(in_ctx);
         if (ret == 0)
           return tf_leaf[in_ctx.node_id];
+        if (!child_lt[in_ctx.node_id])
+          return false;
+        in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
         if (sski != nullptr) {
           if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
             sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
@@ -1200,9 +1202,6 @@ class static_trie : public inner_trie {
         } while (1);
         if (in_ctx.key_pos == in_ctx.key_len && tf_leaf[in_ctx.node_id])
           return true;
-        if (!child_lt[in_ctx.node_id])
-          return false;
-        in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
       } while (in_ctx.node_id < node_count);
       return false;
     }

@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     if (!is_found)
       std::cout << "Lookup fail: " << in_ctx.key << std::endl;
     else {
-      uint32_t leaf_id = trie_reader.leaf_rank(in_ctx.node_id);
+      uint32_t leaf_id = trie_reader.leaf_rank1(in_ctx.node_id);
       bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
       if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0)

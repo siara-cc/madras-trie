@@ -67,11 +67,9 @@ struct PACKED_STRUCT fwd_cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
-  uint8_t node_offset;
   uint8_t child_node_id1;
   uint8_t child_node_id2;
   uint8_t child_node_id3;
-  uint8_t node_byte;
 };
 
 struct PACKED_STRUCT nid_cache {

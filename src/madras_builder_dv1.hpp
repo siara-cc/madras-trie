@@ -2433,18 +2433,13 @@ class builder : public builder_fwd {
         freq_count += node_freq;
         if (n.get_child() > 0 && (n.get_flags() & NFLAG_TAIL) == 0) {
           uint8_t node_byte = n.get_byte();
-          leopard::node_set_handler child_nsh(memtrie.all_node_sets, n.get_child());
-          uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
           if (build_fwd_cache) {
-            int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
-            uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
+            uint32_t cache_loc = (parent_node_id ^ (parent_node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
             fwd_cache *fc = f_cache + cache_loc;
-            if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
+            if (f_cache_freq[cache_loc] < node_freq && parent_node_id < node_id_limit && cur_node_id < (1 << 24) && parent_node_id < (1 << 24)) {
               f_cache_freq[cache_loc] = node_freq;
-              gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
-              gen::copy_uint24(child_node_id, &fc->child_node_id1);
-              fc->node_offset = node_offset;
-              fc->node_byte = node_byte;
+              gen::copy_uint24(parent_node_id, &fc->parent_node_id1);
+              gen::copy_uint24(cur_node_id, &fc->child_node_id1);
             }
           }
         }
@@ -2561,7 +2556,7 @@ class builder : public builder_fwd {
         }
         if (opts.fwd_cache) {
           tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
-          tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
+          tp.fwd_cache_size = tp.fwd_cache_count * 6; // 8 = parent_node_id (3) + child_node_id (3)
         } else
           tp.fwd_cache_max_node_id = 0;
         if (opts.rev_cache) {
