@@ -45,9 +45,9 @@ namespace madras_dv1 {
 // ptr_lt_blk_width = 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
 #define ptr_lt_blk_width 66
 
-#define sel_divisor 256
+// #define sel_divisor 256
 
-// #define sel_divisor 512
+#define sel_divisor 512
 
 #define bm_init_mask 0x0000000000000001UL
 

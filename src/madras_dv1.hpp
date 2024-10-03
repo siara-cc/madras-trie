@@ -413,10 +413,11 @@ class statssski {
 
 class bv_lookup_tbl {
   private:
-    uint8_t *lt_sel_loc;
+    uint8_t *lt_sel_loc1;
+    uint8_t *lt_sel_loc0;
     uint8_t *lt_rank_loc;
     uint64_t *bm_loc;
-    uint32_t node_count;
+    uint32_t bv_bit_count;
   public:
     bool operator[](size_t pos) {
       return (bm_loc[pos / 64] & ((uint64_t)1 << (pos % 64))) != 0;
@@ -452,7 +453,7 @@ class bv_lookup_tbl {
       return first;
     }
     uint32_t block_select1(uint32_t target_count, uint32_t& bv_pos) {
-      uint8_t *select_loc = lt_sel_loc + target_count / sel_divisor * 3;
+      uint8_t *select_loc = lt_sel_loc1 + target_count / sel_divisor * 3;
       uint32_t block = gen::read_uint24(select_loc);
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 10 < end_block)
@@ -466,7 +467,7 @@ class bv_lookup_tbl {
         return cur_count;
       uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
       int pos3;
-      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < node_count; pos3++) {
+      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
         uint8_t count3 = bv3[pos3];
         if (cur_count + count3 < target_count) {
           bv_pos += nodes_per_bv_block_n;
@@ -518,16 +519,58 @@ class bv_lookup_tbl {
       // }
       return bit_loc;
     }
-    uint8_t *get_select_loc() {
-      return lt_sel_loc;
+    uint32_t block_select0(uint32_t target_count, uint32_t& bv_pos) {
+      uint8_t *select_loc = lt_sel_loc0 + target_count / sel_divisor * 3;
+      uint32_t block = gen::read_uint24(select_loc);
+      // uint32_t end_block = gen::read_uint24(select_loc + 3);
+      // if (block + 10 < end_block)
+      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
+      while ((block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block)) < target_count)
+        block++;
+      block--;
+      uint32_t cur_count = block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      bv_pos = block * nodes_per_bv_block;
+      if (cur_count == target_count)
+        return cur_count;
+      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
+      int pos3;
+      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
+        uint8_t count3 = nodes_per_bv_block_n - bv3[pos3];
+        if (cur_count + count3 < target_count) {
+          bv_pos += nodes_per_bv_block_n;
+          cur_count += count3;
+        } else
+          break;
+      }
+      // if (pos3) {
+      //   pos3--;
+      //   cur_count += bv3[pos3];
+      // }
+      return cur_count;
+    }
+    uint32_t select0(uint32_t target_count) {
+      if (target_count == 0)
+        return 0;
+      uint32_t bv_pos = 0;
+      uint32_t block_count = block_select0(target_count, bv_pos);
+      if (block_count == target_count)
+        return bv_pos;
+      return bv_pos + bm_select1(target_count - block_count - 1, ~(bm_loc[bv_pos / nodes_per_bv_block_n]));
+    }
+    uint8_t *get_select_loc1() {
+      return lt_sel_loc1;
+    }
+    uint8_t *get_select_loc0() {
+      return lt_sel_loc0;
     }
     uint8_t *get_rank_loc() {
       return lt_rank_loc;
     }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc, uint32_t _node_count, uint64_t *_bm_start_loc) {
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint8_t *_lt_sel_loc0, uint32_t _bv_bit_count, uint64_t *_bm_start_loc) {
       lt_rank_loc = _lt_rank_loc;
-      lt_sel_loc = _lt_sel_loc;
-      node_count = _node_count;
+      lt_sel_loc1 = _lt_sel_loc1;
+      lt_sel_loc0 = _lt_sel_loc0;
+      bv_bit_count = _bv_bit_count;
       bm_loc = (uint64_t *) _bm_start_loc;
     }
 
@@ -1082,12 +1125,12 @@ class inner_trie : public inner_trie_fwd {
           child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_child_loc);
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_child_loc);
         }
-        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc);
-        term_lt.init(term_lt_loc,   term_select_lkup_loc, node_count * (trie_level > 0 ? 2 : 1), tf_term_loc);
+        //child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc);
+        term_lt.init(term_lt_loc, term_select_lkup_loc, child_select_lkup_loc, node_count * 2, tf_term_loc);
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bv_lookup_tbl();
-          tail_lt->init(tail_lt_loc, nullptr, node_count, tf_ptr_loc);
+          tail_lt->init(tail_lt_loc, nullptr, nullptr, node_count, tf_ptr_loc);
         }
       }
 
@@ -1099,11 +1142,13 @@ class inner_trie : public inner_trie_fwd {
       }
       if (lt_not_given & BV_LT_TYPE_CHILD) {
         delete [] child_lt.get_rank_loc();
-        delete [] child_lt.get_select_loc();
+        delete [] child_lt.get_select_loc1();
+        delete [] child_lt.get_select_loc0();
       }
       if (lt_not_given & BV_LT_TYPE_TERM) {
         delete [] term_lt.get_rank_loc();
-        delete [] term_lt.get_select_loc();
+        delete [] term_lt.get_select_loc0();
+        delete [] term_lt.get_select_loc0();
       }
       if (tail_lt != nullptr)
         delete tail_lt;
@@ -1171,9 +1216,9 @@ class static_trie : public inner_trie {
         int ret = fwd_cache.try_find(in_ctx);
         if (ret == 0)
           return tf_leaf[in_ctx.node_id];
-        if (!child_lt[in_ctx.node_id])
-          return false;
-        in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
+        uint32_t louds_pos = term_lt.select0(in_ctx.node_id + 1);
+        // TODO: check if no child
+        in_ctx.node_id = louds_pos - in_ctx.node_id - 1;
         if (sski != nullptr) {
           if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
             sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
@@ -1196,10 +1241,9 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
           }
-          if (term_lt[in_ctx.node_id])
-            return false;
           in_ctx.node_id++;
-        } while (1);
+          louds_pos++;
+        } while (term_lt[louds_pos]);
         if (in_ctx.key_pos == in_ctx.key_len && tf_leaf[in_ctx.node_id])
           return true;
       } while (in_ctx.node_id < node_count);
@@ -1233,7 +1277,7 @@ class static_trie : public inner_trie {
           ret_key[key_len++] = trie_loc[node_id];
         }
         if (!rev_cache.try_find(node_id))
-          node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
+          node_id = term_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       if (to_reverse) {
         int i = key_len / 2;
@@ -1420,7 +1464,7 @@ class static_trie : public inner_trie {
             leaf_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_LEAF, key_count, node_set_count, node_count, tf_leaf_loc);
           }
           leaf_lt = new bv_lookup_tbl();
-          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc);
+          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, nullptr, node_count, tf_leaf_loc);
           tf_leaf.init(tf_leaf_loc);
         }
       }
@@ -1472,7 +1516,7 @@ class static_trie : public inner_trie {
         delete sski;
       if (lt_not_given & BV_LT_TYPE_LEAF) {
         delete [] leaf_lt->get_rank_loc();
-        delete [] leaf_lt->get_select_loc();
+        delete [] leaf_lt->get_select_loc1();
       }
       if (leaf_lt != nullptr)
         delete leaf_lt;
