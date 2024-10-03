@@ -24,6 +24,9 @@
 namespace madras_dv1 {
 
 class iter_ctx {
+  private:
+    iter_ctx(iter_ctx const&);
+    iter_ctx& operator=(iter_ctx const&);
   public:
     int32_t cur_idx;
     uint16_t key_len;
@@ -131,6 +134,8 @@ struct trie_flags_reader {
 
 class lt_builder {
   private:
+    lt_builder(lt_builder const&);
+    lt_builder& operator=(lt_builder const&);
     static uint8_t read8(uint8_t *ptrs_loc, uint32_t& ptr_bit_count) {
       uint8_t *ptr_loc = ptrs_loc + ptr_bit_count / 8;
       uint8_t bits_filled = (ptr_bit_count % 8);
@@ -398,12 +403,16 @@ struct ctx_vars_next {
 
 class statssski {
   private:
+    statssski(statssski const&);
+    statssski& operator=(statssski const&);
     uint8_t *min_pos_loc;
     min_pos_stats min_stats;
   public:
     void find_min_pos(uint32_t& node_id, uint8_t node_byte, uint8_t key_byte) {
         uint8_t min_offset = min_pos_loc[((node_byte - min_stats.min_len) * 256) + key_byte];
         node_id += min_offset;
+    }
+    statssski() {
     }
     void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
@@ -413,6 +422,8 @@ class statssski {
 
 class bv_lookup_tbl {
   private:
+    bv_lookup_tbl(bv_lookup_tbl const&);
+    bv_lookup_tbl& operator=(bv_lookup_tbl const&);
     uint8_t *lt_sel_loc1;
     uint8_t *lt_sel_loc0;
     uint8_t *lt_rank_loc;
@@ -452,40 +463,11 @@ class bv_lookup_tbl {
       }
       return first;
     }
-    uint32_t block_select1(uint32_t target_count, uint32_t& bv_pos) {
-      uint8_t *select_loc = lt_sel_loc1 + target_count / sel_divisor * 3;
-      uint32_t block = gen::read_uint24(select_loc);
-      // uint32_t end_block = gen::read_uint24(select_loc + 3);
-      // if (block + 10 < end_block)
-      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
-        block++;
-      block--;
-      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
-      bv_pos = block * nodes_per_bv_block;
-      if (cur_count == target_count)
-        return cur_count;
-      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
-      int pos3;
-      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = bv3[pos3];
-        if (cur_count + count3 < target_count) {
-          bv_pos += nodes_per_bv_block_n;
-          cur_count += count3;
-        } else
-          break;
-      }
-      // if (pos3) {
-      //   pos3--;
-      //   cur_count += bv3[pos3];
-      // }
-      return cur_count;
-    }
     uint32_t select1(uint32_t target_count) {
       if (target_count == 0)
         return 0;
       uint32_t bv_pos = 0;
-      uint32_t block_count = block_select1(target_count, bv_pos);
+      uint32_t block_count = block_select(target_count, bv_pos, false);
       if (block_count == target_count)
         return bv_pos;
       return bv_pos + bm_select1(target_count - block_count - 1, bm_loc[bv_pos / nodes_per_bv_block_n]);
@@ -519,23 +501,32 @@ class bv_lookup_tbl {
       // }
       return bit_loc;
     }
-    uint32_t block_select0(uint32_t target_count, uint32_t& bv_pos) {
-      uint8_t *select_loc = lt_sel_loc0 + target_count / sel_divisor * 3;
-      uint32_t block = gen::read_uint24(select_loc);
+    uint32_t block_select(uint32_t target_count, uint32_t& bv_pos, bool sel0) {
+      uint8_t *select_loc = (sel0 ? lt_sel_loc0 : lt_sel_loc1) + target_count / sel_divisor * 4;
+      bv_pos = gen::read_uint32(select_loc);
+      if ((target_count % sel_divisor) == 0)
+        return target_count;
+      uint32_t block = bv_pos / nodes_per_bv_block;
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 10 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while ((block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block)) < target_count)
+      while ((sel0 ? block * nodes_per_bv_block - 
+          gen::read_uint32(lt_rank_loc + block * width_of_bv_block) :
+          gen::read_uint32(lt_rank_loc + block * width_of_bv_block)) < target_count)
         block++;
       block--;
-      uint32_t cur_count = block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      if (sel0)
+        cur_count = block * nodes_per_bv_block - cur_count;
       bv_pos = block * nodes_per_bv_block;
       if (cur_count == target_count)
         return cur_count;
       uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
       int pos3;
       for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = nodes_per_bv_block_n - bv3[pos3];
+        uint8_t count3 = bv3[pos3];
+        if (sel0)
+          count3 = nodes_per_bv_block_n - count3;
         if (cur_count + count3 < target_count) {
           bv_pos += nodes_per_bv_block_n;
           cur_count += count3;
@@ -552,7 +543,7 @@ class bv_lookup_tbl {
       if (target_count == 0)
         return 0;
       uint32_t bv_pos = 0;
-      uint32_t block_count = block_select0(target_count, bv_pos);
+      uint32_t block_count = block_select(target_count, bv_pos, true);
       if (block_count == target_count)
         return bv_pos;
       return bv_pos + bm_select1(target_count - block_count - 1, ~(bm_loc[bv_pos / nodes_per_bv_block_n]));
@@ -566,6 +557,8 @@ class bv_lookup_tbl {
     uint8_t *get_rank_loc() {
       return lt_rank_loc;
     }
+    bv_lookup_tbl() {
+    }
     void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint8_t *_lt_sel_loc0, uint32_t _bv_bit_count, uint64_t *_bm_start_loc) {
       lt_rank_loc = _lt_rank_loc;
       lt_sel_loc1 = _lt_sel_loc1;
@@ -577,8 +570,13 @@ class bv_lookup_tbl {
 };
 
 class inner_trie_fwd {
+  private:
+    inner_trie_fwd(inner_trie_fwd const&);
+    inner_trie_fwd& operator=(inner_trie_fwd const&);
   public:
     bv_lookup_tbl *tail_lt;
+    inner_trie_fwd() {
+    }
     virtual ~inner_trie_fwd() {
     }
     virtual bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) = 0;
@@ -588,6 +586,8 @@ class inner_trie_fwd {
 
 class ptr_bits_lookup_table {
   private:
+    ptr_bits_lookup_table(ptr_bits_lookup_table const&);
+    ptr_bits_lookup_table& operator=(ptr_bits_lookup_table const&);
     uint8_t *ptr_lt_loc;
     bool release_lt_loc;
   public:
@@ -617,6 +617,8 @@ class ptr_bits_lookup_table {
 
 class ptr_bits_reader {
   private:
+    ptr_bits_reader(ptr_bits_reader const&);
+    ptr_bits_reader& operator=(ptr_bits_reader const&);
     uint8_t *ptrs_loc;
   public:
     uint32_t read(uint32_t& ptr_bit_count, int bits_to_read) {
@@ -646,7 +648,12 @@ class ptr_bits_reader {
 };
 
 class tail_ptr_map {
+  private:
+    tail_ptr_map(tail_ptr_map const&);
+    tail_ptr_map& operator=(tail_ptr_map const&);
   public:
+    tail_ptr_map() {
+    }
     virtual ~tail_ptr_map() {
     }
     virtual bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) = 0;
@@ -655,6 +662,9 @@ class tail_ptr_map {
 };
 
 class ptr_group_map {
+  private:
+    ptr_group_map(ptr_group_map const&);
+    ptr_group_map& operator=(ptr_group_map const&);
   protected:
     int8_t grp_idx_limit;
     uint8_t group_count;
@@ -788,6 +798,9 @@ class ptr_group_map {
 };
 
 class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
+  private:
+    tail_ptr_group_map(tail_ptr_group_map const&);
+    tail_ptr_group_map& operator=(tail_ptr_group_map const&);
   public:
     void scan_ptr_bits_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
@@ -898,9 +911,14 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
         sfx_len--;
       }
     }
+    tail_ptr_group_map() {
+    }
 };
 
 class tail_ptr_flat_map : public tail_ptr_map {
+  private:
+    tail_ptr_flat_map(tail_ptr_flat_map const&);
+    tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
   public:
     gen::int_bv_reader *int_ptr_bv;
     inner_trie_fwd *dict_obj;
@@ -987,6 +1005,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
 
 class GCFC_rev_cache {
   private:
+    GCFC_rev_cache(GCFC_rev_cache const&);
+    GCFC_rev_cache& operator=(GCFC_rev_cache const&);
     nid_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -1001,6 +1021,8 @@ class GCFC_rev_cache {
       }
       return false;
     }
+    GCFC_rev_cache() {
+    }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
       cche0 = (nid_cache *) _loc;
       max_node_id = _max_node_id;
@@ -1009,6 +1031,9 @@ class GCFC_rev_cache {
 };
 
 class inner_trie : public inner_trie_fwd {
+  private:
+    inner_trie(inner_trie const&);
+    inner_trie& operator=(inner_trie const&);
   protected:
     uint8_t *dict_buf;
     uint32_t node_count;
@@ -1158,6 +1183,8 @@ class inner_trie : public inner_trie_fwd {
 
 class GCFC_fwd_cache {
   private:
+    GCFC_fwd_cache(GCFC_fwd_cache const&);
+    GCFC_fwd_cache& operator=(GCFC_fwd_cache const&);
     fwd_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -1183,6 +1210,8 @@ class GCFC_fwd_cache {
       } while (1);
       return -1;
     }
+    GCFC_fwd_cache() {
+    }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
       cche0 = (fwd_cache *) _loc;
       max_node_id = _max_node_id;
@@ -1191,7 +1220,6 @@ class GCFC_fwd_cache {
 };
 
 class static_trie : public inner_trie {
-
   protected:
     bv_lookup_tbl *leaf_lt;
     trie_flags_reader tf_leaf;
@@ -1201,13 +1229,11 @@ class static_trie : public inner_trie {
     uint32_t key_count;
 
   private:
+    static_trie(static_trie const&);
+    static_trie& operator=(static_trie const&);
     size_t max_key_len;
     bldr_options *opts;
     uint16_t max_level;
-
-    static_trie(static_trie const&);
-    static_trie& operator=(static_trie const&);
-
   public:
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
@@ -1526,6 +1552,8 @@ class static_trie : public inner_trie {
 
 class val_ptr_group_map : public ptr_group_map {
   private:
+    val_ptr_group_map(val_ptr_group_map const&);
+    val_ptr_group_map& operator=(val_ptr_group_map const&);
     std::vector<uint8_t> prev_val;
     uint32_t node_count;
     uint32_t key_count; // TODO: Init
@@ -1833,13 +1861,15 @@ class val_ptr_group_map : public ptr_group_map {
       }
       ret.append(prev_str.data(), prev_str.length() - len_left);
     }
+    val_ptr_group_map() {
+    }
 };
 
 class static_trie_map : public static_trie {
   private:
-    val_ptr_group_map *val_map;
     static_trie_map(static_trie_map const&);
     static_trie_map& operator=(static_trie_map const&);
+    val_ptr_group_map *val_map;
     uint32_t val_count;
     size_t max_val_len;
     uint8_t *names_loc;
@@ -2022,7 +2052,7 @@ class static_trie_map : public static_trie {
       FILE *fp = fopen(filename, "rb");
       long bytes_read = fread(dict_buf, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
-        printf("Read error: [%s], %ld, %lu\n", filename, file_stat.st_size, bytes_read);
+        printf("Read error: [%s], %ld, %lu\n", filename, (long) file_stat.st_size, bytes_read);
         throw errno;
       }
       fclose(fp);
