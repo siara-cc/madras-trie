@@ -175,7 +175,7 @@ class lt_builder {
           pos4++;
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
-          for (int j = 0; j < u16_arr_count; j++) {
+          for (size_t j = 0; j < u16_arr_count; j++) {
             gen::copy_uint16(bit_counts[j], ptr_lt_loc);
             ptr_lt_loc += 2;
           }
@@ -204,7 +204,7 @@ class lt_builder {
         node_id++;
         bm_mask <<= 1;
       } while (node_id < node_count);
-      for (int j = 0; j < u16_arr_count; j++) {
+      for (size_t j = 0; j < u16_arr_count; j++) {
         gen::copy_uint16(bit_counts[j], ptr_lt_loc);
         ptr_lt_loc += 2;
       }
@@ -214,7 +214,7 @@ class lt_builder {
       } else {
         gen::copy_uint24(bit_count, ptr_lt_loc); ptr_lt_loc += 3;
       }
-      for (int j = 0; j < u16_arr_count; j++) {
+      for (size_t j = 0; j < u16_arr_count; j++) {
         gen::copy_uint16(bit_counts[j], ptr_lt_loc);
         ptr_lt_loc += 2;
       }
@@ -1088,7 +1088,7 @@ class inner_trie : public inner_trie_fwd {
         uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 102);
 
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
-        uint32_t trie_flags_size = gen::read_uint32(trie_tail_ptrs_data_loc + 4);
+        //uint32_t trie_flags_size = gen::read_uint32(trie_tail_ptrs_data_loc + 4);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 8;
         trie_loc = tails_loc + tail_size;
 
@@ -1644,11 +1644,11 @@ class val_ptr_group_map : public ptr_group_map {
     }
 
     void get_col_trie_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
-      uint32_t ptr_pos = node_id;
+      // uint32_t ptr_pos = node_id;
       // TODO: Cast before calling leaf_rank
       // if (key_count > 0)
       //   ptr_pos = dict_obj->leaf_rank(node_id);
-      uint32_t col_trie_node_id = 0; // TODO: (*int_ptr_bv)[ptr_pos];
+      // uint32_t col_trie_node_id = 0; // TODO: (*int_ptr_bv)[ptr_pos];
       // TODO: col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, false);
     }
 
@@ -1736,7 +1736,7 @@ class val_ptr_group_map : public ptr_group_map {
           int line_len = 0;
           uint8_t *out_buf = (uint8_t *) ret_val;
           while (line_byt_len > 0) {
-            uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
+            // uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
             line_loc += vlen;
             *p_ptr_bit_count += vlen;
             line_byt_len -= vlen;
@@ -1752,8 +1752,8 @@ class val_ptr_group_map : public ptr_group_map {
         } break;
         case 't':
           get_col_trie_val(node_id, in_size_out_value_len, ret_val);
-          if (*in_size_out_value_len == -1)
-            return;
+          // TODO: if (*in_size_out_value_len == -1)
+          //  return;
           if (data_type != DCT_TEXT && data_type != DCT_BIN)
             convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
           break;
@@ -2020,9 +2020,9 @@ class static_trie_map : public static_trie {
       dict_buf = (uint8_t *) malloc(file_stat.st_size);
 
       FILE *fp = fopen(filename, "rb");
-      size_t bytes_read = fread(dict_buf, 1, file_stat.st_size, fp);
+      long bytes_read = fread(dict_buf, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
-        printf("Read error: [%s], %lld, %lu\n", filename, file_stat.st_size, bytes_read);
+        printf("Read error: [%s], %ld, %lu\n", filename, file_stat.st_size, bytes_read);
         throw errno;
       }
       fclose(fp);
