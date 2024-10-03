@@ -502,11 +502,8 @@ class bv_lookup_tbl {
       return bit_loc;
     }
     uint32_t block_select(uint32_t target_count, uint32_t& bv_pos, bool sel0) {
-      uint8_t *select_loc = (sel0 ? lt_sel_loc0 : lt_sel_loc1) + target_count / sel_divisor * 4;
-      bv_pos = gen::read_uint32(select_loc);
-      if ((target_count % sel_divisor) == 0)
-        return target_count;
-      uint32_t block = bv_pos / nodes_per_bv_block;
+      uint8_t *select_loc = (sel0 ? lt_sel_loc0 : lt_sel_loc1) + target_count / sel_divisor * 3;
+      uint32_t block = gen::read_uint24(select_loc);
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 10 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
