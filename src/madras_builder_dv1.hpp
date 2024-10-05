@@ -2392,7 +2392,7 @@ class builder : public builder_fwd {
         r_cache = new nid_cache[cache_count + 1]();
         r_cache_freq = new uint32_t[cache_count]();
       }
-      build_cache(1, 0, cache_count, 1, build_fwd_cache, build_rev_cache);
+      build_cache(1, 0, cache_count - 1, 1, build_fwd_cache, build_rev_cache);
       max_node_id = 0;
       int sum_freq = 0;
       for (uint32_t i = 0; i < cache_count; i++) {
@@ -2418,7 +2418,7 @@ class builder : public builder_fwd {
       return cache_count;
     }
 
-    uint32_t build_cache(uint32_t ns_id, uint32_t parent_node_id, uint32_t cache_count, uint32_t level, bool build_fwd_cache, bool build_rev_cache) {
+    uint32_t build_cache(uint32_t ns_id, uint32_t parent_node_id, uint32_t cache_mask, uint32_t level, bool build_fwd_cache, bool build_rev_cache) {
       if (ns_id == 0)
         return 1;
       if (memtrie.max_level < level)
@@ -2430,22 +2430,27 @@ class builder : public builder_fwd {
       uint32_t cur_node_id = ns_hdr->node_id + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
       uint32_t freq_count = 1;
       for (int i = 0; i <= ns_hdr->last_node_idx; i++) {
-        uint32_t node_freq = build_cache(n.get_child(), cur_node_id, cache_count, level + 1, build_fwd_cache, build_rev_cache);
+        uint32_t node_freq = build_cache(n.get_child(), cur_node_id, cache_mask, level + 1, build_fwd_cache, build_rev_cache);
         freq_count += node_freq;
         if (n.get_child() > 0 && (n.get_flags() & NFLAG_TAIL) == 0) {
           uint8_t node_byte = n.get_byte();
+          leopard::node_set_handler child_nsh(memtrie.all_node_sets, n.get_child());
+          uint32_t child_node_id = child_nsh.get_ns_hdr()->node_id;
           if (build_fwd_cache) {
-            uint32_t cache_loc = (parent_node_id ^ (parent_node_id << MDX_CACHE_SHIFT) ^ node_byte) & (cache_count - 1);
+            int node_offset = i + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
+            uint32_t cache_loc = (ns_hdr->node_id ^ (ns_hdr->node_id << MDX_CACHE_SHIFT) ^ node_byte) & cache_mask;
             fwd_cache *fc = f_cache + cache_loc;
-            if (f_cache_freq[cache_loc] < node_freq && parent_node_id < node_id_limit && cur_node_id < (1 << 24) && parent_node_id < (1 << 24)) {
+            if (f_cache_freq[cache_loc] < node_freq && child_node_id < node_id_limit && ns_hdr->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
               f_cache_freq[cache_loc] = node_freq;
-              gen::copy_uint24(parent_node_id, &fc->parent_node_id1);
-              gen::copy_uint24(cur_node_id, &fc->child_node_id1);
+              gen::copy_uint24(ns_hdr->node_id, &fc->parent_node_id1);
+              gen::copy_uint24(child_node_id, &fc->child_node_id1);
+              fc->node_offset = node_offset;
+              fc->node_byte = node_byte;
             }
           }
         }
         if (build_rev_cache) {
-          uint32_t cache_loc = cur_node_id & (cache_count - 1);
+          uint32_t cache_loc = cur_node_id & cache_mask;
           nid_cache *rc = r_cache + cache_loc;
           if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
             r_cache_freq[cache_loc] = node_freq;
@@ -2557,7 +2562,7 @@ class builder : public builder_fwd {
         }
         if (opts.fwd_cache) {
           tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
-          tp.fwd_cache_size = tp.fwd_cache_count * 6; // 8 = parent_node_id (3) + child_node_id (3)
+          tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3)
         } else
           tp.fwd_cache_max_node_id = 0;
         if (opts.rev_cache) {
@@ -2607,7 +2612,10 @@ class builder : public builder_fwd {
         tp.rev_cache_loc = tp.fwd_cache_loc + tp.fwd_cache_size;
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
 
-        tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
+        tp.tail_bv_loc = tp.sec_cache_loc + tp.sec_cache_size;
+        tp.ptr_flags_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
+
+        tp.term_select_lkup_loc = tp.ptr_flags_loc + trie_flags_ptr.size();
         tp.child_select_lkup_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
         tp.term_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
         tp.term_flags_loc = tp.term_bv_loc + tp.term_bvlt_sz;
@@ -2626,17 +2634,14 @@ class builder : public builder_fwd {
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
         tp.leaf_flags_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
 
-        tp.tail_bv_loc = tp.leaf_flags_loc + trie_flags_leaf.size();
-        tp.ptr_flags_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
-
         if (!opts.dart)
           tp.sec_cache_loc = 0;
       } else {
-        tp.ptr_flags_loc = tp.opts_loc + opts_size;
+        tp.leaf_flags_loc = tp.opts_loc + opts_size;
         tp.tail_bvlt_sz = 0;
       }
 
-      tp.names_loc = tp.ptr_flags_loc + trie_flags_ptr.size();
+      tp.names_loc = tp.leaf_flags_loc + trie_flags_leaf.size();
       tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
       tp.col_val_table_loc = tp.names_loc + tp.names_sz;
       int val_count = column_count - (no_primary_trie ? 0 : 1);
@@ -2741,6 +2746,9 @@ class builder : public builder_fwd {
         if (tp.sec_cache_size > 0)
           write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
         if (!opts.dessicate) {
+          if (tp.tail_bvlt_sz > 0)
+            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
+          fwrite(trie_flags_ptr.data(), 1, trie_flags_ptr.size(), fp);
           // if (trie_level > 0) {
             write_louds_select_lt(true, fp);
             if (trie_level == 0)
@@ -2767,9 +2775,6 @@ class builder : public builder_fwd {
             write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
             fwrite(trie_flags_leaf.data(), 1, trie_flags_leaf.size(), fp);
           }
-          if (tp.tail_bvlt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
-          fwrite(trie_flags_ptr.data(), 1, trie_flags_ptr.size(), fp);
         }
       }
 

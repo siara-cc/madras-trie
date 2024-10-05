@@ -285,11 +285,35 @@ class bv_lookup_tbl {
     uint32_t select1(uint32_t target_count) {
       if (target_count == 0)
         return 0;
-      uint32_t bv_pos = 0;
-      uint32_t block_count = block_select(target_count, bv_pos, false);
-      if (block_count == target_count)
+      uint8_t *select_loc = lt_sel_loc1 + target_count / sel_divisor * 3;
+      uint32_t block = gen::read_uint24(select_loc);
+      // uint32_t end_block = gen::read_uint24(select_loc + 3);
+      // if (block + 10 < end_block)
+      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
+      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
+        block++;
+      block--;
+      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      uint32_t bv_pos = block * nodes_per_bv_block;
+      if (cur_count == target_count)
+        return cur_count;
+      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
+      int pos3;
+      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
+        uint8_t count3 = bv3[pos3];
+        if (cur_count + count3 < target_count) {
+          bv_pos += nodes_per_bv_block_n;
+          cur_count += count3;
+        } else
+          break;
+      }
+      // if (pos3) {
+      //   pos3--;
+      //   cur_count += bv3[pos3];
+      // }
+      if (cur_count == target_count)
         return bv_pos;
-      return bv_pos + bm_select1(target_count - block_count - 1, bm_loc[bv_pos / nodes_per_bv_block_n]);
+      return bv_pos + bm_select1(target_count - cur_count - 1, bm_loc[bv_pos / nodes_per_bv_block_n]);
     }
     uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
@@ -320,29 +344,26 @@ class bv_lookup_tbl {
       // }
       return bit_loc;
     }
-    uint32_t block_select(uint32_t target_count, uint32_t& bv_pos, bool sel0) {
-      uint8_t *select_loc = (sel0 ? lt_sel_loc0 : lt_sel_loc1) + target_count / sel_divisor * 3;
+    uint32_t select0(uint32_t target_count) {
+      if (target_count == 0)
+        return 0;
+      uint32_t bv_pos = 0;
+      uint8_t *select_loc = lt_sel_loc0 + target_count / sel_divisor * 3;
       uint32_t block = gen::read_uint24(select_loc);
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 10 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while ((sel0 ? block * nodes_per_bv_block - 
-          gen::read_uint32(lt_rank_loc + block * width_of_bv_block) :
-          gen::read_uint32(lt_rank_loc + block * width_of_bv_block)) < target_count)
+      while (block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
         block++;
       block--;
-      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
-      if (sel0)
-        cur_count = block * nodes_per_bv_block - cur_count;
+      uint32_t cur_count = block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
       bv_pos = block * nodes_per_bv_block;
       if (cur_count == target_count)
         return cur_count;
       uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
       int pos3;
       for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = bv3[pos3];
-        if (sel0)
-          count3 = nodes_per_bv_block_n - count3;
+        uint8_t count3 = nodes_per_bv_block_n - bv3[pos3];
         if (cur_count + count3 < target_count) {
           bv_pos += nodes_per_bv_block_n;
           cur_count += count3;
@@ -353,16 +374,9 @@ class bv_lookup_tbl {
       //   pos3--;
       //   cur_count += bv3[pos3];
       // }
-      return cur_count;
-    }
-    uint32_t select0(uint32_t target_count) {
-      if (target_count == 0)
-        return 0;
-      uint32_t bv_pos = 0;
-      uint32_t block_count = block_select(target_count, bv_pos, true);
-      if (block_count == target_count)
+      if (cur_count == target_count)
         return bv_pos;
-      return bv_pos + bm_select1(target_count - block_count - 1, ~(bm_loc[bv_pos / nodes_per_bv_block_n]));
+      return bv_pos + bm_select1(target_count - cur_count - 1, ~(bm_loc[bv_pos / nodes_per_bv_block_n]));
     }
     uint8_t *get_select_loc1() {
       return lt_sel_loc1;
@@ -668,34 +682,33 @@ class inner_trie : public inner_trie_fwd {
 
 class GCFC_fwd_cache {
   private:
-    GCFC_fwd_cache(GCFC_fwd_cache const&);
-    GCFC_fwd_cache& operator=(GCFC_fwd_cache const&);
     madras_dv1::fwd_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    int try_find(input_ctx& in_ctx) {
+    int try_find(input_ctx& in_ctx, uint32_t& louds_pos) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
       do {
-        uint32_t cache_idx = (in_ctx.node_id ^ (in_ctx.node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
+        uint32_t parent_node_id = in_ctx.node_id;
+        uint32_t cache_idx = (parent_node_id ^ (parent_node_id << MDX_CACHE_SHIFT) ^ key_byte) & cache_mask;
         madras_dv1::fwd_cache *cche = cche0 + cache_idx;
         uint32_t cache_node_id = gen::read_uint24(&cche->parent_node_id1);
-        if (in_ctx.node_id == cache_node_id) {
+        if (parent_node_id == cache_node_id && cche->node_byte == key_byte) {
           in_ctx.key_pos++;
-          in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
           if (in_ctx.key_pos < in_ctx.key_len) {
+            in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
             key_byte = in_ctx.key[in_ctx.key_pos];
+            louds_pos = parent_node_id + cche->node_offset + in_ctx.node_id + 1;
             continue;
           }
+          in_ctx.node_id += cche->node_offset;
           return 0;
         }
         return -1;
       } while (1);
       return -1;
-    }
-    GCFC_fwd_cache() {
     }
     void init(uint8_t *_loc, uint32_t _count, uint32_t _max_node_id) {
       cche0 = (madras_dv1::fwd_cache *) _loc;
@@ -722,18 +735,16 @@ class static_trie : public inner_trie {
   public:
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
-      in_ctx.node_id = 0;
+      in_ctx.node_id = 1;
+      uint32_t louds_pos = 2;
       do {
-        int ret = fwd_cache.try_find(in_ctx);
+        int ret = fwd_cache.try_find(in_ctx, louds_pos);
         if (ret == 0)
           return tf_leaf[in_ctx.node_id];
-        uint32_t louds_pos = term_lt.select0(in_ctx.node_id + 1);
-        // TODO: check if no child
-        in_ctx.node_id = louds_pos - in_ctx.node_id - 1;
-        if (sski != nullptr) {
-          if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
-            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
-        }
+        // if (sski != nullptr) {
+        //   if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
+        //     sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
+        // }
         uint32_t ptr_bit_count = UINT32_MAX;
         do {
           if (!tf_ptr[in_ctx.node_id]) {
@@ -757,6 +768,10 @@ class static_trie : public inner_trie {
         } while (term_lt[louds_pos]);
         if (in_ctx.key_pos == in_ctx.key_len && tf_leaf[in_ctx.node_id])
           return true;
+        louds_pos = term_lt.select0(in_ctx.node_id + 1);
+        if (!term_lt[louds_pos])
+          return false;
+        in_ctx.node_id = louds_pos - in_ctx.node_id - 1;
       } while (in_ctx.node_id < node_count);
       return false;
     }
