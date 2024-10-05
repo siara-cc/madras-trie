@@ -551,9 +551,6 @@ class tail_ptr_map {
 };
 
 class ptr_group_map {
-  private:
-    ptr_group_map(ptr_group_map const&);
-    ptr_group_map& operator=(ptr_group_map const&);
   protected:
     int8_t grp_idx_limit;
     uint8_t group_count;
@@ -925,7 +922,6 @@ class bvlt_select : public bvlt_rank {
     bvlt_select& operator=(bvlt_select const&);
   protected:
     uint8_t *lt_sel_loc1;
-    uint8_t *lt_sel_loc0;
     uint32_t bv_bit_count;
   public:
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
@@ -1003,50 +999,12 @@ class bvlt_select : public bvlt_rank {
     uint8_t *get_select_loc1() {
       return lt_sel_loc1;
     }
-    uint32_t select0(uint32_t target_count) {
-      if (target_count == 0)
-        return 0;
-      uint32_t bv_pos = 0;
-      uint8_t *select_loc = lt_sel_loc0 + target_count / sel_divisor * 3;
-      uint32_t block = gen::read_uint24(select_loc);
-      // uint32_t end_block = gen::read_uint24(select_loc + 3);
-      // if (block + 10 < end_block)
-      //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while (block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
-        block++;
-      block--;
-      uint32_t cur_count = block * nodes_per_bv_block - gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
-      bv_pos = block * nodes_per_bv_block;
-      if (cur_count == target_count)
-        return cur_count;
-      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
-      int pos3;
-      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = nodes_per_bv_block_n - bv3[pos3];
-        if (cur_count + count3 < target_count) {
-          bv_pos += nodes_per_bv_block_n;
-          cur_count += count3;
-        } else
-          break;
-      }
-      // if (pos3) {
-      //   pos3--;
-      //   cur_count += bv3[pos3];
-      // }
-      if (cur_count == target_count)
-        return bv_pos;
-      return bv_pos + bm_select1(target_count - cur_count - 1, ~(bm_loc[bv_pos / nodes_per_bv_block_n]));
-    }
-    uint8_t *get_select_loc0() {
-      return lt_sel_loc0;
-    }
     bvlt_select() {
     }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint8_t *_lt_sel_loc0, uint32_t _bv_bit_count, uint64_t *_bm_start_loc) {
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint32_t _bv_bit_count, uint64_t *_bm_start_loc) {
       bvlt_rank::init(_lt_rank_loc, _bm_start_loc);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;
-      lt_sel_loc0 = _lt_sel_loc0;
     }
 
 };
@@ -1065,7 +1023,8 @@ class inner_trie : public inner_trie_fwd {
     uint8_t *trie_loc;
     trie_flags_reader tf_ptr;
     tail_ptr_map *tail_map;
-    bvlt_select louds_lt;
+    bvlt_select term_lt;
+    bvlt_select child_lt;
     GCFC_rev_cache rev_cache;
 
   public:
@@ -1081,7 +1040,7 @@ class inner_trie : public inner_trie_fwd {
           in_ctx.key_pos++;
         }
         if (!rev_cache.try_find(node_id))
-          node_id = louds_lt.select1(node_id + 1) - node_id - 2;
+          node_id = term_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
@@ -1093,7 +1052,7 @@ class inner_trie : public inner_trie_fwd {
         } else
           tail_str.append(trie_loc[node_id]);
         if (!rev_cache.try_find(node_id))
-          node_id = louds_lt.select1(node_id + 1) - node_id - 2;
+          node_id = term_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
@@ -1125,17 +1084,19 @@ class inner_trie : public inner_trie_fwd {
         rev_cache.init(rev_cache_loc, rev_cache_count, rev_cache_max_node_id);
 
         uint8_t *term_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 74);
-        uint8_t *louds_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
+        uint8_t *term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
         uint8_t *child_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 82);
+        uint8_t *child_lt_loc = dict_buf + gen::read_uint32(dict_buf + 86);
 
         uint8_t *tail_lt_loc = dict_buf + gen::read_uint32(dict_buf + 98);
         uint8_t *trie_tail_ptrs_data_loc = dict_buf + gen::read_uint32(dict_buf + 102);
 
         uint32_t tail_size = gen::read_uint32(trie_tail_ptrs_data_loc);
-        //uint32_t trie_flags_size = gen::read_uint32(trie_tail_ptrs_data_loc + 4);
+        uint32_t trie_flags_size = gen::read_uint32(trie_tail_ptrs_data_loc + 4);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 8;
         trie_loc = tails_loc + tail_size;
 
+        uint64_t *tf_child_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 106));
         uint64_t *tf_term_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 110));
         uint64_t *tf_ptr_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
         tf_ptr.init(tf_ptr_loc);
@@ -1154,15 +1115,22 @@ class inner_trie : public inner_trie_fwd {
 
         lt_not_given = 0;
         if (term_select_lkup_loc == dict_buf) term_select_lkup_loc = nullptr;
-        if (louds_lt_loc == dict_buf) louds_lt_loc = nullptr;
+        if (term_lt_loc == dict_buf) term_lt_loc = nullptr;
         if (child_select_lkup_loc == dict_buf) child_select_lkup_loc = nullptr;
+        if (child_lt_loc == dict_buf) child_lt_loc = nullptr;
         if (tail_lt_loc == dict_buf) tail_lt_loc = nullptr;
-        if (louds_lt_loc == nullptr) {
+        if (term_lt_loc == nullptr) {
           lt_not_given |= BV_LT_TYPE_TERM;
-          louds_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_TERM, node_count, tf_term_loc);
+          term_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_TERM, node_count, tf_term_loc);
           term_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_TERM, key_count, node_set_count, node_count, tf_term_loc);
         }
-        louds_lt.init(louds_lt_loc, term_select_lkup_loc, child_select_lkup_loc, node_count * 2, tf_term_loc);
+        if (child_lt_loc == nullptr) {
+          lt_not_given |= BV_LT_TYPE_CHILD;
+          child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_child_loc);
+          child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_child_loc);
+        }
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc);
+        term_lt.init(term_lt_loc,   term_select_lkup_loc, node_count * (trie_level > 0 ? 2 : 1), tf_term_loc);
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bvlt_rank();
@@ -1176,10 +1144,13 @@ class inner_trie : public inner_trie_fwd {
       if (tail_map != nullptr) {
         delete tail_map;
       }
+      if (lt_not_given & BV_LT_TYPE_CHILD) {
+        delete [] child_lt.get_rank_loc();
+        delete [] child_lt.get_select_loc1();
+      }
       if (lt_not_given & BV_LT_TYPE_TERM) {
-        delete [] louds_lt.get_rank_loc();
-        delete [] louds_lt.get_select_loc0();
-        delete [] louds_lt.get_select_loc0();
+        delete [] term_lt.get_rank_loc();
+        delete [] term_lt.get_select_loc1();
       }
       if (tail_lt != nullptr)
         delete tail_lt;
@@ -1195,7 +1166,7 @@ class GCFC_fwd_cache {
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    int try_find(input_ctx& in_ctx, uint32_t& louds_pos) {
+    int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
@@ -1209,7 +1180,6 @@ class GCFC_fwd_cache {
           if (in_ctx.key_pos < in_ctx.key_len) {
             in_ctx.node_id = gen::read_uint24(&cche->child_node_id1);
             key_byte = in_ctx.key[in_ctx.key_pos];
-            louds_pos = parent_node_id + cche->node_offset + in_ctx.node_id + 1;
             continue;
           }
           in_ctx.node_id += cche->node_offset;
@@ -1247,15 +1217,14 @@ class static_trie : public inner_trie {
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
       in_ctx.node_id = 1;
-      uint32_t louds_pos = 2;
       do {
-        int ret = fwd_cache.try_find(in_ctx, louds_pos);
+        int ret = fwd_cache.try_find(in_ctx);
         if (ret == 0)
           return tf_leaf[in_ctx.node_id];
-        // if (sski != nullptr) {
-        //   if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
-        //     sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
-        // }
+        if (sski != nullptr) {
+          if (!tf_leaf[in_ctx.node_id] && !child_lt[in_ctx.node_id])
+            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
+        }
         uint32_t ptr_bit_count = UINT32_MAX;
         do {
           if (!tf_ptr[in_ctx.node_id]) {
@@ -1274,15 +1243,15 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
           }
+          if (term_lt[in_ctx.node_id])
+            return false;
           in_ctx.node_id++;
-          louds_pos++;
-        } while (louds_lt[louds_pos]);
-        if (in_ctx.key_pos == in_ctx.key_len)
-          return tf_leaf[in_ctx.node_id];
-        louds_pos = louds_lt.select0(in_ctx.node_id + 1);
-        if (!louds_lt[louds_pos])
+        } while (1);
+        if (in_ctx.key_pos == in_ctx.key_len && tf_leaf[in_ctx.node_id])
+          return true;
+        if (!child_lt[in_ctx.node_id])
           return false;
-        in_ctx.node_id = louds_pos - in_ctx.node_id - 1;
+        in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
       } while (in_ctx.node_id < node_count);
       return false;
     }
@@ -1314,7 +1283,7 @@ class static_trie : public inner_trie {
           ret_key[key_len++] = trie_loc[node_id];
         }
         if (!rev_cache.try_find(node_id))
-          node_id = louds_lt.select1(node_id + 1) - node_id - 2;
+          node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
       } while (node_id != 0);
       if (to_reverse) {
         int i = key_len / 2;
@@ -1391,14 +1360,14 @@ class static_trie : public inner_trie {
       uint32_t child_count;
       uint32_t node_id = read_from_ctx(ctx, cv, child_count);
       while (node_id < node_count) {
-        if (!tf_leaf[node_id] && !louds_lt[node_id]) {
+        if (!tf_leaf[node_id] && !child_lt[node_id]) {
           node_id++;
           continue;
         }
         if (tf_leaf[node_id]) {
           if (ctx.to_skip_first_leaf) {
-            if (!louds_lt[node_id]) { // child
-              while (louds_lt[node_id]) { // term
+            if (!child_lt[node_id]) {
+              while (term_lt[node_id]) {
                 if (ctx.cur_idx == 0)
                   return -2;
                 node_id = pop_from_ctx(ctx, cv, child_count);
@@ -1422,7 +1391,7 @@ class static_trie : public inner_trie {
           }
         }
         ctx.to_skip_first_leaf = false;
-        if (louds_lt[node_id]) { // child_lt
+        if (child_lt[node_id]) {
           child_count++;
           cv.tail.clear();
           uint32_t ptr_bit_count = UINT32_MAX;
@@ -1431,8 +1400,8 @@ class static_trie : public inner_trie {
           else
             cv.tail.append(trie_loc[node_id]);
           update_ctx(ctx, cv, node_id, child_count);
-          node_id = louds_lt.select1(child_count);
-          child_count = louds_lt.rank1(node_id);
+          node_id = term_lt.select1(child_count);
+          child_count = child_lt.rank1(node_id);
           push_to_ctx(ctx, cv, node_id, child_count);
         }
       }
@@ -1501,7 +1470,7 @@ class static_trie : public inner_trie {
             leaf_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_LEAF, key_count, node_set_count, node_count, tf_leaf_loc);
           }
           leaf_lt = new bvlt_select();
-          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, nullptr, node_count, tf_leaf_loc);
+          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc);
           tf_leaf.init(tf_leaf_loc);
         }
       }

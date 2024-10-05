@@ -2198,10 +2198,10 @@ class builder : public builder_fwd {
         //dump_ptr(&cur_node, node_count);
         if (node_count && (node_count % 64) == 0) {
           // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
-          // if (trie_level == 0) {
-          //   append64_t(trie_flags_child, bm_child);
-          //   append64_t(trie_flags_term, bm_term);
-          // }
+          if (trie_level == 0) {
+            append64_t(trie_flags_child, bm_child);
+            append64_t(trie_flags_term, bm_term);
+          }
           append64_t(trie_flags_ptr, bm_ptr);
           if (opts.trie_leaf_count > 0)
             append64_t(trie_flags_leaf, bm_leaf);
@@ -2218,14 +2218,14 @@ class builder : public builder_fwd {
           bm_child |= bm_mask;
         if (cur_node_flags & NFLAG_TAIL)
           bm_ptr |= bm_mask;
-        // if (trie_level > 0) {
+        if (trie_level > 0) {
           if (cur_node_flags & NFLAG_CHILD) {
             nsh_children.set_pos(cur_node.get_child());
             for (size_t ci = 0; ci <= nsh_children.last_node_idx(); ci++)
               louds.set(louds_pos++, true);
           }
           louds.set(louds_pos++, false);
-        // }
+        }
         bm_mask <<= 1;
         byte_vec64.push_back(node_byte);
         node_count++;
@@ -2252,16 +2252,15 @@ class builder : public builder_fwd {
       }
       // TODO: write on all cases?
       // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
-      // if (trie_level == 0) {
-      //   append64_t(trie_flags_child, bm_child);
-      //   append64_t(trie_flags_term, bm_term);
-      // }
+      if (trie_level == 0) {
+        append64_t(trie_flags_child, bm_child);
+        append64_t(trie_flags_term, bm_term);
+      }
       append64_t(trie_flags_ptr, bm_ptr);
       if (opts.trie_leaf_count > 0)
         append64_t(trie_flags_leaf, bm_leaf);
       append_byte_vec(trie, byte_vec64);
-      // if (trie_level > 0)
-        louds.set(louds_pos++, false);
+      louds.set(louds_pos++, false);
       for (int i = 0; i < 8; i++) {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
       }
@@ -2562,7 +2561,7 @@ class builder : public builder_fwd {
         }
         if (opts.fwd_cache) {
           tp.fwd_cache_count = build_cache(true, false, tp.fwd_cache_max_node_id);
-          tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3)
+          tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
         } else
           tp.fwd_cache_max_node_id = 0;
         if (opts.rev_cache) {
@@ -2575,28 +2574,27 @@ class builder : public builder_fwd {
         if (opts.dart)
           tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256;
 
-        // if (trie_level > 0) {
+        if (trie_level > 0) {
           tp.term_bvlt_sz = gen::get_lkup_tbl_size2(louds.get_highest() + 1, nodes_per_bv_block, width_of_bv_block);
           tp.child_bvlt_sz = 0;
-        // } else {
-        //   tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
-        //   tp.child_bvlt_sz = tp.term_bvlt_sz;
-        // }
+        } else {
+          tp.term_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
+          tp.child_bvlt_sz = tp.term_bvlt_sz;
+        }
 
         tp.leaf_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
         if (opts.tail_tries || tail_vals.get_tail_grp_ptrs()->get_grp_count() == 2)
           tp.tail_bvlt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
 
-        // if (trie_level > 0) {
+        if (trie_level > 0) {
           tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, sel_divisor, 3);
-        if (trie_level == 0)
-          tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, sel_divisor, 3);
-        // } else {
-        //   tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
-        //   tp.child_select_lt_sz = 6;
-        //   if (memtrie.node_set_count > 1)
-        //     tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count - 1, sel_divisor, 3);
-        // }
+          tp.child_select_lt_sz = 0;
+        } else {
+          tp.term_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count, sel_divisor, 3);
+          tp.child_select_lt_sz = 6;
+          if (memtrie.node_set_count > 1)
+            tp.child_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_set_count - 1, sel_divisor, 3);
+        }
 
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count, sel_divisor, 3);
         if (opts.dessicate) {
@@ -2612,20 +2610,15 @@ class builder : public builder_fwd {
         tp.rev_cache_loc = tp.fwd_cache_loc + tp.fwd_cache_size;
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
 
-        tp.tail_bv_loc = tp.sec_cache_loc + tp.sec_cache_size;
-        tp.ptr_flags_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
-
-        tp.term_select_lkup_loc = tp.ptr_flags_loc + trie_flags_ptr.size();
-        tp.child_select_lkup_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
-        tp.term_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
+        tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
+        tp.term_bv_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
         tp.term_flags_loc = tp.term_bv_loc + tp.term_bvlt_sz;
 
-        // if (trie_level > 0)
-        //   tp.child_select_lkup_loc = tp.term_flags_loc + louds.size_bytes();
-        // else
-        //   tp.child_select_lkup_loc = tp.term_flags_loc + trie_flags_term.size();
-        // tp.child_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-        tp.child_bv_loc = tp.term_flags_loc + louds.size_bytes();
+        if (trie_level > 0)
+          tp.child_select_lkup_loc = tp.term_flags_loc + louds.size_bytes();
+        else
+          tp.child_select_lkup_loc = tp.term_flags_loc + trie_flags_term.size();
+        tp.child_bv_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
         tp.child_flags_loc = tp.child_bv_loc + tp.child_bvlt_sz;
 
         tp.trie_tail_ptrs_data_loc = tp.child_flags_loc + trie_flags_child.size();
@@ -2634,22 +2627,24 @@ class builder : public builder_fwd {
         tp.leaf_bv_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
         tp.leaf_flags_loc = tp.leaf_bv_loc + tp.leaf_bvlt_sz;
 
+        tp.tail_bv_loc = tp.leaf_flags_loc + trie_flags_leaf.size();
+        tp.ptr_flags_loc = tp.tail_bv_loc + tp.tail_bvlt_sz;
+
         if (!opts.dart)
           tp.sec_cache_loc = 0;
       } else {
-        tp.leaf_flags_loc = tp.opts_loc + opts_size;
+        tp.ptr_flags_loc = tp.opts_loc + opts_size;
         tp.tail_bvlt_sz = 0;
       }
 
-      tp.names_loc = tp.leaf_flags_loc + trie_flags_leaf.size();
+      tp.names_loc = tp.ptr_flags_loc + trie_flags_ptr.size();
       tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
       tp.col_val_table_loc = tp.names_loc + tp.names_sz;
       int val_count = column_count - (no_primary_trie ? 0 : 1);
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
       tp.col_val_loc0 = tp.col_val_table_loc + tp.col_val_table_sz;
       tp.total_idx_size = tp.opts_loc + opts_size +
-                // (trie_level > 0 ? louds.raw_data()->size() * sizeof(uint64_t) : trie_flags_term.size()) +
-                louds.raw_data()->size() * sizeof(uint64_t) +
+                (trie_level > 0 ? louds.raw_data()->size() * sizeof(uint64_t) : trie_flags_term.size()) +
                 trie_flags_child.size() + trie_flags_leaf.size() + trie_flags_ptr.size() +
                 tp.fwd_cache_size + tp.rev_cache_size + tp.sec_cache_size +
                 tp.term_select_lt_sz + tp.term_bvlt_sz + tp.child_bvlt_sz +
@@ -2746,25 +2741,20 @@ class builder : public builder_fwd {
         if (tp.sec_cache_size > 0)
           write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
         if (!opts.dessicate) {
-          if (tp.tail_bvlt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
-          fwrite(trie_flags_ptr.data(), 1, trie_flags_ptr.size(), fp);
-          // if (trie_level > 0) {
-            write_louds_select_lt(true, fp);
-            if (trie_level == 0)
-              write_louds_select_lt(false, fp);
+          if (trie_level > 0) {
+            write_louds_select_lt(fp);
             write_louds_rank_lt(fp);
             fwrite(louds.raw_data()->data(), 1, louds.raw_data()->size() * sizeof(uint64_t), fp);
-          // } else {
-          //   write_bv_select_lt(BV_LT_TYPE_TERM, fp);
-          //   write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
-          //   fwrite(trie_flags_term.data(), 1, trie_flags_term.size(), fp);
-          // }
-          // if (trie_level == 0) {
-          //   write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
-          //   write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
-          //   fwrite(trie_flags_child.data(), 1, trie_flags_child.size(), fp);
-          // }
+          } else {
+            write_bv_select_lt(BV_LT_TYPE_TERM, fp);
+            write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
+            fwrite(trie_flags_term.data(), 1, trie_flags_term.size(), fp);
+          }
+          if (trie_level == 0) {
+            write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
+            write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
+            fwrite(trie_flags_child.data(), 1, trie_flags_child.size(), fp);
+          }
         }
 
         write_trie_tail_ptrs_data(fp);
@@ -2775,6 +2765,9 @@ class builder : public builder_fwd {
             write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
             fwrite(trie_flags_leaf.data(), 1, trie_flags_leaf.size(), fp);
           }
+          if (tp.tail_bvlt_sz > 0)
+            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
+          fwrite(trie_flags_ptr.data(), 1, trie_flags_ptr.size(), fp);
         }
       }
 
@@ -2989,19 +2982,19 @@ class builder : public builder_fwd {
       gen::write_uint24(memtrie.node_count/nodes_per_bv_block, fp);
     }
 
-    void write_louds_select_lt(bool which, FILE *fp) {
-      uint32_t count = 0;
+    void write_louds_select_lt(FILE *fp) {
+      uint32_t one_count = 0;
       gen::write_uint24(0, fp);
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
-        if (louds[i] == which) {
-          if (count && (count % sel_divisor) == 0) {
+        if (louds[i]) {
+          if (one_count && (one_count % sel_divisor) == 0) {
             uint32_t val_to_write = i / nodes_per_bv_block;
             gen::write_uint24(val_to_write, fp);
             if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", count, val_to_write);
+              gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
-          count++;
+          one_count++;
         }
       }
       gen::write_uint24(bit_count / nodes_per_bv_block, fp);
