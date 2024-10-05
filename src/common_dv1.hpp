@@ -21,12 +21,12 @@ namespace madras_dv1 {
 // #define nodes_per_bv_block 128
 // #define width_of_bv_block 5
 // #define width_of_bv_block_n 1
-// #define nodes_per_bv_block 256
-// #define width_of_bv_block 7
-// #define width_of_bv_block_n 3
-#define nodes_per_bv_block 512
-#define width_of_bv_block 11
-#define width_of_bv_block_n 7
+#define nodes_per_bv_block 256
+#define width_of_bv_block 7
+#define width_of_bv_block_n 3
+// #define nodes_per_bv_block 512
+// #define width_of_bv_block 11
+// #define width_of_bv_block_n 7
 // #define nodes_per_bv_block 1024
 // #define width_of_bv_block 19
 // #define width_of_bv_block_n 15
