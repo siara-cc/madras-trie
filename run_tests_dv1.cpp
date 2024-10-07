@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
   uint8_t *file_buf = (uint8_t *) malloc(file_stat.st_size + 1);
-  printf("File_name: %s, size: %lld\n", argv[1], file_stat.st_size);
+  printf("File_name: %s, size: %ld\n", argv[1], (long) file_stat.st_size);
 
   FILE *fp = fopen(argv[1], "rb");
   if (fp == NULL) {

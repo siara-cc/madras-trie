@@ -2198,11 +2198,12 @@ class builder : public builder_fwd {
         if (node_count && (node_count % 64) == 0) {
           // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
           if (trie_level == 0) {
+            append64_t(trie_flags, bm_ptr);
             append64_t(trie_flags, bm_term);
             append64_t(trie_flags, bm_child);
             append64_t(trie_flags, bm_leaf);
-          }
-          append64_t(trie_flags_tail, bm_ptr);
+          } else
+            append64_t(trie_flags_tail, bm_ptr);
           append_byte_vec(trie, byte_vec64);
           bm_term = 0; bm_child = 0; bm_leaf = 0; bm_ptr = 0;
           bm_mask = 1UL;
@@ -2251,11 +2252,12 @@ class builder : public builder_fwd {
       // TODO: write on all cases?
       // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
       if (trie_level == 0) {
+        append64_t(trie_flags, bm_ptr);
         append64_t(trie_flags, bm_term);
         append64_t(trie_flags, bm_child);
         append64_t(trie_flags, bm_leaf);
-      }
-      append64_t(trie_flags_tail, bm_ptr);
+      } else
+        append64_t(trie_flags_tail, bm_ptr);
       append_byte_vec(trie, byte_vec64);
       louds.set(louds_pos++, false);
       for (int i = 0; i < 8; i++) {
@@ -2273,7 +2275,7 @@ class builder : public builder_fwd {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
       gen::write_uint32(tail_size, fp);
-      gen::write_uint32(trie_flags_tail.size(), fp);
+      gen::write_uint32(trie_flags.size(), fp);
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
       if (opts.tail_tries && tail_trie_builder != nullptr) {
