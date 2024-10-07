@@ -386,11 +386,6 @@ const uint8_t select_lookup_tbl[8][256] = {{
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 }};
 
-struct ctx_vars_next {
-  public:
-    gen::byte_str tail;
-};
-
 class statssski {
   private:
     statssski(statssski const&);
@@ -1055,6 +1050,13 @@ class bm_reader : public flags_reader {
     }
 };
 
+struct trie_flags {
+  uint64_t bm_ptr;
+  uint64_t bm_term;
+  uint64_t bm_child;
+  uint64_t bm_leaf;
+};
+
 class inner_trie : public inner_trie_fwd {
   private:
     inner_trie(inner_trie const&);
@@ -1067,6 +1069,7 @@ class inner_trie : public inner_trie_fwd {
     uint8_t trie_level;
     uint8_t lt_not_given;
     uint8_t *trie_loc;
+    trie_flags *trie_flags_loc;
     flags_reader *tf_ptr;
     tail_ptr_map *tail_map;
     bvlt_select term_lt;
@@ -1143,6 +1146,8 @@ class inner_trie : public inner_trie_fwd {
         trie_loc = tails_loc + tail_size;
 
         uint64_t *tf_term_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
+        trie_flags_loc = (trie_flags *) tf_term_loc;
+
         uint64_t *tf_ptr_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 118));
         if (trie_level == 0) {
           tf_ptr = new trie_flags_reader();
@@ -1213,6 +1218,11 @@ class inner_trie : public inner_trie_fwd {
 
 };
 
+struct ctx_vars_next {
+  public:
+    gen::byte_str tail;
+};
+
 class GCFC_fwd_cache {
   private:
     GCFC_fwd_cache(GCFC_fwd_cache const&);
@@ -1271,17 +1281,24 @@ class static_trie : public inner_trie {
     bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
       in_ctx.node_id = 1;
+      trie_flags *tf;
+      uint64_t bm_mask;
       do {
         int ret = fwd_cache.try_find(in_ctx);
+        bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
+        tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
         if (ret == 0)
-          return (*leaf_lt)[in_ctx.node_id];
+          return bm_mask & tf->bm_leaf;
         if (sski != nullptr) {
-          if (!(*leaf_lt)[in_ctx.node_id] && !child_lt[in_ctx.node_id])
+          if ((bm_mask & tf->bm_leaf) == 0 && (bm_mask & tf->bm_child) == 0) {
             sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
+            bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
+            tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
+          }
         }
         uint32_t ptr_bit_count = UINT32_MAX;
         do {
-          if (!(*tf_ptr)[in_ctx.node_id]) {
+          if ((bm_mask & tf->bm_ptr) == 0) {
             #ifndef MDX_IN_ORDER
               if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
             #else
@@ -1297,13 +1314,18 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
           }
-          if (term_lt[in_ctx.node_id])
+          if (bm_mask & tf->bm_term)
             return false;
           in_ctx.node_id++;
+          bm_mask <<= 1;
+          if (bm_mask == 0) {
+            bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
+            tf++;
+          }
         } while (1);
-        if (in_ctx.key_pos == in_ctx.key_len && (*leaf_lt)[in_ctx.node_id])
+        if (in_ctx.key_pos == in_ctx.key_len && bm_mask & tf->bm_leaf)
           return true;
-        if (!child_lt[in_ctx.node_id])
+        if ((bm_mask & tf->bm_child) == 0)
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
       } while (in_ctx.node_id < node_count);
@@ -1325,14 +1347,9 @@ class static_trie : public inner_trie {
           uint32_t ptr_bit_count = UINT32_MAX;
           tail.clear();
           tail_map->get_tail_str(node_id, trie_loc[node_id], tail, ptr_bit_count);
-          if (trie_level == 0) {
-            int i = tail.length() - 1;
-            while (i >= 0)
-              ret_key[key_len++] = tail[i--];
-          } else {
-            memcpy(ret_key + key_len, tail.data(), tail.length());
-            key_len += tail.length();
-          }
+          int i = tail.length() - 1;
+          while (i >= 0)
+            ret_key[key_len++] = tail[i--];
         } else {
           ret_key[key_len++] = trie_loc[node_id];
         }
