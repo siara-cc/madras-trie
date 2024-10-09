@@ -411,6 +411,7 @@ class bvlt_rank {
     bvlt_rank& operator=(bvlt_rank const&);
   protected:
     uint8_t *lt_rank_loc;
+    uint8_t lt_unit_count;
     uint8_t multiplier;
     uint64_t *bm_loc;
   public:
@@ -425,7 +426,7 @@ class bvlt_rank {
       return rank + static_cast<uint32_t>(__builtin_popcountll(bm & (mask - 1)));
     }
     uint32_t block_rank1(uint32_t bv_pos) {
-      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * width_of_bv_block;
+      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * width_of_bv_block * lt_unit_count;
       uint32_t rank = gen::read_uint32(rank_ptr);
       int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
       if (pos > 0) {
@@ -442,10 +443,11 @@ class bvlt_rank {
     }
     bvlt_rank() {
     }
-    void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier) {
+    void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
       multiplier = _multiplier;
+      lt_unit_count = _lt_unit_count;
     }
 };
 
@@ -922,7 +924,7 @@ class bvlt_select : public bvlt_rank {
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
         const uint32_t middle = (first + last) >> 1;
-        if (given_count < gen::read_uint32(lt_rank_loc + middle * width_of_bv_block))
+        if (given_count < gen::read_uint32(lt_rank_loc + middle * width_of_bv_block * lt_unit_count))
           last = middle;
         else
           first = middle;
@@ -935,16 +937,16 @@ class bvlt_select : public bvlt_rank {
       uint8_t *select_loc = lt_sel_loc1 + target_count / sel_divisor * 3;
       uint32_t block = gen::read_uint24(select_loc);
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
-      // if (block + 10 < end_block)
+      // if (block + 4 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block) < target_count)
+      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block * lt_unit_count) < target_count)
         block++;
       block--;
-      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block);
+      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block * lt_unit_count);
       uint32_t bv_pos = block * nodes_per_bv_block;
       if (cur_count == target_count)
         return cur_count;
-      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block + 4;
+      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block * lt_unit_count + 4;
       int pos3;
       for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
         uint8_t count3 = bv3[pos3];
@@ -997,8 +999,8 @@ class bvlt_select : public bvlt_rank {
     }
     bvlt_select() {
     }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint32_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier) {
-      bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier);
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint32_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
+      bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier, _lt_unit_count);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;
     }
@@ -1059,7 +1061,7 @@ class inner_trie : public inner_trie_fwd {
     uint8_t *dict_buf;
     uint32_t node_count;
     uint32_t node_set_count;
-    uint8_t flags_width;
+    uint8_t bvlt_block_count;
     uint8_t trie_level;
     uint8_t lt_not_given;
     uint8_t *trie_loc;
@@ -1117,7 +1119,6 @@ class inner_trie : public inner_trie_fwd {
       node_count = gen::read_uint32(dict_buf + 14);
       bldr_options *opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
       node_set_count = gen::read_uint32(dict_buf + 22);
-      flags_width = opts->trie_leaf_count > 0 ? 32 : 24;
       uint32_t key_count = gen::read_uint32(dict_buf + 26);
       if (key_count > 0) {
         uint32_t rev_cache_count = gen::read_uint32(dict_buf + 46);
@@ -1176,16 +1177,18 @@ class inner_trie : public inner_trie_fwd {
           child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_term_loc);
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_term_loc);
         }
+        bvlt_block_count = tail_lt_loc == nullptr ? 3 : 4;
+
         if (trie_level == 0) {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc + 1, 4);
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_term_loc + 2, 4);
+          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc + 1, 4, bvlt_block_count);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_term_loc + 2, 4, bvlt_block_count);
         } else {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count * 2, tf_term_loc, 1);
+          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count * 2, tf_term_loc, 1, 1);
         }
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bvlt_rank();
-          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1);
+          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 4 : 1);
         }
       }
 
@@ -1515,11 +1518,11 @@ class static_trie : public inner_trie {
 
       load_inner_trie();
       opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
-      flags_width = opts->trie_leaf_count > 0 ? 32 : 24;
       key_count = gen::read_uint32(dict_buf + 26);
       if (key_count > 0) {
         max_tail_len = gen::read_uint16(dict_buf + 38) + 1;
 
+        uint8_t *term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
         uint8_t *leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 90);
         uint8_t *leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 94);
         uint64_t *tf_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
@@ -1534,7 +1537,7 @@ class static_trie : public inner_trie {
             leaf_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_LEAF, key_count, node_set_count, node_count, tf_loc);
           }
           leaf_lt = new bvlt_select();
-          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_loc + 3, 4);
+          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_loc + 3, 4, bvlt_block_count);
         }
       }
 

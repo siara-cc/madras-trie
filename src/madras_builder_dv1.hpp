@@ -2611,11 +2611,13 @@ class builder : public builder_fwd {
         tp.sec_cache_loc = tp.rev_cache_loc + tp.rev_cache_size;
 
         if (trie_level == 0) {
-          tp.term_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
+          tp.child_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
+          tp.term_select_lkup_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
+          uint32_t total_rank_lt_size = tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.leaf_rank_lt_sz + tp.tail_rank_lt_sz;
           tp.term_rank_lt_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
-          tp.child_select_lkup_loc = tp.term_rank_lt_loc + tp.term_rank_lt_sz;
-          tp.child_rank_lt_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-          tp.trie_flags_loc = tp.child_rank_lt_loc + tp.child_rank_lt_sz;
+          tp.child_rank_lt_loc = tp.term_rank_lt_loc + width_of_bv_block;
+          tp.trie_flags_loc = tp.term_rank_lt_loc + total_rank_lt_size;
+          tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.term_rank_lt_loc + width_of_bv_block * 3;
           tp.louds_rank_lt_loc = tp.term_rank_lt_loc; // dummy
           tp.louds_sel1_lt_loc = tp.term_select_lkup_loc; // dummy
           tp.trie_tail_ptrs_data_loc = tp.trie_flags_loc + trie_flags.size();
@@ -2623,24 +2625,24 @@ class builder : public builder_fwd {
           tp.louds_sel1_lt_loc = tp.sec_cache_loc + tp.sec_cache_size;
           tp.louds_rank_lt_loc = tp.louds_sel1_lt_loc + tp.louds_sel1_lt_sz;
           tp.trie_flags_loc = tp.louds_rank_lt_loc + tp.louds_rank_lt_sz;
+          tp.tail_rank_lt_loc = tp.trie_flags_loc + louds.size_bytes();
           tp.term_rank_lt_loc = tp.child_rank_lt_loc = tp.louds_rank_lt_loc; // dummy
           tp.term_select_lkup_loc = tp.child_select_lkup_loc = tp.louds_sel1_lt_loc; // dummy
-          tp.trie_tail_ptrs_data_loc = tp.trie_flags_loc + louds.size_bytes();
+          tp.trie_tail_ptrs_data_loc = tp.tail_rank_lt_loc + tp.tail_rank_lt_sz;
         }
 
-        tp.tail_rank_lt_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
-        tp.tail_flags_loc = tp.tail_rank_lt_loc + tp.tail_rank_lt_sz;
+        tp.leaf_rank_lt_loc = tp.term_rank_lt_loc + width_of_bv_block * 2;
+        tp.tail_flags_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
         tp.leaf_select_lkup_loc = tp.tail_flags_loc + trie_flags_tail.size();
-        tp.leaf_rank_lt_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
 
         if (!opts.dart)
           tp.sec_cache_loc = 0;
       } else {
-        tp.leaf_rank_lt_loc = tp.opts_loc + opts_size;
+        tp.leaf_select_lkup_loc = tp.opts_loc + opts_size;
         tp.tail_rank_lt_sz = 0;
       }
 
-      tp.names_loc = tp.leaf_rank_lt_loc + tp.leaf_rank_lt_sz;
+      tp.names_loc = tp.leaf_select_lkup_loc + tp.leaf_select_lt_sz;
       tp.names_sz = (column_count + 2) * sizeof(uint16_t) + names_len;
       tp.col_val_table_loc = tp.names_loc + tp.names_sz;
       int val_count = column_count - (no_primary_trie ? 0 : 1);
@@ -2756,26 +2758,25 @@ class builder : public builder_fwd {
           if (trie_level > 0) {
             write_louds_select_lt(fp);
             write_louds_rank_lt(fp);
-            fwrite(louds.raw_data()->data(), 1, louds.raw_data()->size() * sizeof(uint64_t), fp);
           } else {
-            write_bv_select_lt(BV_LT_TYPE_TERM, fp);
-            write_bv_rank_lt(BV_LT_TYPE_TERM, fp);
             write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
-            write_bv_rank_lt(BV_LT_TYPE_CHILD, fp);
-            fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
+            write_bv_select_lt(BV_LT_TYPE_TERM, fp);
+            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.leaf_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_LEAF) | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL), fp);
           }
         }
+        if (trie_level > 0) {
+          fwrite(louds.raw_data()->data(), 1, louds.raw_data()->size() * sizeof(uint64_t), fp);
+          if (tp.tail_rank_lt_sz > 0)
+            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
+        } else
+          fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
 
         write_trie_tail_ptrs_data(fp);
 
         if (!opts.dessicate) {
-          if (tp.tail_rank_lt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
           fwrite(trie_flags_tail.data(), 1, trie_flags_tail.size(), fp);
-          if (opts.leaf_lt && opts.trie_leaf_count > 0) {
+          if (opts.leaf_lt && opts.trie_leaf_count > 0)
             write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
-            write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
-          }
         }
       }
 
@@ -2866,11 +2867,16 @@ class builder : public builder_fwd {
     //   uint32_t ptr;
     // };
 
-    void write_bv_n(uint32_t node_id, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n, FILE *fp) {
+    void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n, FILE *fp) {
+      if (!to_write)
+        return;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n) - 1;
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        fwrite(bit_counts_n, 1, u8_arr_count, fp);
         gen::write_uint32(count, fp);
+        fwrite(bit_counts_n, 1, u8_arr_count, fp);
+        for (size_t i = 0; i < pos_n; i++)
+          count += bit_counts_n[i];
+        count += count_n;
         count_n = 0;
         memset(bit_counts_n, 0, u8_arr_count + 1);
         pos_n = 0;
@@ -2881,47 +2887,54 @@ class builder : public builder_fwd {
       }
     }
 
-    void write_bv_rank_lt(int which, FILE *fp) {
+    void write_bv_rank_lt(uint8_t which, FILE *fp) {
       uint32_t node_id = 0;
-      uint32_t count = 0;
-      uint32_t count_n = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       u8_arr_count--;
-      uint8_t bit_counts_n[u8_arr_count + 1];
-      uint8_t pos_n = 0;
-      memset(bit_counts_n, 0, u8_arr_count + 1);
-      gen::write_uint32(0, fp);
+      uint32_t count_tail = 0;
+      uint32_t count_term = 0;
+      uint32_t count_child = 0;
+      uint32_t count_leaf = 0;
+      uint32_t count_tail_n = 0;
+      uint32_t count_term_n = 0;
+      uint32_t count_child_n = 0;
+      uint32_t count_leaf_n = 0;
+      uint8_t bit_counts_tail_n[u8_arr_count + 1];
+      uint8_t bit_counts_term_n[u8_arr_count + 1];
+      uint8_t bit_counts_child_n[u8_arr_count + 1];
+      uint8_t bit_counts_leaf_n[u8_arr_count + 1];
+      uint8_t pos_tail_n = 0;
+      uint8_t pos_term_n = 0;
+      uint8_t pos_child_n = 0;
+      uint8_t pos_leaf_n = 0;
+      memset(bit_counts_tail_n, 0, u8_arr_count + 1);
+      memset(bit_counts_term_n, 0, u8_arr_count + 1);
+      memset(bit_counts_child_n, 0, u8_arr_count + 1);
+      memset(bit_counts_leaf_n, 0, u8_arr_count + 1);
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         uint8_t cur_node_flags = 0;
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
-        write_bv_n(node_id, count, count_n, bit_counts_n, pos_n, fp);
-        uint32_t ct = 0;
-        switch (which) {
-          case BV_LT_TYPE_TERM:
-            ct = (cur_node_flags & NFLAG_TERM ? 1 : 0);
-            break;
-          case BV_LT_TYPE_CHILD:
-            ct = (cur_node_flags & NFLAG_CHILD ? 1 : 0);
-            break;
-          case BV_LT_TYPE_LEAF:
-            ct = (cur_node_flags & NFLAG_LEAF ? 1 : 0);
-            break;
-          case BV_LT_TYPE_TAIL:
-            ct = (cur_node_flags & NFLAG_TAIL ? 1 : 0);
-            break;
-        }
-        count += ct;
-        count_n += ct;
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n, fp);
+        count_tail_n += (cur_node_flags & NFLAG_TAIL ? 1 : 0);
+        count_term_n += (cur_node_flags & NFLAG_TERM ? 1 : 0);
+        count_child_n += (cur_node_flags & NFLAG_CHILD ? 1 : 0);
+        count_leaf_n += (cur_node_flags & NFLAG_LEAF ? 1 : 0);
         node_id++;
         cur_node = ni.next();
       }
-      fwrite(bit_counts_n, 1, u8_arr_count, fp);
-      // extra (guard)
-      gen::write_uint32(count, fp);
-      fwrite(bit_counts_n, 1, u8_arr_count, fp);
+      node_id = nodes_per_bv_block; // just to make it write the last blocks
+      for (size_t i = 0; i < 2; i++) {
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n, fp);
+      }
     }
 
     void write_louds_rank_lt(FILE *fp) {
@@ -2932,17 +2945,14 @@ class builder : public builder_fwd {
       uint8_t bit_counts_n[u8_arr_count + 1];
       uint8_t pos_n = 0;
       memset(bit_counts_n, 0, u8_arr_count + 1);
-      gen::write_uint32(0, fp);
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
-        write_bv_n(i, count, count_n, bit_counts_n, pos_n, fp);
-        uint32_t ct = (louds[i] ? 1 : 0);
-        count += ct;
-        count_n += ct;
+        write_bv_n(i, true, count, count_n, bit_counts_n, pos_n, fp);
+        count_n += (louds[i] ? 1 : 0);
       }
-      fwrite(bit_counts_n, 1, u8_arr_count, fp);
-      gen::write_uint32(count, fp);
-      fwrite(bit_counts_n, 1, u8_arr_count, fp);
+      bit_count = nodes_per_bv_block; // just to make it write last blocks
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n, fp);
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n, fp);
     }
 
     void write_fwd_cache(FILE *fp) {
