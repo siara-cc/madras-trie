@@ -1177,7 +1177,7 @@ class inner_trie : public inner_trie_fwd {
           child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_term_loc);
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_term_loc);
         }
-        bvlt_block_count = tail_lt_loc == nullptr ? 3 : 4;
+        bvlt_block_count = tail_lt_loc == nullptr ? 2 : 3;
 
         if (trie_level == 0) {
           term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc + 1, 4, bvlt_block_count);
@@ -1188,7 +1188,7 @@ class inner_trie : public inner_trie_fwd {
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bvlt_rank();
-          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 4 : 1);
+          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 3 : 1);
         }
       }
 
@@ -1537,7 +1537,7 @@ class static_trie : public inner_trie {
             leaf_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_LEAF, key_count, node_set_count, node_count, tf_loc);
           }
           leaf_lt = new bvlt_select();
-          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_loc + 3, 4, bvlt_block_count);
+          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_loc + 3, 4, 1);
         }
       }
 

@@ -2613,11 +2613,11 @@ class builder : public builder_fwd {
         if (trie_level == 0) {
           tp.child_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
           tp.term_select_lkup_loc = tp.child_select_lkup_loc + tp.child_select_lt_sz;
-          uint32_t total_rank_lt_size = tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.leaf_rank_lt_sz + tp.tail_rank_lt_sz;
+          uint32_t total_rank_lt_size = tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz;
           tp.term_rank_lt_loc = tp.term_select_lkup_loc + tp.term_select_lt_sz;
           tp.child_rank_lt_loc = tp.term_rank_lt_loc + width_of_bv_block;
           tp.trie_flags_loc = tp.term_rank_lt_loc + total_rank_lt_size;
-          tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.term_rank_lt_loc + width_of_bv_block * 3;
+          tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.term_rank_lt_loc + width_of_bv_block * 2;
           tp.louds_rank_lt_loc = tp.term_rank_lt_loc; // dummy
           tp.louds_sel1_lt_loc = tp.term_select_lkup_loc; // dummy
           tp.trie_tail_ptrs_data_loc = tp.trie_flags_loc + trie_flags.size();
@@ -2631,8 +2631,8 @@ class builder : public builder_fwd {
           tp.trie_tail_ptrs_data_loc = tp.tail_rank_lt_loc + tp.tail_rank_lt_sz;
         }
 
-        tp.leaf_rank_lt_loc = tp.term_rank_lt_loc + width_of_bv_block * 2;
-        tp.tail_flags_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
+        tp.leaf_rank_lt_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
+        tp.tail_flags_loc = tp.leaf_rank_lt_loc + tp.leaf_rank_lt_sz;
         tp.leaf_select_lkup_loc = tp.tail_flags_loc + trie_flags_tail.size();
 
         if (!opts.dart)
@@ -2761,7 +2761,7 @@ class builder : public builder_fwd {
           } else {
             write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
             write_bv_select_lt(BV_LT_TYPE_TERM, fp);
-            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.leaf_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_LEAF) | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL), fp);
+            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL), fp);
           }
         }
         if (trie_level > 0) {
@@ -2774,6 +2774,8 @@ class builder : public builder_fwd {
         write_trie_tail_ptrs_data(fp);
 
         if (!opts.dessicate) {
+          if (trie_level == 0 && tp.leaf_rank_lt_sz > 0)
+            write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
           fwrite(trie_flags_tail.data(), 1, trie_flags_tail.size(), fp);
           if (opts.leaf_lt && opts.trie_leaf_count > 0)
             write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
