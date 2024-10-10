@@ -115,7 +115,17 @@ arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/
 {"name": "MADRAS", "build_ns_per_key": "2210.408263", "lookup_ns_per_query": "2387.227792", "best_lookup_ns_per_query": "2375.714050", "decode_ns_per_query": "2082.474197", "best_decode_ns_per_query": "2074.929510", "memory_in_bytes": "90327381"}
 arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
 {"name": "MADRAS", "build_ns_per_key": "2146.335451", "lookup_ns_per_query": "2844.047289", "best_lookup_ns_per_query": "2831.425640", "decode_ns_per_query": "2075.659567", "best_decode_ns_per_query": "2066.839590", "memory_in_bytes": "91328648"}
+Oct 10, bv block 512:
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "2324.839526", "lookup_ns_per_query": "2609.142724", "best_lookup_ns_per_query": "2600.445250", "decode_ns_per_query": "2185.912970", "best_decode_ns_per_query": "2177.685460", "memory_in_bytes": "81340952"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "2252.556398", "lookup_ns_per_query": "3199.380880", "best_lookup_ns_per_query": "3189.685210", "decode_ns_per_query": "2163.324112", "best_decode_ns_per_query": "2156.807170", "memory_in_bytes": "82348764"}
 
+Oct 10, bv block 512 tt:
+run@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "2208.250101", "lookup_ns_per_query": "2392.158524", "best_lookup_ns_per_query": "2383.002390", "decode_ns_per_query": "2124.808531", "best_decode_ns_per_query": "2115.871130", "memory_in_bytes": "90322057"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "2172.467512", "lookup_ns_per_query": "2855.965960", "best_lookup_ns_per_query": "2847.418000", "decode_ns_per_query": "2184.430314", "best_decode_ns_per_query": "2172.814400", "memory_in_bytes": "91323324"}
 
 32 entry ptr lt
 Sep 1
@@ -143,6 +153,11 @@ arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/
 {"name": "MADRAS", "build_ns_per_key": "2331.310679", "lookup_ns_per_query": "2436.091829", "best_lookup_ns_per_query": "2424.492620", "decode_ns_per_query": "2035.357764", "best_decode_ns_per_query": "2028.686650", "memory_in_bytes": "82242076"}
 arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
 {"name": "MADRAS", "build_ns_per_key": "2269.430903", "lookup_ns_per_query": "3004.124682", "best_lookup_ns_per_query": "2992.321880", "decode_ns_per_query": "2076.218040", "best_decode_ns_per_query": "2067.527450", "memory_in_bytes": "83269024"}
+Oct 10, bv block 512:
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "2364.775783", "lookup_ns_per_query": "2495.054124", "best_lookup_ns_per_query": "2487.394770", "decode_ns_per_query": "2105.540591", "best_decode_ns_per_query": "2096.841030", "memory_in_bytes": "82238424"}
+arun@arun-h110:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "2267.926403", "lookup_ns_per_query": "3026.948356", "best_lookup_ns_per_query": "3007.224070", "decode_ns_per_query": "2097.907594", "best_decode_ns_per_query": "2084.575700", "memory_in_bytes": "83265372"}
 
 
 Idx size: 83561878 Keys per sec: 1258.578463
