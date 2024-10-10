@@ -162,6 +162,10 @@ int main(int argc, char *argv[]) {
   }
 
   madras_dv1::input_ctx in_ctx;
+  uint8_t *val;
+  size_t val_len;
+
+  t = print_time_taken(t, "Time taken for load: ");
 
   line_count = 0;
   bool success = false;
@@ -177,8 +181,7 @@ int main(int argc, char *argv[]) {
     // if (strcmp((const char *) in_ctx.key, "a 10 episode") == 0)
     //   int ret = 1;
 
-    uint8_t *val = lines[i].first;
-    size_t val_len;
+    val = lines[i].first;
     // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
     // if (tab_loc != NULL) {
     //   key_len = tab_loc - line;
@@ -252,10 +255,10 @@ int main(int argc, char *argv[]) {
     //   std::cout << in_ctx.key << std::endl;
 
     line_count++;
-    if ((line_count % 100000) == 0) {
-      cout << ".";
-      cout.flush();
-    }
+    // if ((line_count % 100000) == 0) {
+    //   cout << ".";
+    //   cout.flush();
+    // }
   }
   // out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
   // if (out_key_len != -1)

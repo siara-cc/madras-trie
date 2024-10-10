@@ -1084,7 +1084,7 @@ class inner_trie : public inner_trie_fwd {
           in_ctx.key_pos++;
         }
         if (!rev_cache.try_find(node_id))
-          node_id = term_lt.select1(node_id + 1) - node_id - 2;
+          node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
       } while (node_id != 0);
       return true;
     }
@@ -1096,7 +1096,7 @@ class inner_trie : public inner_trie_fwd {
         } else
           tail_str.append(trie_loc[node_id]);
         if (!rev_cache.try_find(node_id))
-          node_id = term_lt.select1(node_id + 1) - node_id - 2;
+          node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
       } while (node_id != 0);
       return true;
     }
@@ -1117,7 +1117,6 @@ class inner_trie : public inner_trie_fwd {
       tail_lt = nullptr;
 
       node_count = gen::read_uint32(dict_buf + 14);
-      bldr_options *opts = (bldr_options *) (dict_buf + gen::read_uint32(dict_buf + 18));
       node_set_count = gen::read_uint32(dict_buf + 22);
       uint32_t key_count = gen::read_uint32(dict_buf + 26);
       if (key_count > 0) {
@@ -1139,15 +1138,9 @@ class inner_trie : public inner_trie_fwd {
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 8;
         trie_loc = tails_loc + tail_size;
 
-        uint64_t *tf_term_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
-        uint64_t *tf_ptr_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 118));
-        if (trie_level == 0) {
-          tf_ptr = new trie_flags_reader();
-          ((trie_flags_reader *) tf_ptr)->init(tf_term_loc, 4);
-        } else {
-          tf_ptr = new bm_reader();
-          ((bm_reader *) tf_ptr)->init(tf_ptr_loc);
-        }
+        uint64_t *tf_term_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 106));
+        tf_ptr = new trie_flags_reader();
+        ((trie_flags_reader *) tf_ptr)->init(tf_term_loc, trie_level == 0 ? 4 : 3);
 
         uint8_t encoding_type = tails_loc[2];
         uint8_t *tail_data_loc = tails_loc + gen::read_uint32(tails_loc + 12);
@@ -1157,7 +1150,7 @@ class inner_trie : public inner_trie_fwd {
           tail_map = tail_flat_map;
         } else {
           tail_ptr_group_map *tail_grp_map = new tail_ptr_group_map();
-          tail_grp_map->init(this, trie_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, tails_loc, key_count, node_count, true);
+          tail_grp_map->init(this, trie_loc, tf_term_loc, trie_level == 0 ? 4 : 3, tails_loc, key_count, node_count, true);
           tail_map = tail_grp_map;
         }
 
@@ -1179,16 +1172,13 @@ class inner_trie : public inner_trie_fwd {
         }
         bvlt_block_count = tail_lt_loc == nullptr ? 2 : 3;
 
-        if (trie_level == 0) {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc + 1, 4, bvlt_block_count);
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_term_loc + 2, 4, bvlt_block_count);
-        } else {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count * 2, tf_term_loc, 1, 1);
-        }
+        term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc + 1, trie_level == 0 ? 4 : 3, bvlt_block_count);
+        child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_term_loc + 2, trie_level == 0 ? 4 : 3, bvlt_block_count);
+
         if (tail_lt_loc != nullptr) {
           // TODO: to build if dessicated?
           tail_lt = new bvlt_rank();
-          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 3 : 1);
+          tail_lt->init(tail_lt_loc, tf_term_loc, trie_level == 0 ? 4 : 3, 3);
         }
       }
 
@@ -1522,10 +1512,9 @@ class static_trie : public inner_trie {
       if (key_count > 0) {
         max_tail_len = gen::read_uint16(dict_buf + 38) + 1;
 
-        uint8_t *term_lt_loc = dict_buf + gen::read_uint32(dict_buf + 78);
         uint8_t *leaf_select_lkup_loc = dict_buf + gen::read_uint32(dict_buf + 90);
         uint8_t *leaf_lt_loc = dict_buf + gen::read_uint32(dict_buf + 94);
-        uint64_t *tf_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
+        uint64_t *tf_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 106));
         trie_flags_loc = (trie_flags *) tf_loc;
 
         if (leaf_select_lkup_loc == dict_buf) leaf_select_lkup_loc = nullptr;
@@ -2120,7 +2109,7 @@ class static_trie_map : public static_trie {
       val_count = gen::read_uint16(dict_buf + 4);
       max_val_len = gen::read_uint32(dict_buf + 34);
 
-      uint64_t *tf_leaf_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 114));
+      uint64_t *tf_leaf_loc = (uint64_t *) (dict_buf + gen::read_uint32(dict_buf + 106));
 
       names_loc = dict_buf + gen::read_uint32(dict_buf + 6);
       uint8_t *val_table_loc = dict_buf + gen::read_uint32(dict_buf + 10);
