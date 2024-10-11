@@ -2482,12 +2482,22 @@ class builder : public builder_fwd {
           }
         }
         if (build_rev_cache) {
+          uint32_t tail_len = 1;
+          uint8_t tail[5] = {n.get_byte(), 0, 0, 0, 0};
+          if (n.get_flags() & NFLAG_TAIL) {
+            ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
+            leopard::uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[n.get_tail()];
+            tail_len = ti->len;
+            memcpy(tail, (*tail_vals.get_uniq_tails())[ti->pos], tail_len > 5 ? 5 : tail_len);
+          }
           uint32_t cache_loc = cur_node_id & cache_mask;
           nid_cache *rc = r_cache + cache_loc;
-          if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24)) {
+          if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < node_id_limit && cur_node_id < (1 << 24) && tail_len < 6) {
             r_cache_freq[cache_loc] = node_freq;
             gen::copy_uint24(parent_node_id, &rc->parent_node_id1);
             gen::copy_uint24(cur_node_id, &rc->child_node_id1);
+            rc->tail_flags = tail_len;
+            memcpy(&rc->tail1, tail, tail_len);
           }
         }
         n.next();
@@ -2599,7 +2609,7 @@ class builder : public builder_fwd {
           tp.fwd_cache_max_node_id = 0;
         if (opts.rev_cache) {
           tp.rev_cache_count = build_cache(false, true, tp.rev_cache_max_node_id);
-          tp.rev_cache_size = tp.rev_cache_count * 6; // 6 = parent_node_id (3) + child_node_id (3)
+          tp.rev_cache_size = tp.rev_cache_count * 12; // 6 = parent_node_id (3) + child_node_id (3)
         } else
           tp.rev_cache_max_node_id = 0;
         tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
