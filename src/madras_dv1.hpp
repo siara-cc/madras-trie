@@ -539,6 +539,7 @@ class tail_ptr_map {
     virtual ~tail_ptr_map() {
     }
     virtual bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) = 0;
+    virtual bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint8_t grp_no, uint32_t tail_ptr) = 0;
     virtual void get_tail_str(uint32_t node_id, gen::byte_str& tail_str, uint32_t& ptr_bit_count) = 0;
     virtual void get_tail_str(gen::byte_str& tail_str, uint8_t grp_no, uint32_t tail_ptr) = 0;
 };
@@ -719,6 +720,9 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
     bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
       uint8_t grp_no;
       uint32_t tail_ptr = get_tail_ptr(trie_loc[node_id], node_id, ptr_bit_count, grp_no);
+      return compare_tail(node_id, in_ctx, grp_no, tail_ptr);
+    }
+    bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint8_t grp_no, uint32_t tail_ptr) {
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0)
         return inner_tries[grp_no]->compare_trie_tail(tail_ptr, in_ctx);
@@ -845,6 +849,9 @@ class tail_ptr_flat_map : public tail_ptr_map {
     }
     bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
       uint32_t tail_ptr = get_tail_ptr(trie_loc[node_id], node_id, ptr_bit_count);
+      return compare_tail(node_id, in_ctx, 0, tail_ptr);
+    }
+    bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint8_t grp_no, uint32_t tail_ptr) {
       if (col_trie != nullptr)
         return col_trie->compare_trie_tail(tail_ptr, in_ctx);
       uint8_t *tail = data + tail_ptr;

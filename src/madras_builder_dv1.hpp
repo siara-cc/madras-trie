@@ -1121,6 +1121,23 @@ class tail_val_maps {
 
       for (size_t it_idx = 0; it_idx < ptr_grps.inner_tries.size(); it_idx++) {
         builder_fwd *inner_trie = ptr_grps.inner_tries[it_idx];
+        leopard::node_iterator ni_freq(inner_trie->get_memtrie()->all_node_sets, 0);
+        leopard::node cur_node = ni_freq.next();
+        while (cur_node != nullptr) {
+          if (cur_node.get_flags() & NFLAG_CHILD) {
+            uint32_t sum_freq = 0;
+            leopard::node_set_handler nsh_children(inner_trie->get_memtrie()->all_node_sets, cur_node.get_child());
+            for (size_t i = 0; i <= nsh_children.last_node_idx(); i++) {
+              leopard::node child_node = nsh_children[i];
+              if (child_node.get_flags() & NFLAG_LEAF) {
+                leopard::uniq_info *ti = uniq_tails_freq[cur_node.get_col_val()];
+                sum_freq += ti->freq_count;
+              }
+            }
+            nsh_children.get_ns_hdr()->freq = sum_freq;
+          }
+          cur_node = ni_freq.next();
+        }
         uint32_t trie_size = inner_trie->build();
         leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets, 0);
         leopard::node n = ni.next();
@@ -2121,13 +2138,30 @@ class builder : public builder_fwd {
           rev[j] = ti_data[ti->len - j - 1];
         tail_trie_builder->insert(rev, ti->len, nullptr, 0, i);
       }
+      leopard::node_iterator ni_freq(tail_trie_builder->memtrie.all_node_sets, 0);
+      leopard::node cur_node = ni_freq.next();
+      while (cur_node != nullptr) {
+        if (cur_node.get_flags() & NFLAG_CHILD) {
+          uint32_t sum_freq = 0;
+          leopard::node_set_handler nsh_children(tail_trie_builder->memtrie.all_node_sets, cur_node.get_child());
+          for (size_t i = 0; i <= nsh_children.last_node_idx(); i++) {
+            leopard::node child_node = nsh_children[i];
+            if (child_node.get_flags() & NFLAG_LEAF) {
+              leopard::uniq_info *ti = memtrie.uniq_tails_rev[cur_node.get_col_val()];
+              sum_freq += ti->freq_count;
+            }
+          }
+          nsh_children.get_ns_hdr()->freq = sum_freq;
+        }
+        cur_node = ni_freq.next();
+      }
       uint32_t trie_size = tail_trie_builder->build();
       int bit_len = ceil(log2(tail_trie_builder->memtrie.node_count + 1)) - 8;
       tail_vals.get_tail_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Tail trie bit_len: %d [log(%u) - 8]\n", bit_len, tail_trie_builder->memtrie.node_count);
       uint32_t node_id = 0;
       leopard::node_iterator ni_tt(tail_trie_builder->memtrie.all_node_sets, 0);
-      leopard::node cur_node = ni_tt.next();
+      cur_node = ni_tt.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_LEAF) {
           leopard::uniq_info *ti = memtrie.uniq_tails_rev[cur_node.get_col_val()];
@@ -2426,7 +2460,7 @@ class builder : public builder_fwd {
       leopard::node n = ns.first_node();
       leopard::node_set_header *ns_hdr = ns.get_ns_hdr();
       uint32_t cur_node_id = ns_hdr->node_id + (ns_hdr->flags & NODE_SET_LEAP ? 1 : 0);
-      uint32_t freq_count = 1;
+      uint32_t freq_count = trie_level > 0 ? ns_hdr->freq : 1;
       for (int i = 0; i <= ns_hdr->last_node_idx; i++) {
         uint32_t node_freq = build_cache(n.get_child(), cur_node_id, cache_mask, level + 1, build_fwd_cache, build_rev_cache);
         freq_count += node_freq;
