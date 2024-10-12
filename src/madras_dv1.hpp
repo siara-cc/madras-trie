@@ -418,7 +418,7 @@ class bvlt_rank {
       return rank + static_cast<uint32_t>(__builtin_popcountll(bm & (mask - 1)));
     }
     uint32_t block_rank1(uint32_t bv_pos) {
-      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * width_of_bv_block * lt_unit_count;
+      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_unit_count;
       uint32_t rank = gen::read_uint32(rank_ptr);
       int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
       if (pos > 0) {
@@ -439,7 +439,7 @@ class bvlt_rank {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
       multiplier = _multiplier;
-      lt_unit_count = _lt_unit_count;
+      lt_unit_count = _lt_unit_count * width_of_bv_block;
     }
 };
 
@@ -917,7 +917,7 @@ class bvlt_select : public bvlt_rank {
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
         const uint32_t middle = (first + last) >> 1;
-        if (given_count < gen::read_uint32(lt_rank_loc + middle * width_of_bv_block * lt_unit_count))
+        if (given_count < gen::read_uint32(lt_rank_loc + middle * lt_unit_count))
           last = middle;
         else
           first = middle;
@@ -932,17 +932,21 @@ class bvlt_select : public bvlt_rank {
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 4 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      while (gen::read_uint32(lt_rank_loc + block * width_of_bv_block * lt_unit_count) < target_count)
+      uint8_t *block_loc = lt_rank_loc + block * lt_unit_count;
+      while (gen::read_uint32(block_loc) < target_count) {
         block++;
+        block_loc += lt_unit_count;
+      }
       block--;
-      uint32_t cur_count = gen::read_uint32(lt_rank_loc + block * width_of_bv_block * lt_unit_count);
       uint32_t bv_pos = block * nodes_per_bv_block;
+      block_loc -= lt_unit_count;
+      uint32_t cur_count = gen::read_uint32(block_loc);
       if (cur_count == target_count)
-        return cur_count;
-      uint8_t *bv3 = lt_rank_loc + block * width_of_bv_block * lt_unit_count + 4;
+        return bv_pos;
+      block_loc += 4;
       int pos3;
       for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = bv3[pos3];
+        uint8_t count3 = block_loc[pos3];
         if (cur_count + count3 < target_count) {
           bv_pos += nodes_per_bv_block_n;
           cur_count += count3;
@@ -1501,6 +1505,10 @@ class static_trie : public inner_trie {
 
     uint8_t *get_trie_loc() {
       return trie_loc;
+    }
+
+    uint8_t *get_trie_bytes() {
+      return trie_bytes;
     }
 
     void load_static_trie() {
