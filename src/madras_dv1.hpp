@@ -887,35 +887,15 @@ class GCFC_rev_cache {
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    nid_cache *try_find(uint32_t& node_id) {
+    bool try_find(uint32_t& node_id) {
       if (node_id >= max_node_id)
-        return nullptr;
+        return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);
       if (node_id == gen::read_uint24(&cche->child_node_id1)) {
         node_id = gen::read_uint24(&cche->parent_node_id1);
-        return cche;
+        return true;
       }
-      return nullptr;
-    }
-    int compare(uint32_t& node_id, input_ctx& in_ctx) {
-      nid_cache *cche = try_find(node_id);
-      if (cche == nullptr)
-        return 1;
-      if (cche->tail_flags > in_ctx.key_len - in_ctx.key_pos)
-        return -1;
-      // TODO: compare byte by byte
-      if (memcmp(&cche->tail1, in_ctx.key + in_ctx.key_pos, cche->tail_flags) == 0) {
-        in_ctx.key_pos += cche->tail_flags;
-        return 0;
-      }
-      return -1;
-    }
-    int copy(uint32_t& node_id, gen::byte_str& tail_str) {
-      nid_cache *cche = try_find(node_id);
-      if (cche == nullptr)
-        return 1;
-      tail_str.append(&cche->tail1, cche->tail_flags);
-      return 0;
+      return false;
     }
     GCFC_rev_cache() {
     }
@@ -1086,11 +1066,6 @@ class inner_trie : public inner_trie_fwd {
   public:
     bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) {
       do {
-        int ret = rev_cache.compare(node_id, in_ctx);
-        if (ret == 0)
-          continue;
-        if (ret == -1)
-          return false;
         if ((*tf_ptr)[node_id]) {
           uint32_t ptr_bit_count = UINT32_MAX;
           if (!tail_map->compare_tail(node_id, in_ctx, ptr_bit_count))
@@ -1100,21 +1075,20 @@ class inner_trie : public inner_trie_fwd {
             return false;
           in_ctx.key_pos++;
         }
-        node_id = term_lt.select1(node_id + 1) - node_id - 2;
+        if (!rev_cache.try_find(node_id))
+          node_id = term_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
     bool copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str) {
       do {
-        int ret = rev_cache.copy(node_id, tail_str);
-        if (ret == 0)
-          continue;
         if ((*tf_ptr)[node_id]) {
           uint32_t ptr_bit_count = UINT32_MAX;
           tail_map->get_tail_str(node_id, tail_str, ptr_bit_count);
         } else
           tail_str.append(trie_loc[node_id]);
-        node_id = term_lt.select1(node_id + 1) - node_id - 2;
+        if (!rev_cache.try_find(node_id))
+          node_id = term_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
