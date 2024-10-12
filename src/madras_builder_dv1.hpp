@@ -100,6 +100,42 @@ struct trie_parts {
   bldr_min_pos_stats min_stats;
 };
 
+void output_byte(uint8_t b, FILE *fp, std::vector<uint8_t> *out_vec) {
+  if (fp == NULL)
+    out_vec->push_back(b);
+  else
+    fputc(b, fp);
+}
+
+void output_u32(uint32_t u32, FILE *fp, std::vector<uint8_t> *out_vec) {
+  if (fp == NULL)
+    gen::append_uint32(u32, *out_vec);
+  else
+    gen::write_uint32(u32, fp);
+}
+
+void output_u16(uint32_t u16, FILE *fp, std::vector<uint8_t> *out_vec) {
+  if (fp == NULL)
+    gen::append_uint16(u16, *out_vec);
+  else
+    gen::write_uint16(u16, fp);
+}
+
+void output_u24(uint32_t u24, FILE *fp, std::vector<uint8_t> *out_vec) {
+  if (fp == NULL)
+    gen::append_uint24(u24, *out_vec);
+  else
+    gen::write_uint24(u24, fp);
+}
+
+void output_bytes(const uint8_t *b, size_t len, FILE *fp, std::vector<uint8_t> *out_vec) {
+  if (fp == NULL) {
+    for (size_t i = 0; i < len; i++)
+      out_vec->push_back(b[i]);
+  } else
+    fwrite(b, 1, len, fp);
+}
+
 typedef int (*cmp_fn) (const uint8_t *v1, int len1, const uint8_t *v2, int len2);
 
 struct freq_grp {
@@ -116,6 +152,7 @@ struct freq_grp {
 class builder_fwd {
   public:
     FILE *fp;
+    byte_vec *out_vec;
     bldr_options opts;
     bool maintain_seq;
     bool no_primary_trie;
@@ -415,11 +452,11 @@ class ptr_groups {
     }
     #define CODE_LT_BIT_LEN 0
     #define CODE_LT_CODE_LEN 1
-    void write_code_lookup_tbl(bool is_tail, FILE* fp) {
-      write_code_lt(is_tail, CODE_LT_BIT_LEN, fp);
-      write_code_lt(is_tail, CODE_LT_CODE_LEN, fp);
+    void write_code_lookup_tbl(bool is_tail, FILE* fp, byte_vec *out_vec) {
+      write_code_lt(is_tail, CODE_LT_BIT_LEN, fp, out_vec);
+      write_code_lt(is_tail, CODE_LT_CODE_LEN, fp, out_vec);
     }
-    void write_code_lt(bool is_tail, int which, FILE* fp) {
+    void write_code_lt(bool is_tail, int which, FILE* fp, byte_vec *out_vec) {
       for (int i = 0; i < 256; i++) {
         uint8_t code_i = i;
         bool code_found = false;
@@ -429,10 +466,10 @@ class ptr_groups {
           if ((code_i >> (8 - code_len)) == code) {
             if (which == CODE_LT_BIT_LEN) {
               int bit_len = freq_grp_vec[j].grp_log2;
-              fputc(bit_len, fp);
+              output_byte(bit_len, fp, out_vec);
             }
             if (which == CODE_LT_CODE_LEN) {
-              fputc((j - 1) | (code_len << 4), fp);
+              output_byte((j - 1) | (code_len << 4), fp, out_vec);
             }
             code_found = true;
             break;
@@ -440,44 +477,44 @@ class ptr_groups {
         }
         if (!code_found) {
           //printf("Code not found: %d", i);
-          //fputc(0, fp);
-          fputc(0, fp);
+          //output_byte(0, fp, out_vec);
+          output_byte(0, fp, out_vec);
         }
       }
     }
-    void write_grp_data(uint32_t offset, bool is_tail, FILE* fp) {
+    void write_grp_data(uint32_t offset, bool is_tail, FILE* fp, byte_vec *out_vec) {
       int grp_count = grp_data.size() + inner_tries.size();
-      fputc(grp_count, fp);
+      output_byte(grp_count, fp, out_vec);
       if (inner_trie_start_grp > 0) {
-        fputc(inner_trie_start_grp - 1, fp);
-        //fputc(freq_grp_vec[grp_count].grp_log2, fp);
+        output_byte(inner_trie_start_grp - 1, fp, out_vec);
+        //output_byte(freq_grp_vec[grp_count].grp_log2, fp, out_vec);
       } else if (freq_grp_vec.size() == 2)
-        fputc(freq_grp_vec[1].grp_log2, fp);
+        output_byte(freq_grp_vec[1].grp_log2, fp, out_vec);
       else
-        fputc(0, fp);
-      write_code_lookup_tbl(is_tail, fp);
+        output_byte(0, fp, out_vec);
+      write_code_lookup_tbl(is_tail, fp, out_vec);
       uint32_t total_data_size = 0;
       for (size_t i = 0; i < grp_data.size(); i++) {
-        gen::write_uint32(offset + grp_count * 4 + total_data_size, fp);
+        output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
         total_data_size += grp_data[i].size();
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
-        gen::write_uint32(offset + grp_count * 4 + total_data_size, fp);
+        output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
         total_data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       }
       for (size_t i = 0; i < grp_data.size(); i++) {
-        fwrite(grp_data[i].data(), 1, grp_data[i].size(), fp);
+        output_bytes(grp_data[i].data(), grp_data[i].size(), fp, out_vec);
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
         inner_tries[i]->fp = fp;
         inner_tries[i]->write_trie();
       }
     }
-    void write_ptr_lookup_tbl(FILE *fp) {
-      fwrite(ptr_lookup_tbl.data(), 1, ptr_lookup_tbl.size(), fp);
+    void write_ptr_lookup_tbl(FILE *fp, byte_vec *out_vec) {
+      output_bytes(ptr_lookup_tbl.data(), ptr_lookup_tbl.size(), fp, out_vec);
     }
-    void write_ptrs(FILE *fp) {
-      fwrite(ptrs.data(), 1, ptrs.size(), fp);
+    void write_ptrs(FILE *fp, byte_vec *out_vec) {
+      output_bytes(ptrs.data(), ptrs.size(), fp, out_vec);
     }
     void append_val_ptr(leopard::node *cur_node, get_info_fn get_info_func,
           std::vector<leopard::uniq_info *>& info_vec) {
@@ -624,26 +661,26 @@ class ptr_groups {
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
     }
-    void write_ptrs_data(char data_type, uint8_t flags, bool is_tail, FILE *fp) {
-      fputc(ptr_lkup_tbl_ptr_width, fp);
-      fputc(data_type, fp);
-      fputc(enc_type, fp);
-      fputc(flags, fp);
-      gen::write_uint32(max_len, fp);
-      gen::write_uint32(ptr_lookup_tbl_loc, fp);
-      gen::write_uint32(grp_data_loc, fp);
-      gen::write_uint32(idx2_ptr_count, fp);
-      gen::write_uint32(idx2_ptrs_map_loc, fp);
-      gen::write_uint32(grp_ptrs_loc, fp);
+    void write_ptrs_data(char data_type, uint8_t flags, bool is_tail, FILE *fp, byte_vec *out_vec) {
+      output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
+      output_byte(data_type, fp, out_vec);
+      output_byte(enc_type, fp, out_vec);
+      output_byte(flags, fp, out_vec);
+      output_u32(max_len, fp, out_vec);
+      output_u32(ptr_lookup_tbl_loc, fp, out_vec);
+      output_u32(grp_data_loc, fp, out_vec);
+      output_u32(idx2_ptr_count, fp, out_vec);
+      output_u32(idx2_ptrs_map_loc, fp, out_vec);
+      output_u32(grp_ptrs_loc, fp, out_vec);
 
       if (enc_type == 't') {
-        write_ptrs(fp);
+        write_ptrs(fp, out_vec);
       } else {
-        write_ptr_lookup_tbl(fp);
-        write_ptrs(fp);
+        write_ptr_lookup_tbl(fp, out_vec);
+        write_ptrs(fp, out_vec);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
-        fwrite(idx2_ptrs_map->data(), 1, idx2_ptrs_map->size(), fp);
-        write_grp_data(grp_data_loc + 514, is_tail, fp); // group count, 512 lookup tbl, tail locs, tails
+        output_bytes(idx2_ptrs_map->data(), idx2_ptrs_map->size(), fp, out_vec);
+        write_grp_data(grp_data_loc + 514, is_tail, fp, out_vec); // group count, 512 lookup tbl, tail locs, tails
       }
       gen::gen_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Total size: %u\n",
         get_data_size(), get_ptrs_size(), ptr_lookup_tbl_sz, get_idx2_ptrs_map()->size(), get_total_size());
@@ -1438,12 +1475,12 @@ class tail_val_maps {
       t = gen::print_time_taken(t, "Time taken for build_val_maps(): ");
     }
 
-    void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp) {
-      ptr_grps.write_ptrs_data(LPDT_BIN, 1, true, fp);
+    void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp, byte_vec *out_vec) {
+      ptr_grps.write_ptrs_data(LPDT_BIN, 1, true, fp, out_vec);
     }
 
-    void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, uint8_t flags, FILE *fp) {
-      ptr_grps.write_ptrs_data(data_type, flags, false, fp);
+    void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, uint8_t flags, FILE *fp, byte_vec *out_vec) {
+      ptr_grps.write_ptrs_data(data_type, flags, false, fp, out_vec);
     }
 
     uint32_t get_tail_ptr(uint32_t grp_no, leopard::uniq_info *ti) {
@@ -1963,10 +2000,10 @@ class builder : public builder_fwd {
       printf("Rpt count: %d\n", tot_rpt_count);
       gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
       uint32_t ptr_lkup_tbl_ptr_width = 4;
-      fputc(ptr_lkup_tbl_ptr_width, fp);
-      fputc(LPDT_WORDS, fp); // data type
-      fputc(LPDT_WORDS, fp); // encoding type
-      fputc(0, fp); // flags
+      output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
+      output_byte(LPDT_WORDS, fp, out_vec); // data type
+      output_byte(LPDT_WORDS, fp, out_vec); // encoding type
+      output_byte(0, fp, out_vec); // flags
       uint32_t hdr_size = 6 * 4 + 4;
       uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
       uint32_t ptr_lookup_tbl_loc = hdr_size;
@@ -1975,20 +2012,20 @@ class builder : public builder_fwd {
       uint32_t idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
       uint32_t grp_data_loc = idx2_ptrs_map_loc + 0;
       uint32_t grp_data_size = 2 + words_grp_count * 4 + total_trie_size;
-      gen::write_uint32(memtrie.max_val_len, fp);
-      gen::write_uint32(ptr_lookup_tbl_loc, fp); // ptr_lookup_tbl_loc
-      gen::write_uint32(grp_data_loc, fp); // grp_data_loc
-      gen::write_uint32(idx2_ptr_count, fp); // idx2_ptr_count
-      gen::write_uint32(idx2_ptrs_map_loc, fp); // idx2_ptrs_map_loc
-      gen::write_uint32(grp_ptrs_loc, fp); // grp_ptrs_loc
-      fwrite(ptr_lkup_tbl.data(), 1, ptr_lkup_tbl.size(), fp);
-      fwrite(ptrs.data(), 1, ptrs.size(), fp);
+      output_u32(memtrie.max_val_len, fp, out_vec);
+      output_u32(ptr_lookup_tbl_loc, fp, out_vec); // ptr_lookup_tbl_loc
+      output_u32(grp_data_loc, fp, out_vec); // grp_data_loc
+      output_u32(idx2_ptr_count, fp, out_vec); // idx2_ptr_count
+      output_u32(idx2_ptrs_map_loc, fp, out_vec); // idx2_ptrs_map_loc
+      output_u32(grp_ptrs_loc, fp, out_vec); // grp_ptrs_loc
+      output_bytes(ptr_lkup_tbl.data(), ptr_lkup_tbl.size(), fp, out_vec);
+      output_bytes(ptrs.data(), ptrs.size(), fp, out_vec);
       // fwrite(idx2_ptrs_map->data(), idx2_ptrs_map->size(), 1, fp);
-      fputc(words_grp_count, fp);
-      fputc(0, fp); // grp_log2 (?)
+      output_byte(words_grp_count, fp, out_vec);
+      output_byte(0, fp, out_vec); // grp_log2 (?)
       total_trie_size = 0;
       for (int i = 0; i < words_grp_count; i++) {
-        gen::write_uint32(2 + words_grp_count * 4 + total_trie_size, fp);
+        output_u32(2 + words_grp_count * 4 + total_trie_size, fp, out_vec);
         total_trie_size += idx_sizes[i];
       }
       for (int i = 0; i < words_grp_count; i++) {
@@ -2100,6 +2137,7 @@ class builder : public builder_fwd {
           delete col_trie_builder;
         col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
         col_trie_builder->fp = fp;
+        col_trie_builder->out_vec = out_vec;
         return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
       }
       return memtrie.reset_for_next_col();
@@ -2120,6 +2158,7 @@ class builder : public builder_fwd {
       }
       builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, false, false, inner_trie_opts);
       ret->fp = fp;
+      ret->out_vec = out_vec;
       return ret;
     }
 
@@ -2305,26 +2344,27 @@ class builder : public builder_fwd {
       gen::print_time_taken(t, "Time taken for build_trie(): ");
       return end_loc;
     }
-    uint32_t write_trie_tail_ptrs_data(FILE *fp) {
+    uint32_t write_trie_tail_ptrs_data(FILE *fp, byte_vec *out_vec) {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
       gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
-      gen::write_uint32(tail_size, fp);
-      gen::write_uint32(trie_flags.size(), fp);
+      output_u32(tail_size, fp, out_vec);
+      output_u32(trie_flags.size(), fp, out_vec);
       gen::gen_printf("Tail stats - ");
-      tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp);
+      tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp, out_vec);
       if (opts.tail_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
+        tail_trie_builder->out_vec = out_vec;
         tail_trie_builder->write_trie(NULL);
       }
-      //fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
-      fwrite(trie.data(), 1, trie.size(), fp);
+      //output_bytes(trie_flags.data(), trie_flags.size(), fp, out_vec);
+      output_bytes(trie.data(), trie.size(), fp, out_vec);
       return 8 + tail_size + trie.size(); // + trie_flags.size();
     }
-    uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val) {
+    uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
       uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0 || encoding_type == 't') {
         gen::gen_printf("Stats - ");
-        tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, encoding_type, flags, fp_val);
+        tail_vals.write_val_ptrs_data(memtrie.all_node_sets, data_type, encoding_type, flags, fp_val, out_vec);
         val_fp_offset += tail_vals.get_val_grp_ptrs()->get_total_size();
       }
       return val_fp_offset;
@@ -2485,7 +2525,6 @@ class builder : public builder_fwd {
           uint32_t tail_len = 1;
           uint8_t tail[5] = {n.get_byte(), 0, 0, 0, 0};
           if (n.get_flags() & NFLAG_TAIL) {
-            ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
             leopard::uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[n.get_tail()];
             tail_len = ti->len;
             memcpy(tail, (*tail_vals.get_uniq_tails())[ti->pos], tail_len > 5 ? 5 : tail_len);
@@ -2572,14 +2611,14 @@ class builder : public builder_fwd {
       return 0; //todo
     }
 
-    void write_sec_cache(bldr_min_pos_stats& stats, uint32_t sec_cache_size, FILE *fp) {
+    void write_sec_cache(bldr_min_pos_stats& stats, uint32_t sec_cache_size) {
       for (int i = stats.min_len; i <= stats.max_len; i++) {
         for (int j = 0; j <= 255; j++) {
           uint8_t min_len = min_pos[i][j];
           if (min_len == 0xFF)
             min_len = 0;
           min_len++;
-          fputc(min_len, fp);
+          output_byte(min_len, fp, out_vec);
         }
       }
     }
@@ -2718,6 +2757,8 @@ class builder : public builder_fwd {
     void open_file() {
       if (fp != NULL)
         fclose(fp);
+      if (out_filename == nullptr)
+        return;
       fp = fopen(out_filename, "wb+");
       fclose(fp);
       fp = fopen(out_filename, "rb+");
@@ -2742,94 +2783,97 @@ class builder : public builder_fwd {
       if (fp == NULL)
         open_file();
 
-      size_t ftell_diff = ftell(fp);
+      size_t actual_trie_size = fp == nullptr ? 0 : ftell(fp);
 
-      fputc(0xA5, fp); // magic byte
-      fputc(0x01, fp); // version 1.0
-      fputc(0, fp); // reserved
-      fputc(0, fp);
+      if (fp == nullptr)
+        out_vec->reserve(tp.total_idx_size);
+
+      output_byte(0xA5, fp, out_vec); // magic byte
+      output_byte(0x01, fp, out_vec); // version 1.0
+      output_byte(0, fp, out_vec); // reserved
+      output_byte(0, fp, out_vec);
 
       int val_count = column_count - (no_primary_trie ? 0 : 1);
-      gen::write_uint16(val_count, fp);
-      gen::write_uint32(tp.names_loc, fp);
-      gen::write_uint32(tp.col_val_table_loc, fp);
+      output_u16(val_count, fp, out_vec);
+      output_u32(tp.names_loc, fp, out_vec);
+      output_u32(tp.col_val_table_loc, fp, out_vec);
 
-      gen::write_uint32(memtrie.node_count, fp);
-      gen::write_uint32(tp.opts_loc, fp);
-      gen::write_uint32(memtrie.node_set_count, fp);
-      gen::write_uint32(memtrie.key_count, fp);
-      gen::write_uint32(memtrie.max_key_len, fp);
-      gen::write_uint32(memtrie.max_val_len, fp);
-      gen::write_uint16(memtrie.max_tail_len, fp);
-      gen::write_uint16(memtrie.max_level, fp);
-      gen::write_uint32(tp.fwd_cache_count, fp);
-      gen::write_uint32(tp.rev_cache_count, fp);
-      gen::write_uint32(tp.fwd_cache_max_node_id, fp);
-      gen::write_uint32(tp.rev_cache_max_node_id, fp);
-      fwrite(&tp.min_stats, 1, 4, fp);
-      gen::write_uint32(tp.fwd_cache_loc, fp);
-      gen::write_uint32(tp.rev_cache_loc, fp);
-      gen::write_uint32(tp.sec_cache_loc, fp);
+      output_u32(memtrie.node_count, fp, out_vec);
+      output_u32(tp.opts_loc, fp, out_vec);
+      output_u32(memtrie.node_set_count, fp, out_vec);
+      output_u32(memtrie.key_count, fp, out_vec);
+      output_u32(memtrie.max_key_len, fp, out_vec);
+      output_u32(memtrie.max_val_len, fp, out_vec);
+      output_u16(memtrie.max_tail_len, fp, out_vec);
+      output_u16(memtrie.max_level, fp, out_vec);
+      output_u32(tp.fwd_cache_count, fp, out_vec);
+      output_u32(tp.rev_cache_count, fp, out_vec);
+      output_u32(tp.fwd_cache_max_node_id, fp, out_vec);
+      output_u32(tp.rev_cache_max_node_id, fp, out_vec);
+      output_bytes((const uint8_t *) &tp.min_stats, 4, fp, out_vec);
+      output_u32(tp.fwd_cache_loc, fp, out_vec);
+      output_u32(tp.rev_cache_loc, fp, out_vec);
+      output_u32(tp.sec_cache_loc, fp, out_vec);
 
       if (trie_level == 0) {
-        gen::write_uint32(tp.term_select_lkup_loc, fp);
-        gen::write_uint32(tp.term_rank_lt_loc, fp);
-        gen::write_uint32(tp.child_select_lkup_loc, fp);
-        gen::write_uint32(tp.child_rank_lt_loc, fp);
+        output_u32(tp.term_select_lkup_loc, fp, out_vec);
+        output_u32(tp.term_rank_lt_loc, fp, out_vec);
+        output_u32(tp.child_select_lkup_loc, fp, out_vec);
+        output_u32(tp.child_rank_lt_loc, fp, out_vec);
       } else {
-        gen::write_uint32(tp.louds_sel1_lt_loc, fp);
-        gen::write_uint32(tp.louds_rank_lt_loc, fp);
-        gen::write_uint32(tp.louds_sel1_lt_loc, fp);
-        gen::write_uint32(tp.louds_rank_lt_loc, fp);
+        output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
+        output_u32(tp.louds_rank_lt_loc, fp, out_vec);
+        output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
+        output_u32(tp.louds_rank_lt_loc, fp, out_vec);
       }
-      gen::write_uint32(tp.leaf_select_lkup_loc, fp);
-      gen::write_uint32(tp.leaf_rank_lt_loc, fp);
-      gen::write_uint32(tp.tail_rank_lt_loc, fp);
-      gen::write_uint32(tp.trie_tail_ptrs_data_loc, fp);
-      gen::write_uint32(tp.louds_rank_lt_loc, fp);
-      gen::write_uint32(tp.louds_sel1_lt_loc, fp);
-      gen::write_uint32(tp.trie_flags_loc, fp);
-      gen::write_uint32(tp.tail_flags_loc, fp);
+      output_u32(tp.leaf_select_lkup_loc, fp, out_vec);
+      output_u32(tp.leaf_rank_lt_loc, fp, out_vec);
+      output_u32(tp.tail_rank_lt_loc, fp, out_vec);
+      output_u32(tp.trie_tail_ptrs_data_loc, fp, out_vec);
+      output_u32(tp.louds_rank_lt_loc, fp, out_vec);
+      output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
+      output_u32(tp.trie_flags_loc, fp, out_vec);
+      output_u32(tp.tail_flags_loc, fp, out_vec);
 
-      fwrite(&opts, 1, opts_size, fp);
+      output_bytes((const uint8_t *) &opts, opts_size, fp, out_vec);
 
       if (!no_primary_trie) {
-        write_fwd_cache(fp);
-        write_rev_cache(fp);
+        write_fwd_cache();
+        write_rev_cache();
         if (tp.sec_cache_size > 0)
-          write_sec_cache(tp.min_stats, tp.sec_cache_size, fp);
+          write_sec_cache(tp.min_stats, tp.sec_cache_size);
         if (!opts.dessicate) {
           if (trie_level > 0) {
-            write_louds_select_lt(fp);
-            write_louds_rank_lt(fp);
+            write_louds_select_lt();
+            write_louds_rank_lt();
           } else {
-            write_bv_select_lt(BV_LT_TYPE_CHILD, fp);
-            write_bv_select_lt(BV_LT_TYPE_TERM, fp);
-            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL), fp);
+            write_bv_select_lt(BV_LT_TYPE_CHILD);
+            write_bv_select_lt(BV_LT_TYPE_TERM);
+            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL));
           }
         }
         if (trie_level > 0) {
-          fwrite(louds.raw_data()->data(), 1, louds.raw_data()->size() * sizeof(uint64_t), fp);
+          output_bytes((const uint8_t *) louds.raw_data()->data(), louds.raw_data()->size() * sizeof(uint64_t), fp, out_vec);
           if (tp.tail_rank_lt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_TAIL, fp);
+            write_bv_rank_lt(BV_LT_TYPE_TAIL);
         } else
-          fwrite(trie_flags.data(), 1, trie_flags.size(), fp);
+          output_bytes(trie_flags.data(), trie_flags.size(), fp, out_vec);
 
-        write_trie_tail_ptrs_data(fp);
+        write_trie_tail_ptrs_data(fp, out_vec);
 
         if (!opts.dessicate) {
           if (trie_level == 0 && tp.leaf_rank_lt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_LEAF, fp);
-          fwrite(trie_flags_tail.data(), 1, trie_flags_tail.size(), fp);
+            write_bv_rank_lt(BV_LT_TYPE_LEAF);
+          output_bytes(trie_flags_tail.data(), trie_flags_tail.size(), fp, out_vec);
           if (opts.leaf_lt && opts.trie_leaf_count > 0)
-            write_bv_select_lt(BV_LT_TYPE_LEAF, fp);
+            write_bv_select_lt(BV_LT_TYPE_LEAF);
         }
       }
 
       if (column_count > (no_primary_trie ? 0 : 1))
         val_table[0] = tp.col_val_loc0;
-      write_names(fp);
-      write_col_val_table(fp);
+      write_names();
+      write_col_val_table();
 
       gen::gen_printf("\nNodes#: %u, Node set#: %u\nTrie bv: %u, Leaf bv: %u, Tail bv: %u\n"
         "Select lt - Term: %u, Child: %u, Leaf: %u\n"
@@ -2846,9 +2890,11 @@ class builder : public builder_fwd {
       gen::print_time_taken(t, "Time taken for write_trie(): ");
       gen::gen_printf("Idx size: %u\n", tp.total_idx_size);
 
-      ftell_diff = ftell(fp) - ftell_diff;
-      if (tp.total_idx_size != ftell_diff)
-        printf("WARNING: Trie size not matching: %lu, ^%ld, lvl: %d -----------------------------------------------------------------------------------------------------------\n", ftell_diff, (long) ftell_diff - tp.total_idx_size, trie_level);
+      actual_trie_size = fp == nullptr ? out_vec->size() : (ftell(fp) - actual_trie_size);
+      if (fp == nullptr && trie_level > 0)
+        actual_trie_size = tp.total_idx_size;
+      if (tp.total_idx_size != actual_trie_size)
+        printf("WARNING: Trie size not matching: %lu, ^%ld, lvl: %d -----------------------------------------------------------------------------------------------------------\n", actual_trie_size, (long) actual_trie_size - tp.total_idx_size, trie_level);
 
       return tp.total_idx_size;
 
@@ -2865,23 +2911,23 @@ class builder : public builder_fwd {
       }
     }
 
-    void write_names(FILE *fp) {
+    void write_names() {
       int name_count = column_count + 2;
       for (int i = 0; i < name_count; i++)
-        gen::write_uint16(names_positions[i], fp);
-      fwrite(names, 1, names_len, fp);
+        output_u16(names_positions[i], fp, out_vec);
+      output_bytes((const uint8_t *) names, names_len, fp, out_vec);
     }
 
-    void write_col_val_table(FILE *fp) {
+    void write_col_val_table() {
       int val_count = column_count - (no_primary_trie ? 0 : 1);
       for (int i = 0; i < val_count; i++)
-        gen::write_uint32(val_table[i], fp);
+        output_u32(val_table[i], fp, out_vec);
     }
 
     uint32_t write_col_val() {
       char data_type = column_types[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
       char encoding_type = column_encoding[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
-      uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, 1, fp); // TODO: fix flags
+      uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, 1, fp, out_vec); // TODO: fix flags
       if (memtrie.cur_col_idx > 0) {
         uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
         val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
@@ -2896,7 +2942,7 @@ class builder : public builder_fwd {
         return;
       }
       fseek(fp, tp.col_val_table_loc, SEEK_SET);
-      write_col_val_table(fp);
+      write_col_val_table();
       int val_count = column_count - (no_primary_trie ? 0 : 1);
       gen::gen_printf("Val count: %d, tbl:", val_count);
       for (int i = 0; i < val_count; i++)
@@ -2913,13 +2959,13 @@ class builder : public builder_fwd {
     //   uint32_t ptr;
     // };
 
-    void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n, FILE *fp) {
+    void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n) {
       if (!to_write)
         return;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n) - 1;
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        gen::write_uint32(count, fp);
-        fwrite(bit_counts_n, 1, u8_arr_count, fp);
+        output_u32(count, fp, out_vec);
+        output_bytes(bit_counts_n, u8_arr_count, fp, out_vec);
         for (size_t i = 0; i < pos_n; i++)
           count += bit_counts_n[i];
         count += count_n;
@@ -2933,7 +2979,7 @@ class builder : public builder_fwd {
       }
     }
 
-    void write_bv_rank_lt(uint8_t which, FILE *fp) {
+    void write_bv_rank_lt(uint8_t which) {
       uint32_t node_id = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       u8_arr_count--;
@@ -2963,10 +3009,10 @@ class builder : public builder_fwd {
         uint8_t cur_node_flags = 0;
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
         count_tail_n += (cur_node_flags & NFLAG_TAIL ? 1 : 0);
         count_term_n += (cur_node_flags & NFLAG_TERM ? 1 : 0);
         count_child_n += (cur_node_flags & NFLAG_CHILD ? 1 : 0);
@@ -2976,14 +3022,14 @@ class builder : public builder_fwd {
       }
       node_id = nodes_per_bv_block; // just to make it write the last blocks
       for (size_t i = 0; i < 2; i++) {
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n, fp);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n, fp);
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
       }
     }
 
-    void write_louds_rank_lt(FILE *fp) {
+    void write_louds_rank_lt() {
       uint32_t count = 0;
       uint32_t count_n = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
@@ -2993,20 +3039,20 @@ class builder : public builder_fwd {
       memset(bit_counts_n, 0, u8_arr_count + 1);
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
-        write_bv_n(i, true, count, count_n, bit_counts_n, pos_n, fp);
+        write_bv_n(i, true, count, count_n, bit_counts_n, pos_n);
         count_n += (louds[i] ? 1 : 0);
       }
       bit_count = nodes_per_bv_block; // just to make it write last blocks
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n, fp);
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n, fp);
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
     }
 
-    void write_fwd_cache(FILE *fp) {
-      fwrite(f_cache, 1, tp.fwd_cache_count * sizeof(fwd_cache), fp);
+    void write_fwd_cache() {
+      output_bytes((const uint8_t *) f_cache, tp.fwd_cache_count * sizeof(fwd_cache), fp, out_vec);
     }
 
-    void write_rev_cache(FILE *fp) {
-      fwrite(r_cache, 1, tp.rev_cache_count * sizeof(nid_cache), fp);
+    void write_rev_cache() {
+      output_bytes((const uint8_t *) r_cache, tp.rev_cache_count * sizeof(nid_cache), fp, out_vec);
     }
 
     bool node_qualifies_for_select(leopard::node *cur_node, uint8_t cur_node_flags, int which) {
@@ -3021,10 +3067,10 @@ class builder : public builder_fwd {
       return false;
     }
 
-    void write_bv_select_lt(int which, FILE *fp) {
+    void write_bv_select_lt(int which) {
       uint32_t node_id = 0;
       uint32_t one_count = 0;
-      gen::write_uint24(0, fp);
+      output_u24(0, fp, out_vec);
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -3034,7 +3080,7 @@ class builder : public builder_fwd {
         if (node_qualifies_for_select(&cur_node, cur_node_flags, which)) {
           if (one_count && (one_count % sel_divisor) == 0) {
             uint32_t val_to_write = node_id / nodes_per_bv_block;
-            gen::write_uint24(val_to_write, fp);
+            output_u24(val_to_write, fp, out_vec);
             if (val_to_write > (1 << 24))
               gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
@@ -3043,25 +3089,25 @@ class builder : public builder_fwd {
         node_id++;
         cur_node = ni.next();
       }
-      gen::write_uint24(memtrie.node_count/nodes_per_bv_block, fp);
+      output_u24(memtrie.node_count/nodes_per_bv_block, fp, out_vec);
     }
 
-    void write_louds_select_lt(FILE *fp) {
+    void write_louds_select_lt() {
       uint32_t one_count = 0;
-      gen::write_uint24(0, fp);
+      output_u24(0, fp, out_vec);
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
         if (louds[i]) {
           if (one_count && (one_count % sel_divisor) == 0) {
             uint32_t val_to_write = i / nodes_per_bv_block;
-            gen::write_uint24(val_to_write, fp);
+            output_u24(val_to_write, fp, out_vec);
             if (val_to_write > (1 << 24))
               gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
           one_count++;
         }
       }
-      gen::write_uint24(bit_count / nodes_per_bv_block, fp);
+      output_u24(bit_count / nodes_per_bv_block, fp, out_vec);
     }
 
     leopard::uniq_info *get_ti(leopard::node *n) {
@@ -3083,6 +3129,14 @@ class builder : public builder_fwd {
 
     uint32_t get_node_id_from_sequence(uint32_t ins_seq_id) {
       return memtrie.get_node_id_from_sequence(ins_seq_id);
+    }
+
+    void set_out_vec(byte_vec *ov) {
+      out_vec = ov;
+    }
+
+    byte_vec *get_out_vec() {
+      return out_vec;
     }
 
 };

@@ -1938,6 +1938,7 @@ class static_trie_map : public static_trie {
     const char *column_encoding;
     bool is_mmapped;
     bool to_release_trie_bytes;
+    size_t trie_size;
   public:
     static_trie_map() {
       val_map = nullptr;
@@ -1949,7 +1950,7 @@ class static_trie_map : public static_trie {
         map_unmap();
       if (trie_bytes != nullptr) {
         if (to_release_trie_bytes)
-          free(trie_bytes);
+          delete [] trie_bytes;
       }
       if (val_map != nullptr) {
         delete [] val_map;
@@ -2040,7 +2041,7 @@ class static_trie_map : public static_trie {
     }
 
     void map_from_memory(uint8_t *mem) {
-      load_from_mem(mem);
+      load_from_mem(mem, 0);
     }
 
     void set_print_enabled(bool to_print_messages = true) {
@@ -2096,10 +2097,15 @@ class static_trie_map : public static_trie {
       is_mmapped = false;
     }
 
-    void load_from_mem(uint8_t *mem) {
+    void load_from_mem(uint8_t *mem, size_t sz) {
       trie_bytes = mem;
+      trie_size = sz;
       to_release_trie_bytes = false;
       load_into_vars();
+    }
+
+    size_t get_size() {
+      return trie_size;
     }
 
     void load(const char* filename) {
@@ -2108,7 +2114,7 @@ class static_trie_map : public static_trie {
       struct stat file_stat;
       memset(&file_stat, 0, sizeof(file_stat));
       stat(filename, &file_stat);
-      trie_bytes = (uint8_t *) malloc(file_stat.st_size);
+      trie_bytes = new uint8_t[file_stat.st_size];
 
       FILE *fp = fopen(filename, "rb");
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
