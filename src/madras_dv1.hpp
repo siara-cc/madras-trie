@@ -405,10 +405,13 @@ class bvlt_rank {
     uint64_t *bm_loc;
     uint8_t *lt_rank_loc;
     uint8_t multiplier;
-    uint8_t lt_unit_count;
+    uint8_t lt_width;
   public:
     bool operator[](size_t pos) {
       return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
+    }
+    bool is_set1(size_t pos) {
+      return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
     }
     uint32_t rank1(uint32_t bv_pos) {
       uint32_t rank = block_rank1(bv_pos);
@@ -418,7 +421,7 @@ class bvlt_rank {
       return rank + static_cast<uint32_t>(__builtin_popcountll(bm & (mask - 1)));
     }
     uint32_t block_rank1(uint32_t bv_pos) {
-      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_unit_count;
+      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
       uint32_t rank = gen::read_uint32(rank_ptr);
       int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
       if (pos > 0) {
@@ -439,7 +442,7 @@ class bvlt_rank {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
       multiplier = _multiplier;
-      lt_unit_count = _lt_unit_count * width_of_bv_block;
+      lt_width = _lt_unit_count * width_of_bv_block;
     }
 };
 
@@ -456,7 +459,7 @@ class inner_trie_fwd {
     inner_trie_fwd(inner_trie_fwd const&);
     inner_trie_fwd& operator=(inner_trie_fwd const&);
   public:
-    bvlt_rank *tail_lt;
+    bvlt_rank tail_lt;
     inner_trie_fwd() {
     }
     virtual ~inner_trie_fwd() {
@@ -837,7 +840,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
     }
     uint32_t get_tail_ptr(uint8_t node_byte, uint32_t node_id, uint32_t& ptr_bit_count) {
       if (ptr_bit_count == UINT32_MAX)
-        ptr_bit_count = dict_obj->tail_lt->rank1(node_id);
+        ptr_bit_count = dict_obj->tail_lt.rank1(node_id);
       uint32_t flat_ptr = int_ptr_bv[ptr_bit_count++];
       flat_ptr <<= 8;
       flat_ptr |= node_byte;
@@ -917,7 +920,7 @@ class bvlt_select : public bvlt_rank {
     uint32_t bin_srch_lkup_tbl(uint32_t first, uint32_t last, uint32_t given_count) {
       while (first + 1 < last) {
         const uint32_t middle = (first + last) >> 1;
-        if (given_count < gen::read_uint32(lt_rank_loc + middle * lt_unit_count))
+        if (given_count < gen::read_uint32(lt_rank_loc + middle * lt_width))
           last = middle;
         else
           first = middle;
@@ -932,31 +935,23 @@ class bvlt_select : public bvlt_rank {
       // uint32_t end_block = gen::read_uint24(select_loc + 3);
       // if (block + 4 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      uint8_t *block_loc = lt_rank_loc + block * lt_unit_count;
+      uint8_t *block_loc = lt_rank_loc + block * lt_width;
       while (gen::read_uint32(block_loc) < target_count) {
         block++;
-        block_loc += lt_unit_count;
+        block_loc += lt_width;
       }
       block--;
       uint32_t bv_pos = block * nodes_per_bv_block;
-      block_loc -= lt_unit_count;
+      block_loc -= lt_width;
       uint32_t cur_count = gen::read_uint32(block_loc);
       if (cur_count == target_count)
         return bv_pos;
       block_loc += 4;
-      int pos3;
-      for (pos3 = 0; pos3 < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos3++) {
-        uint8_t count3 = block_loc[pos3];
-        if (cur_count + count3 < target_count) {
-          bv_pos += nodes_per_bv_block_n;
-          cur_count += count3;
-        } else
-          break;
+      for (int pos_n = 0; cur_count + block_loc[pos_n] < target_count && pos_n < width_of_bv_block_n
+                             && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos_n++) {
+        bv_pos += nodes_per_bv_block_n;
+        cur_count += block_loc[pos_n];
       }
-      // if (pos3) {
-      //   pos3--;
-      //   cur_count += bv3[pos3];
-      // }
       if (cur_count == target_count)
         return bv_pos;
       uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
@@ -966,10 +961,10 @@ class bvlt_select : public bvlt_rank {
 
       uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
       size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
-      if (bit_loc == 65) {
-        printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
-        return 64;
-      }
+      // if (bit_loc == 65) {
+      //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
+      //   return 64;
+      // }
 
       // size_t bit_loc = 0;
       // while (bit_loc < 64) {
@@ -996,51 +991,12 @@ class bvlt_select : public bvlt_rank {
     }
     bvlt_select() {
     }
-    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint32_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
-      bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier, _lt_unit_count);
+    void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uint32_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_width) {
+      bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier, _lt_width);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;
     }
 
-};
-
-class flags_reader {
-  public:
-    virtual bool operator[](size_t pos) = 0;
-};
-
-class trie_flags_reader : public flags_reader {
-  private:
-    trie_flags_reader(trie_flags_reader const&);
-    trie_flags_reader& operator=(trie_flags_reader const&);
-    uint64_t *bm_loc;
-    uint8_t multiplier;
-  public:
-    bool operator[](size_t pos) {
-      return (bm_loc[(pos / 64) * multiplier] & ((uint64_t)1 << (pos % 64))) != 0;
-    }
-    trie_flags_reader() {
-    }
-    void init(uint64_t *_flags_loc, uint8_t _multiplier) {
-      bm_loc = _flags_loc;
-      multiplier = _multiplier;
-    }
-};
-
-class bm_reader : public flags_reader {
-  private:
-    bm_reader(bm_reader const&);
-    bm_reader& operator=(bm_reader const&);
-  public:
-    uint64_t *bm_loc;
-    bool operator[](size_t pos) {
-      return (bm_loc[pos / 64] & ((uint64_t)1 << (pos % 64))) != 0;
-    }
-    bm_reader() {
-    }
-    void init(uint64_t *_flags_loc) {
-      bm_loc = _flags_loc;
-    }
 };
 
 struct trie_flags {
@@ -1061,7 +1017,6 @@ class inner_trie : public inner_trie_fwd {
     uint8_t trie_level;
     uint8_t lt_not_given;
     uint8_t *trie_loc;
-    flags_reader *tf_ptr;
     tail_ptr_map *tail_map;
     bvlt_select term_lt;
     bvlt_select child_lt;
@@ -1070,7 +1025,7 @@ class inner_trie : public inner_trie_fwd {
   public:
     bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) {
       do {
-        if ((*tf_ptr)[node_id]) {
+        if (tail_lt.is_set1(node_id)) {
           uint32_t ptr_bit_count = UINT32_MAX;
           if (!tail_map->compare_tail(node_id, in_ctx, ptr_bit_count))
             return false;
@@ -1086,7 +1041,7 @@ class inner_trie : public inner_trie_fwd {
     }
     bool copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str) {
       do {
-        if ((*tf_ptr)[node_id]) {
+        if (tail_lt.is_set1(node_id)) {
           uint32_t ptr_bit_count = UINT32_MAX;
           tail_map->get_tail_str(node_id, tail_str, ptr_bit_count);
         } else
@@ -1110,7 +1065,6 @@ class inner_trie : public inner_trie_fwd {
 
       tail_map = nullptr;
       trie_loc = nullptr;
-      tail_lt = nullptr;
 
       node_count = gen::read_uint32(trie_bytes + 14);
       node_set_count = gen::read_uint32(trie_bytes + 22);
@@ -1136,13 +1090,6 @@ class inner_trie : public inner_trie_fwd {
 
         uint64_t *tf_term_loc = (uint64_t *) (trie_bytes + gen::read_uint32(trie_bytes + 114));
         uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + gen::read_uint32(trie_bytes + 118));
-        if (trie_level == 0) {
-          tf_ptr = new trie_flags_reader();
-          ((trie_flags_reader *) tf_ptr)->init(tf_term_loc, 4);
-        } else {
-          tf_ptr = new bm_reader();
-          ((bm_reader *) tf_ptr)->init(tf_ptr_loc);
-        }
 
         uint8_t encoding_type = tails_loc[2];
         uint8_t *tail_data_loc = tails_loc + gen::read_uint32(tails_loc + 12);
@@ -1161,7 +1108,7 @@ class inner_trie : public inner_trie_fwd {
         if (term_lt_loc == trie_bytes) term_lt_loc = nullptr;
         if (child_select_lkup_loc == trie_bytes) child_select_lkup_loc = nullptr;
         if (child_lt_loc == trie_bytes) child_lt_loc = nullptr;
-        if (tail_lt_loc == trie_bytes) tail_lt_loc = nullptr;
+        if (tail_lt_loc == trie_bytes) tail_lt_loc = nullptr; // TODO: to build if dessicated?
         if (term_lt_loc == nullptr) {
           lt_not_given |= BV_LT_TYPE_TERM;
           term_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_TERM, node_count, tf_term_loc);
@@ -1180,11 +1127,7 @@ class inner_trie : public inner_trie_fwd {
         } else {
           term_lt.init(term_lt_loc, term_select_lkup_loc, node_count * 2, tf_term_loc, 1, 1);
         }
-        if (tail_lt_loc != nullptr) {
-          // TODO: to build if dessicated?
-          tail_lt = new bvlt_rank();
-          tail_lt->init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 3 : 1);
-        }
+        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_term_loc : tf_ptr_loc, trie_level == 0 ? 4 : 1, trie_level == 0 ? 3 : 1);
       }
 
     }
@@ -1201,8 +1144,6 @@ class inner_trie : public inner_trie_fwd {
         delete [] term_lt.get_rank_loc();
         delete [] term_lt.get_select_loc1();
       }
-      if (tail_lt != nullptr)
-        delete tail_lt;
     }
 
 };
@@ -1333,7 +1274,7 @@ class static_trie : public inner_trie {
       gen::byte_str tail(tail_buf, max_tail_len);
       int key_len = 0;
       do {
-        if ((*tf_ptr)[node_id]) {
+        if (tail_lt[node_id]) {
           uint32_t ptr_bit_count = UINT32_MAX;
           tail.clear();
           tail_map->get_tail_str(node_id, tail, ptr_bit_count);
@@ -1419,11 +1360,11 @@ class static_trie : public inner_trie {
       uint32_t child_count;
       uint32_t node_id = read_from_ctx(ctx, cv, child_count);
       while (node_id < node_count) {
-        if (!(*leaf_lt)[node_id] && !child_lt[node_id]) {
+        if (leaf_lt != nullptr && !(*leaf_lt)[node_id] && !child_lt[node_id]) {
           node_id++;
           continue;
         }
-        if ((*leaf_lt)[node_id]) {
+        if (leaf_lt == nullptr || (*leaf_lt)[node_id]) {
           if (ctx.to_skip_first_leaf) {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
@@ -1439,7 +1380,7 @@ class static_trie : public inner_trie {
           } else {
             cv.tail.clear();
             uint32_t ptr_bit_count = UINT32_MAX;
-            if ((*tf_ptr)[node_id])
+            if (tail_lt[node_id])
               tail_map->get_tail_str(node_id, cv.tail, ptr_bit_count);
             else
               cv.tail.append(trie_loc[node_id]);
@@ -1454,7 +1395,7 @@ class static_trie : public inner_trie {
           child_count++;
           cv.tail.clear();
           uint32_t ptr_bit_count = UINT32_MAX;
-          if ((*tf_ptr)[node_id])
+          if (tail_lt[node_id])
             tail_map->get_tail_str(node_id, cv.tail, ptr_bit_count);
           else
             cv.tail.append(trie_loc[node_id]);
@@ -1574,7 +1515,6 @@ class static_trie : public inner_trie {
       max_tail_len = 0;
       tail_map = nullptr;
       trie_loc = nullptr;
-      tail_lt = nullptr;
       leaf_lt = nullptr;
 
     }
