@@ -2,6 +2,8 @@
 *.o
 run_tests*
 !run_tests_dv1.cpp
+madras_bench*
+!madras_bench_dv1.cpp
 prgs/query_mdx*
 !prgs/query_mdx.cpp
 a.out*

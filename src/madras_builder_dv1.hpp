@@ -2700,8 +2700,8 @@ class builder : public builder_fwd {
           tp.louds_rank_lt_loc = tp.louds_sel1_lt_loc + tp.louds_sel1_lt_sz;
           tp.trie_flags_loc = tp.louds_rank_lt_loc + tp.louds_rank_lt_sz;
           tp.tail_rank_lt_loc = tp.trie_flags_loc + louds.size_bytes();
-          tp.term_rank_lt_loc = tp.child_rank_lt_loc = tp.louds_rank_lt_loc; // dummy
-          tp.term_select_lkup_loc = tp.child_select_lkup_loc = tp.louds_sel1_lt_loc; // dummy
+          tp.term_rank_lt_loc = tp.child_rank_lt_loc = tp.louds_rank_lt_loc; // All point to louds
+          tp.term_select_lkup_loc = tp.child_select_lkup_loc = tp.louds_sel1_lt_loc; // All point to louds
           tp.trie_tail_ptrs_data_loc = tp.tail_rank_lt_loc + tp.tail_rank_lt_sz;
         }
 

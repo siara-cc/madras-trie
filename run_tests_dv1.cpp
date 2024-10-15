@@ -143,6 +143,9 @@ int main(int argc, char *argv[]) {
 
   t = print_time_taken(t, "Time taken for insert/append: ");
 
+  bool nodes_sorted_on_freq = sb->opts.sort_nodes_on_freq;
+  delete sb;
+
   madras_dv1::static_trie_map trie_reader;
   trie_reader.set_print_enabled(true);
   trie_reader.load(out_file.c_str());
@@ -191,7 +194,7 @@ int main(int argc, char *argv[]) {
     //   val_len = (line_len > 6 ? 7 : line_len);
     // }
 
-    if (is_sorted && !sb->opts.sort_nodes_on_freq) {
+    if (is_sorted && !nodes_sorted_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf);
       if (out_key_len != in_ctx.key_len)
         printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
@@ -246,14 +249,6 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // success = sb.get(in_ctx.key, in_ctx.key_len, &val_len, val_buf);
-    // if (success) {
-    //   val_buf[val_len] = 0;
-    //   if (strncmp((const char *) in_ctx.key, (const char *) val_buf, 7) != 0)
-    //     printf("key: [%.*s], val: [%.*s]\n", (int) in_ctx.key_len, in_ctx.key, val_len, val_buf);
-    // } else
-    //   std::cout << in_ctx.key << std::endl;
-
     line_count++;
     // if ((line_count % 100000) == 0) {
     //   cout << ".";
@@ -266,8 +261,6 @@ int main(int argc, char *argv[]) {
 
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for retrieve: ");
-
-  delete sb;
 
   free(file_buf);
 
