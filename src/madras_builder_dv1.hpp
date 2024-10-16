@@ -2957,15 +2957,15 @@ class builder : public builder_fwd {
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         output_u32(count, fp, out_vec);
         output_bytes(bit_counts_n, u8_arr_count, fp, out_vec);
-        for (size_t i = 0; i < pos_n; i++)
-          count += bit_counts_n[i];
+        // for (size_t i = 0; i < pos_n; i++)
+        //   count += bit_counts_n[i];
         count += count_n;
         count_n = 0;
         memset(bit_counts_n, 0, u8_arr_count + 1);
         pos_n = 0;
       } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
         bit_counts_n[pos_n] = count_n;
-        count_n = 0;
+        //count_n = 0;
         pos_n++;
       }
     }
