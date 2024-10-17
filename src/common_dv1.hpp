@@ -18,12 +18,12 @@ namespace madras_dv1 {
 #define MDX_FWD_MRU_NID_CACHE 1
 #define MDX_REV_MRU_NID_CACHE 2
 
-#define nodes_per_bv_block 256
-#define width_of_bv_block 7
-#define width_of_bv_block_n 3
-// #define nodes_per_bv_block 512
-// #define width_of_bv_block 12
-// #define width_of_bv_block_n 8
+// #define nodes_per_bv_block 256
+// #define width_of_bv_block 7
+// #define width_of_bv_block_n 3
+#define nodes_per_bv_block 512
+#define width_of_bv_block 11
+#define width_of_bv_block_n 7
 #define nodes_per_bv_block_n 64
 
 // #define nodes_per_ptr_block 64
