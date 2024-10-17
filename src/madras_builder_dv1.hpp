@@ -2950,21 +2950,28 @@ class builder : public builder_fwd {
     //   uint32_t ptr;
     // };
 
-    void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint8_t *bit_counts_n, uint8_t& pos_n) {
+    void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint16_t *bit_counts_n, uint8_t& pos_n) {
       if (!to_write)
         return;
-      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n) - 1;
+      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         output_u32(count, fp, out_vec);
-        output_bytes(bit_counts_n, u8_arr_count, fp, out_vec);
+        for (size_t i = (nodes_per_bv_block == 256 ? 1 : 0); i < u8_arr_count; i++) {
+          output_byte(bit_counts_n[i], fp, out_vec);
+        }
         // for (size_t i = 0; i < pos_n; i++)
         //   count += bit_counts_n[i];
         count += count_n;
         count_n = 0;
-        memset(bit_counts_n, 0, u8_arr_count + 1);
-        pos_n = 0;
+        memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
+        bit_counts_n[0] = 0x1E;
+        pos_n = 1;
       } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
-        bit_counts_n[pos_n] = count_n;
+        bit_counts_n[pos_n] = count_n & 0xFF;
+        uint8_t b0_mask = (0x100 >> pos_n);
+        bit_counts_n[0] &= ~b0_mask;
+        if (count_n > 255)
+          bit_counts_n[0] |= ((count_n & 0x100) >> pos_n);
         //count_n = 0;
         pos_n++;
       }
@@ -2973,7 +2980,6 @@ class builder : public builder_fwd {
     void write_bv_rank_lt(uint8_t which) {
       uint32_t node_id = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      u8_arr_count--;
       uint32_t count_tail = 0;
       uint32_t count_term = 0;
       uint32_t count_child = 0;
@@ -2982,18 +2988,22 @@ class builder : public builder_fwd {
       uint32_t count_term_n = 0;
       uint32_t count_child_n = 0;
       uint32_t count_leaf_n = 0;
-      uint8_t bit_counts_tail_n[u8_arr_count + 1];
-      uint8_t bit_counts_term_n[u8_arr_count + 1];
-      uint8_t bit_counts_child_n[u8_arr_count + 1];
-      uint8_t bit_counts_leaf_n[u8_arr_count + 1];
-      uint8_t pos_tail_n = 0;
-      uint8_t pos_term_n = 0;
-      uint8_t pos_child_n = 0;
-      uint8_t pos_leaf_n = 0;
-      memset(bit_counts_tail_n, 0, u8_arr_count + 1);
-      memset(bit_counts_term_n, 0, u8_arr_count + 1);
-      memset(bit_counts_child_n, 0, u8_arr_count + 1);
-      memset(bit_counts_leaf_n, 0, u8_arr_count + 1);
+      uint16_t bit_counts_tail_n[u8_arr_count];
+      uint16_t bit_counts_term_n[u8_arr_count];
+      uint16_t bit_counts_child_n[u8_arr_count];
+      uint16_t bit_counts_leaf_n[u8_arr_count];
+      uint8_t pos_tail_n = 1;
+      uint8_t pos_term_n = 1;
+      uint8_t pos_child_n = 1;
+      uint8_t pos_leaf_n = 1;
+      memset(bit_counts_tail_n,  0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_term_n,  0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_child_n, 0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_leaf_n,  0xFF, u8_arr_count * sizeof(uint16_t));
+      bit_counts_tail_n[0] = 0x1E;
+      bit_counts_term_n[0] = 0x1E;
+      bit_counts_child_n[0] = 0x1E;
+      bit_counts_leaf_n[0] = 0x1E;
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -3024,10 +3034,10 @@ class builder : public builder_fwd {
       uint32_t count = 0;
       uint32_t count_n = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      u8_arr_count--;
-      uint8_t bit_counts_n[u8_arr_count + 1];
-      uint8_t pos_n = 0;
-      memset(bit_counts_n, 0, u8_arr_count + 1);
+      uint16_t bit_counts_n[u8_arr_count];
+      uint8_t pos_n = 1;
+      memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
+      bit_counts_n[0] = 0x1E;
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
         write_bv_n(i, true, count, count_n, bit_counts_n, pos_n);

@@ -416,13 +416,17 @@ class bvlt_rank {
     uint32_t rank1(uint32_t bv_pos) {
       uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
       uint32_t rank = gen::read_uint32(rank_ptr);
-      int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
+      #if nodes_per_bv_block == 512
+      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
       if (pos > 0) {
         rank_ptr += 4;
-        rank += rank_ptr[pos - 1];
-        // while (pos--)
-        //   rank += *rank_ptr++;
+        rank += (rank_ptr[pos] + (((uint32_t)(*rank_ptr) << pos) & 0x100));
       }
+      #else
+      int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
+      if (pos > 0)
+        rank += rank_ptr[4 + pos - 1];
+      #endif
       uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
       // return rank + __popcountdi2(bm & (mask - 1));
@@ -943,22 +947,62 @@ class bvlt_select : public bvlt_rank {
       block--;
       uint32_t bv_pos = block * nodes_per_bv_block;
       block_loc -= lt_width;
-      uint32_t cur_count = gen::read_uint32(block_loc);
-      if (cur_count == target_count)
+      uint32_t remaining = target_count - gen::read_uint32(block_loc);
+      if (remaining == 0)
         return bv_pos;
       block_loc += 4;
+      #if nodes_per_bv_block == 256
       size_t pos_n = 0;
-      for (; cur_count + block_loc[pos_n] < target_count && pos_n < width_of_bv_block_n
-                             && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos_n++) {
+      for (; block_loc[pos_n] < remaining && pos_n < width_of_bv_block_n; pos_n++) {
         bv_pos += nodes_per_bv_block_n;
-        //cur_count += block_loc[pos_n];
+        //remaining += block_loc[pos_n];
       }
       if (pos_n > 0)
-        cur_count += block_loc[pos_n - 1];
-      if (cur_count == target_count)
+        remaining -= block_loc[pos_n - 1];
+      #else
+      size_t pos_n = 0;
+      if (get_count(block_loc, 4) >= remaining) {
+        if (get_count(block_loc, 2) >= remaining) {
+          if (get_count(block_loc, 1) < remaining) {
+            pos_n = 1;
+          }
+        } else if (get_count(block_loc, 3) >= remaining) {
+          pos_n = 2;
+        } else {
+          pos_n = 3;
+        }
+      } else if (get_count(block_loc, 6) >= remaining) {
+        if (get_count(block_loc, 5) >= remaining) {
+          pos_n = 4;
+        } else {
+          pos_n = 5;
+        }
+      } else if (get_count(block_loc, 7) >= remaining) {
+          pos_n = 6;
+      } else {
+          pos_n = 7;
+      }
+      if (pos_n > 0) {
+        remaining -= get_count(block_loc, pos_n);
+        bv_pos += (nodes_per_bv_block_n * pos_n);
+      }
+
+      // size_t pos_n = 1;
+      // for (; get_count(block_loc, pos_n) < remaining
+      //           && pos_n < width_of_bv_block_n && bv_pos + nodes_per_bv_block_n < bv_bit_count; pos_n++) {
+      //   bv_pos += nodes_per_bv_block_n;
+      //   //remaining += block_loc[pos_n];
+      // }
+      // if (pos_n-- > 1)
+      //   remaining -= get_count(block_loc, pos_n);
+      #endif
+      if (remaining == 0)
         return bv_pos;
       uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
-      return bv_pos + bm_select1(target_count - cur_count - 1, bm);
+      return bv_pos + bm_select1(remaining - 1, bm);
+    }
+    uint32_t get_count(uint8_t *block_loc, size_t pos_n) {
+      return (block_loc[pos_n] + (((uint32_t)(*block_loc) << pos_n) & 0x100));
     }
     inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
