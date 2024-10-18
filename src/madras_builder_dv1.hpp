@@ -2956,13 +2956,13 @@ class builder : public builder_fwd {
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         output_u32(count, fp, out_vec);
-        for (size_t i = 1; i < u8_arr_count; i++) {
+        for (size_t i = nodes_per_bv_block == 256 ? 1: 0; i < u8_arr_count; i++) {
           output_byte(bit_counts_n[i], fp, out_vec);
         }
-        if (nodes_per_bv_block == 512) {
-          for (size_t i = 1; i < pos_n; i++)
-            count += bit_counts_n[i];
-        }
+        // if (nodes_per_bv_block == 512) {
+        //   for (size_t i = 1; i < pos_n; i++)
+        //     count += bit_counts_n[i];
+        // }
         count += count_n;
         count_n = 0;
         memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
@@ -2974,8 +2974,8 @@ class builder : public builder_fwd {
         bit_counts_n[0] &= ~b0_mask;
         if (count_n > 255)
           bit_counts_n[0] |= ((count_n & 0x100) >> pos_n);
-        if (nodes_per_bv_block == 512)
-          count_n = 0;
+        // if (nodes_per_bv_block == 512)
+        //   count_n = 0;
         pos_n++;
       }
     }
