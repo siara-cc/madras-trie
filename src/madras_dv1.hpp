@@ -1871,6 +1871,31 @@ class val_ptr_group_map : public ptr_group_map {
     }
 };
 
+class cleanup_interface {
+  public:
+    virtual ~cleanup_interface() {
+    }
+    virtual void release() = 0;
+};
+
+class cleanup : public cleanup_interface {
+  private:
+    cleanup(cleanup const&);
+    cleanup& operator=(cleanup const&);
+    uint8_t *bytes;
+  public:
+    cleanup() {
+    }
+    virtual ~cleanup() {
+    }
+    void release() {
+      delete [] bytes;
+    }
+    void init(uint8_t *_bytes) {
+      bytes = _bytes;
+    }
+};
+
 class static_trie_map : public static_trie {
   private:
     static_trie_map(static_trie_map const&);
@@ -1881,26 +1906,34 @@ class static_trie_map : public static_trie {
     uint8_t *names_loc;
     char *names_start;
     const char *column_encoding;
+    cleanup_interface *cleanup_object;
     bool is_mmapped;
-    bool to_release_trie_bytes;
     size_t trie_size;
   public:
     static_trie_map() {
       val_map = nullptr;
       is_mmapped = false;
-      to_release_trie_bytes = true;
+      cleanup_object = nullptr;
     }
     ~static_trie_map() {
       if (is_mmapped)
         map_unmap();
       if (trie_bytes != nullptr) {
-        if (to_release_trie_bytes)
-          delete [] trie_bytes;
+        if (cleanup_object != nullptr) {
+          cleanup_object->release();
+          delete cleanup_object;
+          cleanup_object = nullptr;
+        }
       }
       if (val_map != nullptr) {
         delete [] val_map;
       }
     }
+
+    void set_cleanup_object(cleanup_interface *_cleanup_obj) {
+      cleanup_object = _cleanup_obj;
+    }
+
     bool get(input_ctx& in_ctx, size_t *in_size_out_value_len, void *val) {
       bool is_found = lookup(in_ctx);
       if (is_found) {
@@ -2045,7 +2078,7 @@ class static_trie_map : public static_trie {
     void load_from_mem(uint8_t *mem, size_t sz) {
       trie_bytes = mem;
       trie_size = sz;
-      to_release_trie_bytes = false;
+      cleanup_object = nullptr;
       load_into_vars();
     }
 
@@ -2060,6 +2093,8 @@ class static_trie_map : public static_trie {
       memset(&file_stat, 0, sizeof(file_stat));
       stat(filename, &file_stat);
       trie_bytes = new uint8_t[file_stat.st_size];
+      cleanup_object = new cleanup();
+      ((cleanup *)cleanup_object)->init(trie_bytes);
 
       FILE *fp = fopen(filename, "rb");
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
