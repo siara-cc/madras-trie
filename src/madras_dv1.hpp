@@ -417,7 +417,7 @@ class bvlt_rank {
       uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
       uint32_t rank = gen::read_uint32(rank_ptr);
       #if nodes_per_bv_block == 512
-      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n ;
+      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
       if (pos > 0) {
         rank_ptr += 4;
         //while (pos--)
@@ -429,8 +429,8 @@ class bvlt_rank {
       if (pos > 0)
         rank += rank_ptr[4 + pos - 1];
       #endif
-      uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
+      uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       // return rank + __popcountdi2(bm & (mask - 1));
       return rank + static_cast<uint32_t>(__builtin_popcountll(bm & mask));
     }
@@ -749,8 +749,8 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
     void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
       //ptr_bit_count = UINT32_MAX;
       uint8_t grp_no;
-      uint32_t ptr_bit_count = UINT32_MAX;
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count, grp_no);
+      uint32_t tail_ptr = UINT32_MAX; // avoid a stack entry
+      tail_ptr = get_tail_ptr(node_id, tail_ptr, grp_no);
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
         inner_tries[grp_no]->copy_trie_tail(tail_ptr, tail_str);
@@ -872,8 +872,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
       return false;
     }
     void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
-      uint32_t ptr_bit_count = UINT32_MAX;
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count);
+      uint32_t tail_ptr = UINT32_MAX;
+      tail_ptr = get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
       if (col_trie != nullptr) {
         col_trie->copy_trie_tail(tail_ptr, tail_str);
         return;
@@ -1474,7 +1474,10 @@ class static_trie : public inner_trie {
       return trie_bytes;
     }
 
-    void load_static_trie() {
+    void load_static_trie(uint8_t *_trie_bytes = nullptr) {
+
+      if (_trie_bytes != nullptr)
+        trie_bytes = _trie_bytes;
 
       load_inner_trie(trie_bytes);
       opts = (bldr_options *) (trie_bytes + gen::read_uint32(trie_bytes + 18));
