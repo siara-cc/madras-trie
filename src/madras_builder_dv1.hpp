@@ -12,6 +12,7 @@
 #include <iostream>
 #include <math.h>
 #include <time.h>
+#include <functional> // for std::function
 
 #include "common_dv1.hpp"
 #include "../../leopard-trie/src/leopard.hpp"
@@ -1650,6 +1651,7 @@ class builder : public builder_fwd {
     gen::bit_vector<uint64_t> louds;
     byte_vec trie_flags;
     byte_vec trie_flags_tail;
+    byte_vec trie_flags_leaf;
     uint32_t end_loc;
     tail_val_maps tail_vals;
     uint32_t column_count;
@@ -2400,6 +2402,18 @@ class builder : public builder_fwd {
       return memtrie.insert(key, key_len, val, val_len, val_pos);
     }
 
+    void set_leaf_seq(uint32_t ns_id, uint32_t& seq_idx, std::function<void(uint32_t, uint32_t)> set_seq) {
+      leopard::node_set_handler ns(memtrie.all_node_sets, ns_id);
+      leopard::node n = ns.first_node();
+      for (size_t i = 0; i <= ns.last_node_idx(); i++) {
+        if (n.get_flags() & NFLAG_LEAF)
+          set_seq(n.get_col_val(), seq_idx++);
+        if (n.get_flags() & NFLAG_CHILD)
+          set_leaf_seq(n.get_child(), seq_idx, set_seq);
+        n.next();
+      }
+    }
+
     void set_node_id() {
       uint32_t node_id = 0;
       for (size_t i = 0; i < memtrie.all_node_sets.size(); i++) {
@@ -2953,7 +2967,7 @@ class builder : public builder_fwd {
     void write_bv_n(uint32_t node_id, bool to_write, uint32_t& count, uint32_t& count_n, uint16_t *bit_counts_n, uint8_t& pos_n) {
       if (!to_write)
         return;
-      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
+      size_t u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       if (node_id && (node_id % nodes_per_bv_block) == 0) {
         output_u32(count, fp, out_vec);
         for (size_t i = nodes_per_bv_block == 256 ? 1: 0; i < u8_arr_count; i++) {
@@ -2982,7 +2996,7 @@ class builder : public builder_fwd {
 
     void write_bv_rank_lt(uint8_t which) {
       uint32_t node_id = 0;
-      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
+      size_t u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
       uint32_t count_tail = 0;
       uint32_t count_term = 0;
       uint32_t count_child = 0;

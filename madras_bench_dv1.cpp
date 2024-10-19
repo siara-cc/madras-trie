@@ -11,7 +11,10 @@ using namespace std;
 typedef struct {
   uint8_t *key;
   uint32_t key_len;
-  uint32_t leaf_id;
+  union {
+    uint32_t leaf_id;
+    uint32_t leaf_seq;
+  };
 } key_ctx;
 
 double time_taken_in_secs(clock_t t) {
@@ -25,7 +28,12 @@ clock_t print_time_taken(clock_t t, const char *msg) {
   return clock();
 }
 
-madras_dv1::static_trie_map *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines, bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec) {
+bool nodes_sorted_on_freq;
+madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines,
+                 bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec) {
+
+  int asc = argc > 4 ? atoi(argv[4]) : 0;
+  int statssski = argc > 5 && asc != 0 ? atoi(argv[5]) : 0;
 
   clock_t t = clock();
 
@@ -33,11 +41,13 @@ madras_dv1::static_trie_map *bench_build(int argc, char *argv[], std::vector<uin
   madras_dv1::builder *sb;
   madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
   bldr_opts.max_inner_tries = trie_count;
+  bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
+  bldr_opts.dart = statssski > 0 ? true : false;
   sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, false, bldr_opts);
   sb->set_print_enabled(false);
 
   for (size_t i = 0; i < lines.size(); i++) {
-    sb->insert(lines[i].key, lines[i].key_len);
+    sb->insert(lines[i].key, lines[i].key_len, nullptr, 0, i);
   }
   //t = print_time_taken(t, "Time taken for insert/append: ");
 
@@ -46,12 +56,24 @@ madras_dv1::static_trie_map *bench_build(int argc, char *argv[], std::vector<uin
 
   sb->write_final_val_table();
 
-  bool nodes_sorted_on_freq = sb->opts.sort_nodes_on_freq;
+  uint32_t seq_idx = 0;
+  nodes_sorted_on_freq = sb->opts.sort_nodes_on_freq;
+  // if (nodes_sorted_on_freq) {
+  //   sb->set_leaf_seq(1, seq_idx, [&lines](uint32_t arr_idx, uint32_t leaf_seq) -> void {
+  //     key_ctx *kc = &lines[arr_idx];
+  //     kc->leaf_seq = leaf_seq;
+  //     //printf("%u, %u\n", arr_idx, leaf_seq);
+  //   });
+  //   std::sort(lines.begin(), lines.end(), [](const key_ctx& lhs, const key_ctx& rhs) -> bool {
+  //     return lhs.leaf_seq < rhs.leaf_seq;
+  //   });
+  //   // int idx = lines.size() - 1;
+  //   // printf("%d, %u, [%.*s]\n", idx, lines[idx].leaf_seq, lines[idx].key_len, lines[idx].key);
+  // }
   delete sb;
 
-  madras_dv1::static_trie_map *trie_reader = new madras_dv1::static_trie_map();
-  trie_reader->set_print_enabled(false);
-  trie_reader->load_from_mem(output_buf.data(), output_buf.size());
+  madras_dv1::static_trie *trie_reader = new madras_dv1::static_trie();
+  trie_reader->load_static_trie(output_buf.data());
 
   trie_size = sb->tp.total_idx_size;
   time_taken = time_taken_in_secs(t);
@@ -61,74 +83,27 @@ madras_dv1::static_trie_map *bench_build(int argc, char *argv[], std::vector<uin
 
 }
 
-bool bench_lookup(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines, bool is_sorted, int trie_count, madras_dv1::static_trie_map *trie_reader, double& time_taken, double& keys_per_sec) {
-
-  size_t out_key_len = 0;
-  uint8_t key_buf[trie_reader->get_max_key_len() + 1];
-  madras_dv1::iter_ctx dict_ctx;
-  dict_ctx.init(trie_reader->get_max_key_len(), trie_reader->get_max_level());
+bool bench_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   madras_dv1::input_ctx in_ctx;
-
-  //t = print_time_taken(t, "Time taken for load: ");
 
   clock_t t = clock();
 
   key_ctx *kc;
   size_t line_count = lines.size();
   for (size_t i = 0; i < line_count; i++) {
-    // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
-    //   continue;
-    // prev_line = line;
-    // prev_line_len = line_len;
 
     kc = &lines[i];
 
     in_ctx.key = kc->key;
     in_ctx.key_len = kc->key_len;
 
-    // if (strcmp((const char *) in_ctx.key, "a 10 episode") == 0)
-    //   int ret = 1;
-
-    // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
-    // if (tab_loc != NULL) {
-    //   key_len = tab_loc - line;
-    //   val = tab_loc + 1;
-    //   val_len = line_len - key_len - 1;
-    // } else {
-    //   val_len = (line_len > 6 ? 7 : line_len);
-    // }
-
-    // if (is_sorted && !nodes_sorted_on_freq) {
-    //   out_key_len = trie_reader.next(dict_ctx, key_buf);
-    //   if (out_key_len != in_ctx.key_len)
-    //     printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
-    //   else {
-    //     if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0)
-    //       printf("Key mismatch: E:[%.*s], A:[%.*s]\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf);
-    //     if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
-    //       printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-    //     if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)
-    //       printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-    //   }
-    // }
-
     if (!trie_reader->lookup(in_ctx)) {
       return false;
     }
     kc->leaf_id = trie_reader->leaf_rank1(in_ctx.node_id);
-    // else {
-    //   uint32_t leaf_id = trie_reader.leaf_rank1(in_ctx.node_id);
-    //   bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
-    //   key_buf[out_key_len] = 0;
-    //   if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0)
-    //     printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, in_ctx.key_len, key_buf);
-    // }
 
   }
-  // out_key_len = trie_reader.next(dict_ctx, key_buf, val_buf, &out_val_len);
-  // if (out_key_len != -1)
-  //   printf("Expected Eof: [%.*s], %d\n", out_key_len, key_buf, out_key_len);
 
   time_taken = time_taken_in_secs(t);
   keys_per_sec = line_count / time_taken / 1000;
@@ -137,7 +112,7 @@ bool bench_lookup(int argc, char *argv[], std::vector<uint8_t>& output_buf, std:
 
 }
 
-bool bench_rev_lookup(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines, bool is_sorted, int trie_count, madras_dv1::static_trie_map *trie_reader, double& time_taken, double& keys_per_sec) {
+bool bench_rev_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   size_t out_key_len = 0;
   uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
@@ -162,12 +137,47 @@ bool bench_rev_lookup(int argc, char *argv[], std::vector<uint8_t>& output_buf, 
 
 }
 
+bool bench_next(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
+
+  size_t out_key_len = 0;
+  uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
+  madras_dv1::iter_ctx dict_ctx;
+  dict_ctx.init(trie_reader->get_max_key_len(), trie_reader->get_max_level());
+
+  clock_t t = clock();
+
+  key_ctx *kc;
+  size_t line_count = lines.size();
+  for (size_t i = 0; i < line_count; i++) {
+
+    kc = &lines[i];
+
+    out_key_len = trie_reader->next(dict_ctx, out_key_buf);
+    if (kc->key_len != out_key_len || memcmp(kc->key, out_key_buf, kc->key_len) != 0)
+      return false;
+
+  }
+  time_taken = time_taken_in_secs(t);
+  keys_per_sec = line_count / time_taken / 1000;
+
+  return true;
+
+}
+
 int main(int argc, char *argv[]) {
+
+  if (argc < 2) {
+    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [statssski]\n");
+    return 0;
+  }
+
+  int min_inner_tries = argc > 2 ? atoi(argv[2]) : 0;
+  int max_inner_tries = argc > 3 ? atoi(argv[3]) : 2;
 
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
-  uint8_t *file_buf = (uint8_t *) malloc(file_stat.st_size + 1);
+  uint8_t *file_buf = new uint8_t[file_stat.st_size + 1];
   printf("File_name: %s, size: %ld\n", argv[1], (long) file_stat.st_size);
 
   FILE *fp = fopen(argv[1], "rb");
@@ -223,32 +233,41 @@ int main(int argc, char *argv[]) {
   double keys_per_sec;
 
   std::vector<uint8_t> output_buf;
-  madras_dv1::static_trie_map *trie_reader;
+  madras_dv1::static_trie *trie_reader;
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = min_inner_tries; i <= max_inner_tries; i++) {
     trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec);
     if (trie_size == 0) {
       printf("Build fail\n");
       return 1;
     }
-    printf("%lu     %lf     ", trie_size, keys_per_sec);
-    bool is_success = bench_lookup(argc, argv, output_buf, lines, is_sorted, i, trie_reader, time_taken, keys_per_sec);
+    printf("%lu\t%lf\t", trie_size, keys_per_sec);
+    bool is_success = bench_lookup(lines, trie_reader, time_taken, keys_per_sec);
     if (!is_success) {
       printf("Lookup fail\n");
       return 1;
     }
-    printf("%lf     ", keys_per_sec);
-    is_success = bench_rev_lookup(argc, argv, output_buf, lines, is_sorted, i, trie_reader, time_taken, keys_per_sec);
+    printf("%lf\t", keys_per_sec);
+    is_success = bench_rev_lookup(lines, trie_reader, time_taken, keys_per_sec);
     if (!is_success) {
       printf("Rev lookup fail\n");
       return 1;
     }
-    printf("%lf\n", keys_per_sec);
+    printf("%lf\t", keys_per_sec);
+    if (!nodes_sorted_on_freq) {
+      is_success = bench_next(lines, trie_reader, time_taken, keys_per_sec);
+      if (!is_success) {
+        printf("Next fail\n");
+        return 1;
+      }
+      printf("%lf\n", keys_per_sec);
+    } else
+      printf("\n");
     delete trie_reader;
     output_buf.clear();
   }
 
-  free(file_buf);
+  delete [] file_buf;
 
   return 0;
 

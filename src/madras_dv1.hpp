@@ -417,7 +417,7 @@ class bvlt_rank {
       uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
       uint32_t rank = gen::read_uint32(rank_ptr);
       #if nodes_per_bv_block == 512
-      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n ;
+      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
       if (pos > 0) {
         rank_ptr += 4;
         //while (pos--)
@@ -429,8 +429,8 @@ class bvlt_rank {
       if (pos > 0)
         rank += rank_ptr[4 + pos - 1];
       #endif
-      uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
+      uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       // return rank + __popcountdi2(bm & (mask - 1));
       return rank + static_cast<uint32_t>(__builtin_popcountll(bm & mask));
     }
@@ -749,8 +749,8 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
     void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
       //ptr_bit_count = UINT32_MAX;
       uint8_t grp_no;
-      uint32_t ptr_bit_count = UINT32_MAX;
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count, grp_no);
+      uint32_t tail_ptr = UINT32_MAX; // avoid a stack entry
+      tail_ptr = get_tail_ptr(node_id, tail_ptr, grp_no);
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
         inner_tries[grp_no]->copy_trie_tail(tail_ptr, tail_str);
@@ -872,8 +872,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
       return false;
     }
     void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
-      uint32_t ptr_bit_count = UINT32_MAX;
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count);
+      uint32_t tail_ptr = UINT32_MAX;
+      tail_ptr = get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
       if (col_trie != nullptr) {
         col_trie->copy_trie_tail(tail_ptr, tail_str);
         return;
@@ -1474,7 +1474,10 @@ class static_trie : public inner_trie {
       return trie_bytes;
     }
 
-    void load_static_trie() {
+    void load_static_trie(uint8_t *_trie_bytes = nullptr) {
+
+      if (_trie_bytes != nullptr)
+        trie_bytes = _trie_bytes;
 
       load_inner_trie(trie_bytes);
       opts = (bldr_options *) (trie_bytes + gen::read_uint32(trie_bytes + 18));
@@ -1871,6 +1874,31 @@ class val_ptr_group_map : public ptr_group_map {
     }
 };
 
+class cleanup_interface {
+  public:
+    virtual ~cleanup_interface() {
+    }
+    virtual void release() = 0;
+};
+
+class cleanup : public cleanup_interface {
+  private:
+    cleanup(cleanup const&);
+    cleanup& operator=(cleanup const&);
+    uint8_t *bytes;
+  public:
+    cleanup() {
+    }
+    virtual ~cleanup() {
+    }
+    void release() {
+      delete [] bytes;
+    }
+    void init(uint8_t *_bytes) {
+      bytes = _bytes;
+    }
+};
+
 class static_trie_map : public static_trie {
   private:
     static_trie_map(static_trie_map const&);
@@ -1881,26 +1909,34 @@ class static_trie_map : public static_trie {
     uint8_t *names_loc;
     char *names_start;
     const char *column_encoding;
+    cleanup_interface *cleanup_object;
     bool is_mmapped;
-    bool to_release_trie_bytes;
     size_t trie_size;
   public:
     static_trie_map() {
       val_map = nullptr;
       is_mmapped = false;
-      to_release_trie_bytes = true;
+      cleanup_object = nullptr;
     }
     ~static_trie_map() {
       if (is_mmapped)
         map_unmap();
       if (trie_bytes != nullptr) {
-        if (to_release_trie_bytes)
-          delete [] trie_bytes;
+        if (cleanup_object != nullptr) {
+          cleanup_object->release();
+          delete cleanup_object;
+          cleanup_object = nullptr;
+        }
       }
       if (val_map != nullptr) {
         delete [] val_map;
       }
     }
+
+    void set_cleanup_object(cleanup_interface *_cleanup_obj) {
+      cleanup_object = _cleanup_obj;
+    }
+
     bool get(input_ctx& in_ctx, size_t *in_size_out_value_len, void *val) {
       bool is_found = lookup(in_ctx);
       if (is_found) {
@@ -2045,7 +2081,7 @@ class static_trie_map : public static_trie {
     void load_from_mem(uint8_t *mem, size_t sz) {
       trie_bytes = mem;
       trie_size = sz;
-      to_release_trie_bytes = false;
+      cleanup_object = nullptr;
       load_into_vars();
     }
 
@@ -2060,6 +2096,8 @@ class static_trie_map : public static_trie {
       memset(&file_stat, 0, sizeof(file_stat));
       stat(filename, &file_stat);
       trie_bytes = new uint8_t[file_stat.st_size];
+      cleanup_object = new cleanup();
+      ((cleanup *)cleanup_object)->init(trie_bytes);
 
       FILE *fp = fopen(filename, "rb");
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
