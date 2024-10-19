@@ -72,9 +72,15 @@ struct PACKED_STRUCT nid_cache {
   uint8_t child_node_id1;
   uint8_t child_node_id2;
   uint8_t child_node_id3;
+  uint8_t tail0_len;
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;
   uint8_t parent_node_id3;
+  uint8_t tail_byte1;
+  uint8_t tail_byte2;
+  uint8_t tail_byte3;
+  uint8_t tail_byte4;
+  uint8_t tail_byte5;
 };
 
 struct PACKED_STRUCT bldr_options {

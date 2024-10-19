@@ -896,12 +896,36 @@ class GCFC_rev_cache {
     uint32_t max_node_id;
     uint32_t cache_mask;
   public:
-    bool try_find(uint32_t& node_id) {
+    bool try_find(uint32_t& node_id, input_ctx& in_ctx) {
       if (node_id >= max_node_id)
         return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);
       if (node_id == gen::read_uint24(&cche->child_node_id1)) {
-        node_id = gen::read_uint24(&cche->parent_node_id1);
+        if (cche->tail0_len == 0)
+          node_id = gen::read_uint24(&cche->parent_node_id1);
+        else {
+          if (in_ctx.key_pos + cche->tail0_len > in_ctx.key_len)
+            return false;
+          if (memcmp(in_ctx.key + in_ctx.key_pos, &cche->parent_node_id1, cche->tail0_len) != 0)
+            return false;
+          in_ctx.key_pos += cche->tail0_len;
+          node_id = 0;
+        }
+        return true;
+      }
+      return false;
+    }
+    bool try_find(uint32_t& node_id, gen::byte_str& tail_str) {
+      if (node_id >= max_node_id)
+        return false;
+      nid_cache *cche = cche0 + (node_id & cache_mask);
+      if (node_id == gen::read_uint24(&cche->child_node_id1)) {
+        if (cche->tail0_len == 0)
+          node_id = gen::read_uint24(&cche->parent_node_id1);
+        else {
+          tail_str.append(&cche->parent_node_id1, cche->tail0_len);
+          node_id = 0;
+        }
         return true;
       }
       return false;
@@ -1059,7 +1083,7 @@ class inner_trie : public inner_trie_fwd {
             return false;
           in_ctx.key_pos++;
         }
-        if (!rev_cache.try_find(node_id))
+        if (!rev_cache.try_find(node_id, in_ctx))
           node_id = child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
@@ -1070,7 +1094,7 @@ class inner_trie : public inner_trie_fwd {
           tail_map->get_tail_str(node_id, tail_str);
         } else
           tail_str.append(trie_loc[node_id]);
-        if (!rev_cache.try_find(node_id))
+        if (!rev_cache.try_find(node_id, tail_str))
           node_id = child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
@@ -1303,7 +1327,7 @@ class static_trie : public inner_trie {
         } else {
           tail.append(trie_loc[node_id]);
         }
-        if (!rev_cache.try_find(node_id))
+        if (!rev_cache.try_find(node_id, tail))
           node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
       } while (node_id != 0);
       if (to_reverse)
