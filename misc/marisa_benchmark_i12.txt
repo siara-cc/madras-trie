@@ -1,0 +1,69 @@
+ arundale@arun-12:~/git/marisa-trie/tools$ ./marisa-benchmark ~/git/madras-trie/misc/word_freq_sorted.txt
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Descending weight order
+Cache level: Normal cache
+Number of keys: 1099292
+Total length: 14554342
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1    3770152  3032.09  6682.18  7164.45  6340.62  3724.32
+     2    3443544  3104.77  5430.24  5558.91  5193.52  2718.49
+     3    3434848  3079.29  5381.43  5509.41  5183.33  2689.58
+     4    3434208  3070.61  5361.62  5522.64  5149.92  2684.50
+     5    3434320  3036.16  5309.61  5540.95  5156.27  2672.62
+------+----------+--------+--------+--------+--------+--------
+
+arundale@arun-12:~/git/madras-trie$ ./madras_bench misc/word_freq_sorted.txt
+File_name: misc/word_freq_sorted.txt, size: 15653634
+..........
+Sorted? : 1
+3784392	1567.706837	6307.839630	6677.278345	
+3439920	1579.487571	5347.376684	5535.237355	
+3436221	1588.756359	5312.049868	5506.446495	
+
+
+arundale@arun-12:~/git/marisa-trie/tools$ ./marisa-benchmark ~/Downloads/enwiki-latest-all-titles-in-ns0
+Number of tries: 1 - 5
+TAIL mode: Text mode
+Node order: Descending weight order
+Cache level: Normal cache
+Number of keys: 18058069
+Total length: 376594137
+------+----------+--------+--------+--------+--------+--------
+#tries       size    build   lookup  reverse   prefix  predict
+                                      lookup   search   search
+          [bytes]    [K/s]    [K/s]    [K/s]    [K/s]    [K/s]
+------+----------+--------+--------+--------+--------+--------
+     1  127310400  1584.80  4747.15  4730.38  4209.42  1881.94
+     2   98783320  1390.69  2905.80  3024.49  2724.46   872.77
+     3   94440504  1376.86  2693.41  2822.60  2542.50   785.63
+     4   93227168  1370.06  2644.67  2733.78  2500.30   762.96
+     5   92798928  1365.90  2620.22  2735.16  2487.61   755.88
+------+----------+--------+--------+--------+--------+--------
+arundale@arun-12:~/git/madras-trie$ ./madras_bench ~/Downloads/enwiki-latest-all-titles-in-ns0
+File_name: /home/arundale/Downloads/enwiki-latest-all-titles-in-ns0, size: 394652206
+....................................................................................................................................................................................
+Sorted? : 0
+127679790	645.974839	4924.327141	5245.317124	
+98883288	609.883472	3133.716407	3345.024078	
+94516354	599.363107	2873.148542	3067.336423	
+
+
+
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_madras words.txt
+{"name": "MADRAS", "build_ns_per_key": "820.039890", "lookup_ns_per_query": "262.414793", "best_lookup_ns_per_query": "261.864940", "decode_ns_per_query": "208.870643", "best_decode_ns_per_query": "208.077070", "memory_in_bytes": "506430"}
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_marisa words.txt
+{"name": "MARISA", "build_ns_per_key": "341.747510", "lookup_ns_per_query": "294.178167", "best_lookup_ns_per_query": "292.581900", "decode_ns_per_query": "211.366261", "best_decode_ns_per_query": "210.869800", "memory_in_bytes": "496624"}
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MADRAS", "build_ns_per_key": "1776.324121", "lookup_ns_per_query": "1538.656659", "best_lookup_ns_per_query": "1531.208770", "decode_ns_per_query": "1160.305815", "best_decode_ns_per_query": "1159.125850", "memory_in_bytes": "94516354"}
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_marisa ~/Downloads/enwiki-latest-all-titles-in-ns0
+{"name": "MARISA", "build_ns_per_key": "757.662861", "lookup_ns_per_query": "1706.990018", "best_lookup_ns_per_query": "1703.359240", "decode_ns_per_query": "1282.240480", "best_decode_ns_per_query": "1274.888750", "memory_in_bytes": "94440504"}
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_madras ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MADRAS", "build_ns_per_key": "1722.102627", "lookup_ns_per_query": "1756.023025", "best_lookup_ns_per_query": "1750.750400", "decode_ns_per_query": "1179.179556", "best_decode_ns_per_query": "1171.303600", "memory_in_bytes": "95562626"}
+arundale@arun-12:~/git/fast_succinct_trie/bench$ ./build/bench_marisa ~/Downloads/enwiki-latest-all-titles-in-ns0 -a true
+{"name": "MARISA", "build_ns_per_key": "733.541122", "lookup_ns_per_query": "2318.094879", "best_lookup_ns_per_query": "2313.501630", "decode_ns_per_query": "1286.222998", "best_decode_ns_per_query": "1273.328440", "memory_in_bytes": "94440504"}
+
