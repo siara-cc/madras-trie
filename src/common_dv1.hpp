@@ -113,11 +113,11 @@ const static bldr_options preset_opts[] = {
   { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  64}
 };
 
-// const static bldr_options dflt_opts =
-//   { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  64};
-
 const static bldr_options dflt_opts =
-  {false,  true,  true,  true, false, false,  true,  true, false, false,  4,  3,  3,   2,  2,  1,  1,   1,  64};
+  { true, false,  true, false, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  64};
+
+// const static bldr_options dflt_opts =
+//   {false,  true,  true,  true, false, false,  true,  true, false, false,  4,  3,  3,   2,  2,  1,  1,   1,  64};
 
 const static bldr_options word_tries_dflt_opts =
   {false, false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  64};

@@ -296,15 +296,15 @@ int main(int argc, char* argv[]) {
 
   t = print_time_taken(t, "Time taken for build: ");
 
-  madras_dv1::static_dict sd;
-  sd.load(out_file.c_str());
-  printf("Tbl name: %s\n", sd.get_table_name());
-  printf("Col types: %s\n", sd.get_column_types());
-  printf("Col encodings: %s\n", sd.get_column_encodings());
-  uint16_t sd_col_count = sd.get_column_count();
-  printf("Col Count: %u, Cols:", sd_col_count);
-  for (int i = 0; i < sd_col_count; i++)
-    printf(" %s", sd.get_column_name(i));
+  madras_dv1::static_trie_map stm;
+  stm.load(out_file.c_str());
+  printf("Tbl name: %s\n", stm.get_table_name());
+  printf("Col types: %s\n", stm.get_column_types());
+  printf("Col encodings: %s\n", stm.get_column_encodings());
+  uint16_t stm_col_count = stm.get_column_count();
+  printf("Col Count: %u, Cols:", stm_col_count);
+  for (int i = 0; i < stm_col_count; i++)
+    printf(" %s", stm.get_column_name(i));
   printf("\n");
 
   if (dont_verify) {
@@ -316,7 +316,7 @@ int main(int argc, char* argv[]) {
 
   sqlite3_reset(stmt);
   int64_t ins_seq_id = 0;
-  uint8_t *key = new uint8_t[sd.max_key_len];
+  uint8_t *key = new uint8_t[stm.get_max_key_len()];
   uint32_t ptr_count[column_count];
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
@@ -329,15 +329,19 @@ int main(int argc, char* argv[]) {
     if (key_col_idx > 0) {
       const uint8_t *sql_key = (const uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
       int sql_key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
-      int key_len;
-      bool is_found = sd.reverse_lookup_from_node_id(node_id, &key_len, key, nullptr, nullptr, 0, nullptr, false, true);
+      size_t key_len;
+      bool is_found = stm.reverse_lookup_from_node_id(node_id, &key_len, key, true);
+      key[key_len] = 0;
       if (sql_key == nullptr && key_len == -1) {
         // Ok
       } else if (key_len != sql_key_len)
         std::cerr << "Key len not matching: " << node_id << ", " << ins_seq_id << ", " << sql_key_len << ":" << key_len << std::endl;
       else {
-        if (memcmp(key, sql_key, key_len) != 0)
-          std::cerr << "Key not matching" << node_id << ", " << ins_seq_id << std::endl;
+        if (memcmp(key, sql_key, key_len) != 0) {
+          std::cerr << "Key not matching: " << node_id << ", " << ins_seq_id << std::endl;
+          std::cout << "Expected: " << (sql_key == nullptr ? "nullptr" : (const char *) sql_key) << std::endl;
+          std::cout << "Found: " << key << std::endl;
+        }
       }
     }
     for (int i = 0; i < column_count; i++) {
@@ -347,9 +351,9 @@ int main(int argc, char* argv[]) {
       if (i == (key_col_idx - 1))
         continue;
       if (sqlite3_column_type(stmt, i) == SQLITE_NULL) {
-        uint8_t val_buf[sd.max_val_len];
-        int val_len = 8;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        uint8_t val_buf[stm.get_max_val_len()];
+        size_t val_len = 8;
+        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len != -1) {
             val_buf[val_len] = 0;
@@ -359,10 +363,10 @@ int main(int argc, char* argv[]) {
       } else
       if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN || exp_col_type == LPDT_WORDS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
-        int sql_val_len = sqlite3_column_bytes(stmt, i);
-        int val_len = sd.get_max_val_len(col_val_idx) + 1;
+        size_t sql_val_len = sqlite3_column_bytes(stmt, i);
+        size_t val_len = stm.get_max_val_len(col_val_idx) + 1;
         uint8_t val_buf[val_len];
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
         if (is_success) {
           if (val_len == -1 && sql_val == nullptr) {
             // nullptr value
@@ -387,8 +391,8 @@ int main(int argc, char* argv[]) {
       } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
-        int val_len = 8;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
+        size_t val_len = 8;
+        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
         if (is_success) {
           int64_t i64 = *((int64_t *) val);
           if (i64 != sql_val)
@@ -401,8 +405,8 @@ int main(int argc, char* argv[]) {
                  (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
         double sql_val = leopard::cmn::round(sqlite3_column_double(stmt, i), exp_col_type);
         uint8_t val[16];
-        int val_len;
-        bool is_success = sd.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
+        size_t val_len;
+        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
         if (is_success) {
           double dbl_val = *((double *) val);
           if (dbl_val != sql_val)
@@ -418,8 +422,8 @@ int main(int argc, char* argv[]) {
     ins_seq_id++;
   }
   printf("Totals:");
-  for (int i = 0; i < sd_col_count; i++) {
-    printf(" %s:", sd.get_column_name(i));
+  for (int i = 0; i < stm_col_count; i++) {
+    printf(" %s:", stm.get_column_name(i));
     if (int_sums[i] != 0)
       printf(" %lld", int_sums[i]);
     if (dbl_sums[i] != 0)
