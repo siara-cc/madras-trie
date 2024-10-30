@@ -1,0 +1,20 @@
+./export_sqlite ~/Downloads/daily_weather.db dw 0 itttKKKKKKKKKKi dutuuuuuuuuuuud
+
+./export_sqlite ~/git2/stackoverflow_db/census.db surnames 2 0t0022YYYYYY uudddduuuuuu
+
+./export_sqlite ~/Downloads/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
+
+~/git2/stackoverflow_db/so_users.db so_users 0 0tt00000tttt tttuuuutttuu 
+~/git2/stackoverflow_db/so_users.db so_users 0 -----------w tttuuuutttuw 
+
+~/Downloads/amazon_products.db products 0 -w--------- twttuuuuuuu 300 
+./export_sqlite ~/Downloads/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
+./export_sqlite ~/Downloads/amazon_products.db products 0 tttt90990t0 ttttuuuuuuu
+
+~/Downloads/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
+~/Downloads/allCountries.db countries 0 0ttt77tttttttt000tt dtttdduuuuuuuuuuuut 
+
+~/git2/stackoverflow_db/census.db surnames 2 0t0022YYYYYY utdddduuuuuu 
+~/git2/stackoverflow_db/census.db surnames 0 0t0022222222 utdddduuuuuu 
+
+~/git2/stackoverflow_db/babynames.db gendered_names 0 0tt0t01 uuuuuud 

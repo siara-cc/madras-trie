@@ -1,0 +1,121 @@
+- Fix grouping logic
+- Fix NULLs and Empty on trie
+- Auto encoding option
+- Sqlite SQL interface
+- Secondary indices
+- Date time export
+- MySQL Export
+
+- Refactoring
+- testing with boundary conditions 64/512
+- Doxyfile
+- Adding checksum and other reserved features
+- Documentation and format definition
+
+- Papers
+  - Madras-trie
+  - Leopard trie
+  - Graspring algo - Greedy Rank Stacked pointer reducing and grouping algorithm
+  - Word grasping text indexing and compression
+  - Triestosski - Empirical and Stochastic sibling skipping for tries
+  - Patrilous - Patricia Trie Level ordered Unary Sequences
+  - GCFC (Greedy Cuckoo Frequency Cache)
+  - Sortable variable integers (?)
+  - Madras Sorcery - Using succinct tries for highly compressed transactional data
+
+  - POV: Of popcount, rank, select and SIMD instructions
+  - Madras-SQL
+ 
+- 0 + single byte encoding
+- 10 + prefix len code + len
+- 110 - dictionary code + len
+- 111 - earlier pos + len
+
+Issues:
++ Fix single value trie
++ Val mismatch - ./run_tests misc/word_freq_sorted.txt 2
++ Null/empty not working key_index = 0/1
++ Col trie not working for all columns
++ nodes_for_sort->data null for tails?
++ amazon_products seg fault imgURL type u
++ amazon_products seg fault imgURL type u, single column
++ implement secondary cache for reverse lookup
++ Re evaluate export_sqlite. Bug in key column spec
++ amazon_products key column 1 seg fault
++ allCountries_an seg fault
++ node_id < 0
++ step idx 1 + inner tries hanging enw
++ ./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 0t0055YYYYYY tttttttttttt seg fault
++ allCountries 7 17 not working
+- suf.txt mismatch
+- amazon_products sums not matching
+- ptr_bit_count not working explite all cases
+- cur_col_idx -1 ?
+- normalise values for nulls and empties
+- doubles precision astray
+- daily_weather delta encoding not working 64-128
+- amazon products Val len mismatch: 558782, 2 - : 82: 62
+- amazon_products imgurl trie lookup fail
+- run_tests with val seg fault
+- max_len not setting for col_trie
+- amazon_products_title next() shifting values
+- stack over flow in reverse_lookup
+- stack overflow because of **NULL**
+- data_type 'i' and delta don't work?
+
++ make select faster
++ avoid get_first_byte
+x tail_ptr cache
+- improve dart
++ improve get_tail_ptr (32/64 bit ptr buckets)
+x remove reverse cache
+
++ 0 is imaginary root
+x 6 byte cache struct
++ suffix coding should allocate only suffix length
++ prev_key_pos logic
++ individual bitmaps?
++ separate no group tail_map
+
++ is reverse cache effective?
++ rank/select is slow?
+
+- next cascading greedy cuckoo
+
+# sort nodes on freq for madras bench
+x separate leaf flags
+x seperate all flags?
++ reverse cache end tail
+- ptr bit count in fwd cache
+
+- single value yyynnnnn xx 
+- range        yyynnnnn xx
+- bitmap       nnnnnyxx
+- delta?       yyynnnnn xx
+
+- cleanup leopard trie
+- cleanup madras builder
+- implement dessicate
+- implement 32/64 bit
+- Fix explite to insert 1 column at a time
+- cleanup concepts such as grouping
+- cleanup null/empty handling
+- tail - part bin and part text
+- next not working on i12
+- date data type
+
+- implement next for val for performance
+- improve statssski using SIMD
+- Run on CUDA cores?
+- reverse lookup for col_tries
+- Multiple keys/values?
+- difference between marisa for small datasets
+
+- sort keys
+- compare 2 keys find cmp
+- keep comparing 3rd, 4th etc. till cmp is the same
+- combine and make as node with weight and tail
+- for first pass root is 0
+- for next pass track parent
+- keep sorting nodes on weight
+
