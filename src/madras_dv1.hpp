@@ -1463,6 +1463,14 @@ class static_trie : public inner_trie {
       return max_level;
     }
 
+    uint32_t get_key_count() {
+      return key_count;
+    }
+
+    uint32_t get_node_count() {
+      return node_count;
+    }
+
     uint32_t get_max_key_len() {
       return max_key_len;
     }
@@ -1669,7 +1677,10 @@ class val_ptr_group_map : public ptr_group_map {
         p_ptr_bit_count = &ptr_bit_count;
       if (group_count == 1) {
         *p_grp_no = 0;
-        uint32_t ptr = int_ptr_bv[node_id];
+        uint32_t ptr_pos = node_id;
+        if (key_count > 0)
+          ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
+        uint32_t ptr = int_ptr_bv[ptr_pos];
         if (*p_grp_no < grp_idx_limit)
           ptr = read_ptr_from_idx(*p_grp_no, ptr);
         return grp_data[0] + ptr;

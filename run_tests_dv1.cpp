@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
     for (size_t i = 0; i < line_count; i++) {
       line = lines[i].first;
       int checksum = 0;
-      for (size_t j = 0; i < strlen((const char *) line); j++) {
+      for (size_t j = 0; j < strlen((const char *) line); j++) {
         checksum += line[j];
       }
       char val[30];

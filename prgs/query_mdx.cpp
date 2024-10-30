@@ -25,22 +25,22 @@ int main(int argc, char *argv[]) {
 
   clock_t t = clock();
 
-  madras_dv1::static_dict dict_reader;
+  madras_dv1::static_trie_map dict_reader;
   dict_reader.set_print_enabled(true);
-  //dict_reader.load(argv[1]);
-  dict_reader.map_file_to_mem(argv[1]);
+  dict_reader.load(argv[1]);
+  //dict_reader.map_file_to_mem(argv[1]);
 
   t = print_time_taken(t, "Time taken for load: ");
 
   int column_idx = atoi(argv[2]);
 
   uint8_t col_val[20];
-  int col_len = 0;
+  size_t col_len = 0;
   uint32_t ptr_bit_count = UINT32_MAX;
 
-  int row_count = dict_reader.key_count;
+  int row_count = dict_reader.get_key_count();
   if (row_count == 0)
-    row_count = dict_reader.node_count;
+    row_count = dict_reader.get_node_count();
   else {
     printf("This utility only for mdx with no primary trie\n");
     return 1;
@@ -51,9 +51,9 @@ int main(int argc, char *argv[]) {
   if (data_type == 't' || data_type == '*') {
     uint8_t val[dict_reader.get_max_val_len(column_idx)];
     //uint8_t val[1000]; // get_max_val_len not working for trie columns
-    int val_len;
+    size_t val_len;
     int64_t sum = 0;
-    for (int i = 0; i < row_count; i++) {
+    for (size_t i = 0; i < row_count; i++) {
       bool is_success = dict_reader.get_col_val(i, column_idx, &val_len, val, &ptr_bit_count);
       if (is_success && val_len != -1)
         sum += val_len;
