@@ -2466,7 +2466,19 @@ class builder : public builder_fwd {
       while (cur_node != nullptr) {
         uint8_t node_byte, cur_node_flags;
         if (cur_node.get_flags() & NODE_SET_LEAP) {
-          node_byte = ni.last_node_idx();
+          if (opts.sort_nodes_on_freq) {
+            size_t no_tail_count = 0;
+            leopard::node n = ni.get_cur_nsh()->first_node();
+            for (size_t k = 0; k <= ni.get_cur_nsh()->last_node_idx(); k++) {
+              if (n.get_flags() & NFLAG_TAIL)
+                break;
+              no_tail_count++;
+              n.next();
+            }
+            node_byte = no_tail_count;
+            //printf("%lu\n", no_tail_count);
+          } else
+            node_byte = ni.last_node_idx();
           cur_node_flags = 0;
         } else {
           node_byte = append_tail_ptr(&cur_node);
@@ -2624,55 +2636,48 @@ class builder : public builder_fwd {
       leopard::node n = ns.first_node();
       for (size_t i = 0; i <= ns.last_node_idx(); i++) {
         if (n.get_flags() & NFLAG_CHILD)
-          set_level(ns_id, level + 1);
+          set_level(n.get_child(), level + 1);
         n.next();
       }
     }
 
     void set_node_id() {
+      size_t num_leap = 0;
+      size_t num_leap_no_tail = 0;
       uint32_t node_id = 0;
+      leopard::node_set_handler nsh(memtrie.all_node_sets, 0);
       for (size_t i = 0; i < memtrie.all_node_sets.size(); i++) {
-        leopard::node_set_header *ns_hdr = (leopard::node_set_header *) memtrie.all_node_sets[i];
+        nsh.set_pos(i);
+        leopard::node_set_header *ns_hdr = nsh.hdr();
         ns_hdr->node_id = node_id;
         if (ns_hdr->last_node_idx > 4 && trie_level == 0 && opts.dart) {
-          node_id++; // && (ns_hdr->last_node_idx + 1) >= stats.min_len 
-          memtrie.node_count++;
-          ns_hdr->flags |= NODE_SET_LEAP;
+          if (!opts.sort_nodes_on_freq) {
+            ns_hdr->flags |= NODE_SET_LEAP;
+            node_id++;
+            memtrie.node_count++;
+          }
+          num_leap++;
+          size_t no_tail_count = 0;
+          leopard::node n = nsh.first_node();
+          for (size_t k = 0; k <= nsh.last_node_idx(); k++) {
+            if (n.get_flags() & NFLAG_TAIL)
+              break;
+            no_tail_count++;
+            n.next();
+          }
+          if (no_tail_count >= 6) {
+            num_leap_no_tail++;
+            if (opts.sort_nodes_on_freq) {
+              ns_hdr->flags |= NODE_SET_LEAP;
+              node_id++;
+              memtrie.node_count++;
+            }
+          }
         }
         node_id += ns_hdr->last_node_idx;
         node_id++;
-        // if (ns_hdr->last_node_idx < 5)
-        //   continue;
-        // printf("nid: %u\t", node_id);
-        // leopard::node cur_node;
-        // cur_node = (uint8_t *) (ns_hdr + 1);
-        // uint8_t prev_b = cur_node.get_byte();
-        // uint8_t start_b = prev_b;
-        // printf("%d", prev_b);
-        // cur_node.next();
-        // int max_cont = 0;
-        // for (int k = 1; k <= ns_hdr->last_node_idx; k++) {
-        //   uint8_t b = cur_node.get_byte();
-        //   if (b - 1 != prev_b) {
-        //     if (start_b == prev_b)
-        //       printf(",%d", b);
-        //     else {
-        //       printf("-%d,%d", prev_b, b);
-        //       if (prev_b - start_b > max_cont)
-        //         max_cont = prev_b - start_b;
-        //     }
-        //     start_b = b;
-        //   }
-        //   prev_b = b;
-        //   cur_node.next();
-        // }
-        // if (start_b != prev_b) {
-        //   printf("-%d", prev_b);
-        //   if (prev_b - start_b > max_cont)
-        //     max_cont = prev_b - start_b;
-        // }
-        // printf("\tmax: %d\t%d\n", max_cont, ns_hdr->last_node_idx);
       }
+      // printf("Num leap: %lu, no tail: %lu\n", num_leap, num_leap_no_tail);
     }
 
     #define CACHE_FWD 1
@@ -2874,6 +2879,7 @@ class builder : public builder_fwd {
       if (!no_primary_trie) {
         memtrie.sort_node_sets();
         set_node_id();
+        set_level(1, 1);
         tp.min_stats = make_min_positions();
         tp.trie_tail_ptrs_data_sz = build_trie();
 
@@ -3391,6 +3397,10 @@ class builder : public builder_fwd {
 
     byte_vec *get_out_vec() {
       return out_vec;
+    }
+
+    int insert(const uint64_t *values, const size_t value_lens[] = NULL) {
+      return 0;
     }
 
 };

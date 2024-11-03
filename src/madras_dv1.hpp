@@ -378,22 +378,49 @@ const uint8_t select_lookup_tbl[8][256] = {{
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 }};
 
-class statssski {
+class leapfrog {
   private:
-    statssski(statssski const&);
-    statssski& operator=(statssski const&);
+    leapfrog(leapfrog const&);
+    leapfrog& operator=(leapfrog const&);
+  public:
+    leapfrog() {};
+    virtual ~leapfrog() {};
+    virtual void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) = 0;
+};
+
+class leapfrog_asc : public leapfrog {
+  private:
+    leapfrog_asc(leapfrog_asc const&);
+    leapfrog_asc& operator=(leapfrog_asc const&);
     uint8_t *min_pos_loc;
     min_pos_stats min_stats;
   public:
-    void find_min_pos(uint32_t& node_id, uint8_t node_byte, uint8_t key_byte) {
-        uint8_t min_offset = min_pos_loc[((node_byte - min_stats.min_len) * 256) + key_byte];
-        node_id += min_offset;
+    void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
+      uint8_t min_offset = min_pos_loc[((trie_loc[node_id] - min_stats.min_len) * 256) + key_byte];
+      node_id += min_offset;
     }
-    statssski() {
+    leapfrog_asc() {
     }
     void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
+    }
+};
+
+class leapfrog_rnd : public leapfrog {
+  private:
+    leapfrog_rnd(leapfrog_rnd const&);
+    leapfrog_rnd& operator=(leapfrog_rnd const&);
+  public:
+    void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
+      size_t len = trie_loc[node_id++];
+      // printf("%lu\n", len);
+      while (len-- && trie_loc[node_id] != key_byte)
+        node_id++;
+    }
+    leapfrog_rnd() {
+    }
+    void init() {
     }
 };
 
@@ -1250,7 +1277,7 @@ class static_trie : public inner_trie {
     bvlt_select *leaf_lt;
     GCFC_fwd_cache fwd_cache;
     trie_flags *trie_flags_loc;
-    statssski *sski;
+    leapfrog *leaper;
     uint16_t max_tail_len;
     uint32_t key_count;
     uint8_t *trie_bytes;
@@ -1273,9 +1300,9 @@ class static_trie : public inner_trie {
         tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
         if (ret == 0)
           return bm_mask & tf->bm_leaf;
-        if (sski != nullptr) {
+        if (leaper != nullptr) {
           if ((bm_mask & tf->bm_leaf) == 0 && (bm_mask & tf->bm_child) == 0) {
-            sski->find_min_pos(in_ctx.node_id, trie_loc[in_ctx.node_id], in_ctx.key[in_ctx.key_pos]);
+            leaper->find_pos(in_ctx.node_id, trie_loc, in_ctx.key[in_ctx.key_pos]);
             bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
             tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
           }
@@ -1559,8 +1586,12 @@ class static_trie : public inner_trie {
         if (min_pos_loc == trie_bytes)
           min_pos_loc = nullptr;
         if (min_pos_loc != nullptr) {
-          sski = new statssski();
-          sski->init(min_stats, min_pos_loc);
+          if (opts->sort_nodes_on_freq)
+            leaper = new leapfrog_rnd();
+          else {
+            leaper = new leapfrog_asc();
+            ((leapfrog_asc *) leaper)->init(min_stats, min_pos_loc);
+          }
         }
 
       }
@@ -1577,7 +1608,7 @@ class static_trie : public inner_trie {
       trie_bytes = nullptr;
 
       max_key_len = max_level = 0;
-      sski = nullptr;
+      leaper = nullptr;
 
       max_tail_len = 0;
       tail_map = nullptr;
@@ -1587,8 +1618,8 @@ class static_trie : public inner_trie {
     }
 
     virtual ~static_trie() {
-      if (sski != nullptr)
-        delete sski;
+      if (leaper != nullptr)
+        delete leaper;
       if (lt_not_given & BV_LT_TYPE_LEAF) {
         delete [] leaf_lt->get_rank_loc();
         delete [] leaf_lt->get_select_loc1();

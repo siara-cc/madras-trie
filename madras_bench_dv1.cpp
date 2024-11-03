@@ -33,7 +33,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
                  bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec) {
 
   int asc = argc > 4 ? atoi(argv[4]) : 0;
-  int statssski = argc > 5 && asc != 0 ? atoi(argv[5]) : 0;
+  int leapfrog = argc > 5 ? atoi(argv[5]) : 0;
 
   clock_t t = clock();
 
@@ -42,7 +42,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
   bldr_opts.max_inner_tries = trie_count;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
-  bldr_opts.dart = statssski > 0 ? true : false;
+  bldr_opts.dart = leapfrog > 0 ? true : false;
   sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, false, bldr_opts);
   sb->set_print_enabled(false);
 
@@ -167,7 +167,7 @@ bool bench_next(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reade
 int main(int argc, char *argv[]) {
 
   if (argc < 2) {
-    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [statssski]\n");
+    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [leapfrog]\n");
     return 0;
   }
 
