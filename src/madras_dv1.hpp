@@ -13,6 +13,7 @@
 #include <sys/stat.h> 
 #include <sys/types.h>
 #include <immintrin.h>
+#include <nmmintrin.h>
 #ifndef _WIN32
 #include <sys/mman.h>
 #endif
@@ -413,41 +414,38 @@ class leapfrog_rnd : public leapfrog {
     leapfrog_rnd& operator=(leapfrog_rnd const&);
   public:
     void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
-      int len = trie_loc[node_id++];
-      // printf("%lu\n", len);
-#if defined(__i386__) || defined(__amd64__)
-      node_id -= 16;
-      do {
-        node_id += 16;
-        int bitfield = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_set1_epi8(key_byte),
-                              _mm_loadu_si128((__m128i *) (trie_loc + node_id))));
-        if (bitfield) {
-          int pos = __builtin_ctz(bitfield);
-          if (pos < len) {
+        int len = trie_loc[node_id++];
+      #if defined(__SSE4_2__)
+        __m128i to_locate = _mm_set1_epi8(key_byte);
+        node_id -= 16;
+        do {
+          node_id += 16;
+          __m128i segment = _mm_loadu_si128((__m128i *)(trie_loc + node_id));
+          int pos = _mm_cmpestri(to_locate, 16, segment, 16, _SIDD_CMP_EQUAL_EACH);
+          if (pos < (len < 16 ? len : 16)) {
             node_id += pos;
             return;
           }
-        }
-        len -= 16;
-      } while (len > 0);
-      // node_id -= 32;
-      // do {
-      //   node_id += 32;
-      //   int bitfield = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_set1_epi8(key_byte),
-      //                           _mm256_loadu_si256((__m256i *)(trie_loc + node_id))));
-      //   if (bitfield) {
-      //     int pos = __builtin_ctz(bitfield);
-      //     if (pos < len) {
-      //       node_id += pos;
-      //       return;
-      //     }
-      //   }
-      //   len -= 32;
-      // } while (len > 0);
-#else
-      while (len-- && trie_loc[node_id] != key_byte)
-        node_id++;
-#endif
+          len -= 16;
+        } while (len > 0);
+        // node_id -= 32;
+        // do {
+        //   node_id += 32;
+        //   int bitfield = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_set1_epi8(key_byte),
+        //                           _mm256_loadu_si256((__m256i *)(trie_loc + node_id))));
+        //   if (bitfield) {
+        //     int pos = __builtin_ctz(bitfield);
+        //     if (pos < len) {
+        //       node_id += pos;
+        //       return;
+        //     }
+        //   }
+        //   len -= 32;
+        // } while (len > 0);
+      #else
+        while (len-- && trie_loc[node_id] != key_byte)
+            node_id++;
+      #endif
     }
     leapfrog_rnd() {
     }
