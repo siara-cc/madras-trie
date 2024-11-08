@@ -36,6 +36,9 @@ namespace madras_dv1 {
 #define MDX_HAS_PREFIX 0x04
 #define MDX_HAS_CHILD 0x10
 
+#define VAL_SEQ_SEE_NEXT 1
+#define VAL_SEQ_NID_SET 2
+
 typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uint8_t *> byte_ptr_vec;
 
@@ -136,6 +139,61 @@ void output_bytes(const uint8_t *b, size_t len, FILE *fp, std::vector<uint8_t> *
   } else
     fwrite(b, 1, len, fp);
 }
+
+class cmn {
+  public:
+    static double round(const double input, char type) {
+      double p10;
+      switch (type) {
+        case DCT_S64_DEC1 ... DCT_S64_DEC9:
+          p10 = gen::pow10(type - DCT_S64_DEC1 + 1);
+          break;
+        case DCT_U64_DEC1 ... DCT_U64_DEC9:
+          p10 = gen::pow10(type - DCT_U64_DEC1 + 1);
+          break;
+        case DCT_U15_DEC1 ... DCT_U15_DEC2:
+          p10 = gen::pow10(type - DCT_U15_DEC1 + 1);
+          break;
+      }
+      int64_t i64 = static_cast<int64_t>(input * p10);
+      double ret = i64;
+      ret /= p10;
+      return ret;
+    }
+    static uint8_t *convert(const void *val, const int val_len, uint8_t *converted_val, int& converted_val_len, char type) {
+      if (val == NULL) {
+        converted_val_len = 0;
+        return NULL;
+      } else if (type == DCT_TEXT || type == DCT_BIN) {
+        converted_val_len = val_len;
+        converted_val = (uint8_t *) val;
+      } else if (type == DCT_S64_INT) {
+        int64_t *i64 = (int64_t *) val;
+        converted_val_len = gen::get_svint60_len(*i64);
+        gen::copy_svint60(*i64, converted_val, converted_val_len);
+      } else if (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9) {
+        double *d64 = (double *) val;
+        int64_t i64 = static_cast<int64_t>((*d64) * gen::pow10(type - DCT_S64_DEC1 + 1));
+        converted_val_len = gen::get_svint60_len(i64);
+        gen::copy_svint60(i64, converted_val, converted_val_len);
+      } else if (type == DCT_U64_INT) {
+        uint64_t *i64 = (uint64_t *) val;
+        converted_val_len = gen::get_svint61_len(*i64);
+        gen::copy_svint61(*i64, converted_val, converted_val_len);
+      } else if (type >= DCT_U64_DEC1 && type <= DCT_U64_DEC9) {
+        double *d64 = (double *) val;
+        uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U64_DEC1 + 1));
+        converted_val_len = gen::get_svint61_len(i64);
+        gen::copy_svint61(i64, converted_val, converted_val_len);
+      } else if (type >= DCT_U15_DEC1 && type <= DCT_U15_DEC2) {
+        double *d64 = (double *) val;
+        uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U15_DEC1 + 1));
+        converted_val_len = gen::get_svint15_len(i64);
+        gen::copy_svint15(i64, converted_val, converted_val_len);
+      }
+      return converted_val;
+    }
+};
 
 typedef int (*cmp_fn) (const uint8_t *v1, int len1, const uint8_t *v2, int len2);
 
@@ -367,10 +425,10 @@ class ptr_groups {
         grp_data_vec.push_back(0);
       return ptr;
     }
-    uint32_t append_bin_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = LPDT_BIN) {
+    uint32_t append_bin_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = DCT_BIN) {
       byte_vec& grp_data_vec = get_data(grp_no);
       uint32_t ptr = grp_data_vec.size();
-      if (data_type == LPDT_TEXT || data_type == LPDT_BIN)
+      if (data_type == DCT_TEXT || data_type == DCT_BIN)
         gen::append_vint32(grp_data_vec, len);
       for (uint32_t k = 0; k < len; k++)
         grp_data_vec.push_back(val[k]);
@@ -1491,7 +1549,7 @@ class tail_val_maps {
         uniq_info *vi = uniq_vals_freq[freq_idx];
         freq_idx++;
         uint8_t len_of_len = 0;
-        if (data_type == LPDT_TEXT || data_type == LPDT_BIN)
+        if (data_type == DCT_TEXT || data_type == DCT_BIN)
           len_of_len = gen::get_vlen_of_uint32(vi->len);
         uint32_t len_plus_len = vi->len + len_of_len;
         cur_limit = ptr_grps.next_grp(grp_no, cur_limit, len_plus_len, tot_freq_count);
@@ -1520,7 +1578,7 @@ class tail_val_maps {
     }
 
     void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp, byte_vec *out_vec) {
-      ptr_grps.write_ptrs_data(LPDT_BIN, 1, true, fp, out_vec);
+      ptr_grps.write_ptrs_data(DCT_BIN, 1, true, fp, out_vec);
     }
 
     void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, uint8_t flags, FILE *fp, byte_vec *out_vec) {
@@ -1577,17 +1635,17 @@ class sort_callbacks {
       if (pos >= vec.size())
         std::cout << "WARNING:: accessing beyond vec size !!!!!!!!!!!!!!!!!!!!!!!!!!!!!: " << pos << ", " << vec.size() << std::endl;
       uint8_t *v = vec[pos];
-      if (type == LPDT_TEXT || type == LPDT_BIN) {
+      if (type == DCT_TEXT || type == DCT_BIN) {
         size_t vlen;
         len = gen::read_vint32(v, &vlen);
         v += vlen;
-      } else if (type == LPDT_S64_INT || (type >= LPDT_S64_DEC1 && type <= LPDT_S64_DEC9)) {
+      } else if (type == DCT_S64_INT || (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9)) {
         len = (*v >> 4) & 0x07;
         len++;
-      } else if (type == LPDT_U64_INT || (type >= LPDT_U64_DEC1 && type <= LPDT_U64_DEC9)) {
+      } else if (type == DCT_U64_INT || (type >= DCT_U64_DEC1 && type <= DCT_U64_DEC9)) {
         len = (*v >> 5);
         len++;
-      } else if (type >= LPDT_U15_DEC1 && type <= LPDT_U15_DEC2) {
+      } else if (type >= DCT_U15_DEC1 && type <= DCT_U15_DEC2) {
         len = (*v >> 7);
         len++;
       }
@@ -1692,12 +1750,12 @@ class val_sort_callbacks : public sort_callbacks {
 class uniq_maker {
   public:
     static uint32_t make_uniq(byte_ptr_vec& all_node_sets, gen::byte_blocks& all_data, gen::byte_blocks& uniq_data,
-          uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level = 0, char type = LPDT_BIN) {
+          uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level = 0, char type = DCT_BIN) {
       sort_data_vec nodes_for_sort;
       add_to_sort_data_vec(nodes_for_sort, all_node_sets, sic, type);
       return sort_and_reduce(nodes_for_sort, all_data, uniq_data, uniq_vec, sic, max_len, trie_level, type);
     }
-    static void add_to_sort_data_vec(sort_data_vec& nodes_for_sort, byte_ptr_vec& all_node_sets, sort_callbacks& sic, char type = LPDT_BIN) {
+    static void add_to_sort_data_vec(sort_data_vec& nodes_for_sort, byte_ptr_vec& all_node_sets, sort_callbacks& sic, char type = DCT_BIN) {
       for (uint32_t i = 1; i < all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(all_node_sets, i);
         leopard::node n = cur_ns.first_node();
@@ -1716,7 +1774,7 @@ class uniq_maker {
       gen::gen_printf("Nodes for sort size: %lu\n", nodes_for_sort.size());
     }
     static uint32_t sort_and_reduce(sort_data_vec& nodes_for_sort, gen::byte_blocks& all_data,
-          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level, char type = LPDT_BIN) {
+          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level, char type = DCT_BIN) {
       clock_t t = clock();
       if (nodes_for_sort.size() == 0)
         return 0;
@@ -1793,6 +1851,19 @@ class uniq_maker {
     }
 };
 
+struct val_sequence {
+  uint8_t flags;
+  uint8_t node_idx;
+  union {
+    uint32_t val_pos;
+    uint32_t next_val_seq;
+    uint32_t node_set_id;
+  };
+  val_sequence() {
+    flags = 0; node_idx = 0; val_pos = 0;
+  }
+};
+
 class builder : public builder_fwd {
 
   private:
@@ -1846,12 +1917,19 @@ class builder : public builder_fwd {
     byte_vec trie_flags_tail;
     byte_vec trie_flags_leaf;
     uint32_t end_loc;
+    gen::byte_blocks *all_vals;
     gen::byte_blocks uniq_tails;
     uniq_info_vec uniq_tails_rev;
     uniq_info_vec uniq_vals_fwd;
     gen::byte_blocks uniq_vals;
     gen::word_matcher wm;
     tail_val_maps tail_vals;
+    int cur_col_idx;
+    int cur_seq_idx;
+    bool is_ns_sorted;
+    std::vector<val_sequence> val_seq;
+    int max_val_len;
+    uint32_t max_level;
     uint32_t column_count;
     char *names;
     char *column_encoding;
@@ -1859,6 +1937,7 @@ class builder : public builder_fwd {
     uint16_t *names_positions;
     uint16_t names_len;
     uint32_t *val_table;
+    leopard::trie *col_trie;
     builder *col_trie_builder;
     builder *tail_trie_builder;
     trie_parts tp;
@@ -1866,11 +1945,12 @@ class builder : public builder_fwd {
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
         bool _maintain_seq = true, bool _no_primary_trie = false,
         bldr_options _opts = dflt_opts)
-        : memtrie(_column_count, _column_types, _column_encoding, _maintain_seq, _no_primary_trie, _opts.sort_nodes_on_freq),
+        : memtrie(_column_count, _column_types, _column_encoding),
           tail_vals (this, uniq_tails, uniq_tails_rev, uniq_vals, uniq_vals_fwd),
           builder_fwd (_opts, _maintain_seq, _no_primary_trie), wm (uniq_vals) {
       trie_level = _trie_level;
       tp = {};
+      col_trie = NULL;
       col_trie_builder = NULL;
       tail_trie_builder = NULL;
       column_count = _column_count;
@@ -1893,6 +1973,14 @@ class builder : public builder_fwd {
       r_cache = nullptr;
       f_cache_freq = nullptr;
       r_cache_freq = nullptr;
+      max_level = 0;
+      cur_col_idx = 0;
+      if (no_primary_trie)
+        cur_col_idx = -1;
+      max_val_len = 0;
+      all_vals = new gen::byte_blocks();
+      all_vals->push_back("\0", 2);
+      is_ns_sorted = false;
     }
 
     virtual ~builder() {
@@ -1915,6 +2003,8 @@ class builder : public builder_fwd {
         delete [] f_cache_freq;
       if (r_cache_freq != nullptr)
         delete [] r_cache_freq;
+      if (all_vals != NULL)
+        delete all_vals;
       //close_file(); // TODO: Close for nested tries?
     }
 
@@ -1972,6 +2062,334 @@ class builder : public builder_fwd {
 
     size_t size() {
       return memtrie.key_count;
+    }
+
+    int copy_new_val(char type, const void *val, uint8_t *out_buf) {
+      int8_t vlen = 0;
+      switch (type) {
+        case DCT_S64_INT: {
+          int64_t *i64 = (int64_t *) val;
+          vlen = gen::get_svint60_len(*i64);
+          gen::copy_svint60(*i64, out_buf, vlen);
+        } break;
+        case DCT_S64_DEC1 ... DCT_S64_DEC9: {
+          double *d64 = (double *) val;
+          int64_t i64 = static_cast<int64_t>((*d64) * gen::pow10(type - DCT_S64_DEC1 + 1));
+          vlen = gen::get_svint60_len(i64);
+          gen::copy_svint60(i64, out_buf, vlen);
+        } break;
+        case DCT_U64_INT: {
+          uint64_t *i64 = (uint64_t *) val;
+          vlen = gen::get_svint61_len(*i64);
+          gen::copy_svint61(*i64, out_buf, vlen);
+        } break;
+        case DCT_U64_DEC1 ... DCT_U64_DEC9: {
+          double *d64 = (double *) val;
+          uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U64_DEC1 + 1));
+          vlen = gen::get_svint61_len(i64);
+          gen::copy_svint61(i64, out_buf, vlen);
+        } break;
+        case DCT_U15_DEC1 ... DCT_U15_DEC2: {
+          double *d64 = (double *) val;
+          uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U15_DEC1 + 1));
+          vlen = gen::get_svint15_len(i64);
+          gen::copy_svint15(i64, out_buf, vlen);
+        } break;
+      }
+      return vlen;
+    }
+
+    uint8_t *get_v(gen::byte_blocks& vec, uint32_t pos, uint32_t& len, char val_type) {
+      uint8_t *v = vec[pos];
+      size_t vlen;
+      switch (val_type) {
+        case 't': case '*':
+          len = gen::read_vint32(v, &vlen);
+          v += vlen;
+          break;
+        case DCT_S64_INT: case DCT_S64_DEC1 ... DCT_S64_DEC9:
+          len = gen::read_svint60_len(v);
+          break;
+        case DCT_U64_INT: case DCT_U64_DEC1 ... DCT_U64_DEC9:
+          len = gen::read_svint61_len(v);
+          break;
+        case DCT_U15_DEC1 ... DCT_U15_DEC2:
+          len = gen::read_svint15_len(v);
+          break;
+        default:
+          break;
+      }
+      return v;
+    }
+
+    // uint64_t avg_freq_all_ns;
+    uint32_t set_ns_freq(uint32_t ns_id, int level) {
+      if (ns_id == 0)
+        return 1;
+      leopard::node_set_handler ns(memtrie.all_node_sets, ns_id);
+      leopard::node n = ns.first_node();
+      leopard::node_set_header *ns_hdr = ns.hdr();
+      uint32_t freq_count = 1;
+      for (int i = 0; i <= ns_hdr->last_node_idx; i++) {
+        uint32_t node_freq = set_ns_freq(n.get_child(), level + 1);
+        freq_count += node_freq;
+        n.next();
+      }
+      // avg_freq_all_ns += freq_count;
+      ns_hdr->freq = freq_count; // > 0xFFFF ? 0xFFFF : freq_count;
+      return freq_count;
+    }
+
+    void sort_nodes_on_freq(leopard::node_set_handler& nsh) {
+      leopard::node cur_node = nsh.first_node();
+      leopard::node_s *ns = cur_node.get_node_struct();
+      // uint32_t avg_freq = 0;
+      // int n_count = nsh.last_node_idx() + 1;
+      // node_set_handler nsh_child(all_node_sets, ns->child);
+      // for (int i = 0; i < n_count; i++) {
+      //   if (ns->child > 0) {
+      //     avg_freq += nsh_child.hdr()->freq;
+      //   } else
+      //     avg_freq++;
+      //   cur_node.next();
+      //   ns = cur_node.get_node_struct();
+      //   if (ns != nullptr)
+      //     nsh_child.set_pos(ns->child);
+      // }
+      // avg_freq /= n_count;
+      // ns = nsh.first_node().get_node_struct();
+      // std::sort(ns, ns + nsh.last_node_idx(), [this,avg_freq,n_count](const node_s& lhs, const node_s& rhs) -> bool {
+      std::sort(ns, ns + nsh.last_node_idx(), [this](const leopard::node_s& lhs, const leopard::node_s& rhs) -> bool {
+        uint32_t lhs_freq = 1;
+        uint32_t rhs_freq = 1;
+        if (lhs.child > 0) {
+          leopard::node_set_handler nsh_l(this->memtrie.all_node_sets, lhs.child);
+          lhs_freq = nsh_l.hdr()->freq;
+        }
+        if (rhs.child > 0) {
+          leopard::node_set_handler nsh_r(this->memtrie.all_node_sets, rhs.child);
+          rhs_freq = nsh_r.hdr()->freq;
+        }
+        // if (lhs_freq >= avg_freq || rhs_freq >= avg_freq || n_count > 16)
+        // if (n_count < 16)
+          return lhs_freq > rhs_freq;
+        // return lhs.b < rhs.b;
+      });
+      // for (int i = 0; i < nsh.last_node_idx(); i++) {
+      //   node n = nsh[i];
+      //   uint32_t node_freq = 1;
+      //   if (n.get_child() > 0) {
+      //     node_set_handler nsh_c(this->all_node_sets, n.get_child());
+      //     node_freq = nsh_c.hdr()->freq;
+      //   }
+      //   printf("%c(%d/%u) ", n.get_byte(), n.get_byte(), node_freq);
+      // }
+      // printf("\n");
+    }
+
+    void swap_node_sets(uint32_t pos_from, uint32_t pos_to) {
+      if (pos_from == pos_to) {
+        memtrie.all_node_sets[pos_to][0] |= NODE_SET_SORTED;
+        return;
+      }
+      while (memtrie.all_node_sets[pos_from][0] & NODE_SET_SORTED)
+        pos_from = ((leopard::node_set_header *) memtrie.all_node_sets[pos_from])->swap_pos;
+      uint8_t *ns = memtrie.all_node_sets[pos_to];
+      memtrie.all_node_sets[pos_to] = memtrie.all_node_sets[pos_from];
+      memtrie.all_node_sets[pos_from] = ns;
+      leopard::node_set_header *nsh = (leopard::node_set_header *) memtrie.all_node_sets[pos_to];
+      nsh->swap_pos = pos_from;
+      memtrie.all_node_sets[pos_to][0] |= NODE_SET_SORTED;
+    }
+
+    void sort_node_sets() {
+      clock_t t = clock();
+      uint32_t nxt_set = 0;
+      uint32_t nxt_node = 0;
+      uint32_t node_set_id = 1;
+      leopard::node_set_handler nsh(memtrie.all_node_sets, 0);
+      if (opts.sort_nodes_on_freq) {
+        // avg_freq_all_ns = 0;
+        set_ns_freq(1, 0);
+        // printf("Avg freq: %llu\n", avg_freq_all_ns);
+        // avg_freq_all_ns /= node_set_count;
+        // printf("Avg freq: %llu\n", avg_freq_all_ns);
+        sort_nodes_on_freq(nsh);
+      }
+      leopard::node n = nsh.first_node();
+      while (nxt_set < memtrie.all_node_sets.size()) {
+        if (n == NULL) {
+          nxt_set++;
+          if (nxt_set == memtrie.all_node_sets.size())
+            break;
+          nsh.set_pos(nxt_set);
+          if (opts.sort_nodes_on_freq)
+            sort_nodes_on_freq(nsh);
+          n = nsh.first_node();
+          nxt_node = 0;
+          continue;
+        }
+        uint32_t nxt_child = n.get_child();
+        if (nxt_child == 0) {
+          nxt_node++;
+          n.next();
+          continue;
+        }
+        n.set_child(node_set_id);
+        swap_node_sets(nxt_child, node_set_id);
+        node_set_id++;
+        nxt_node++;
+        n.next();
+      }
+      if (val_seq.size() > 0) {
+        for (size_t i = 1; i < memtrie.all_node_sets.size(); i++) {
+          leopard::node_set_handler nsh(memtrie.all_node_sets, i);
+          leopard::node n = nsh.first_node();
+          for (int k = 0; k <= nsh.last_node_idx(); k++) {
+            if (n.get_flags() & NFLAG_LEAF) {
+              uint32_t val_seq_idx = n.get_col_val();
+              val_sequence *vs = &val_seq[val_seq_idx];
+              uint32_t val_pos = vs->val_pos;
+              vs->node_set_id = i;
+              vs->node_idx = k;
+              n.set_col_val(val_pos);
+            }
+            n.next();
+          }
+        }
+        for (int i = val_seq.size() - 1; i >= 0; i--) {
+          val_sequence *vs = &val_seq[i];
+          if (vs->flags & VAL_SEQ_SEE_NEXT) {
+            val_sequence *next_vs = &val_seq[vs->next_val_seq];
+            vs->node_set_id = next_vs->node_set_id;
+            vs->node_idx = next_vs->node_idx;
+            vs->flags |= VAL_SEQ_NID_SET;
+          }
+        }
+      }
+      is_ns_sorted = true;
+      gen::print_time_taken(t, "Time taken for sort_nodes(): ");
+    }
+
+    uint32_t append_val(const void *val, uint32_t val_len, uint32_t old_val_pos = 0) {
+      uint32_t val_pos = 0;
+      uint32_t val_seq_idx;
+      if (column_count == 1 && !no_primary_trie && val == NULL)
+        val_pos = 1;
+      else {
+        char data_type = column_types[cur_col_idx + (no_primary_trie ? 0 : 1)];
+        char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
+        if (encoding_type == 't') {
+          insert_col_val(val, val_len, false);
+        } else if (val == NULL) {
+            val_pos = 1;
+        } else if (data_type == DCT_TEXT || data_type == DCT_BIN) {
+          uint32_t old_val_len = 0;
+          uint8_t *old_v = NULL;
+          size_t vlen = 0;
+          if (old_val_pos > 0) {
+            old_v = (*all_vals)[old_val_pos];
+            old_val_len = gen::read_vint32(old_v, &vlen);
+          }
+          if (old_v == NULL || old_val_len < val_len)
+            val_pos = all_vals->push_back_with_vlen(val, val_len);
+          else {
+            val_pos = old_val_pos;
+            gen::copy_vint32(val_len, old_v, vlen);
+            memcpy(old_v + vlen, val, val_len);
+          }
+        // } else if (data_type == DCT_WORDS) {
+        //   if (val_len == 0)
+        //     return 2;
+        //   return wm.add_words((const uint8_t *) val, val_len, 0) + 3;
+        } else {
+          uint8_t new_val_buf[10];
+          uint32_t new_val_len = copy_new_val(data_type, val, new_val_buf);
+          uint32_t old_val_len = 0;
+          uint8_t *old_v = NULL;
+          if (old_val_pos > 0)
+            old_v = get_v(*all_vals, old_val_pos, old_val_len, data_type);
+          if (old_v == NULL || old_val_len < new_val_len)
+            val_pos = all_vals->push_back(new_val_buf, new_val_len);
+          else {
+            val_pos = old_val_pos;
+            size_t vlen = 0;
+            gen::read_vint32(old_v, &vlen);
+            gen::copy_vint32(val_len, old_v, vlen);
+            memcpy(old_v + vlen, val, val_len);
+          }
+        }
+      }
+      if (cur_col_idx <= 0 && maintain_seq) {
+        val_seq_idx = val_seq.size() - 1;
+        val_sequence *val_seq_member = &val_seq[val_seq_idx];
+        val_seq_member->val_pos = val_pos;
+        return val_seq_idx;
+      }
+      return val_pos;
+    }
+
+    // TODO: not called
+    void replace_or_append_val(const void *val, int val_len, leopard::node_set_vars& nsv, uint32_t val_seq_or_pos = UINT32_MAX) {
+      leopard::node_set_handler nsh(memtrie.all_node_sets, nsv.node_set_pos);
+      leopard::node n = nsh[nsv.cur_node_idx];
+      uint32_t old_val_pos = n.get_col_val();
+      if (cur_col_idx <= 0 && maintain_seq)
+        old_val_pos = val_seq[old_val_pos].val_pos;
+      if (val_seq_or_pos == UINT32_MAX)
+        val_seq_or_pos = append_val(val, val_len, old_val_pos);
+      if (max_val_len < val_len)
+        max_val_len = val_len;
+      if (cur_col_idx <= 0 && maintain_seq) {
+        uint32_t prev_val_seq = n.get_col_val();
+        val_sequence *val_seq_member = &val_seq[prev_val_seq];
+        val_seq_member->next_val_seq = val_seq_or_pos;
+        val_seq_member->flags |= VAL_SEQ_SEE_NEXT;
+      }
+      n.set_col_val(val_seq_or_pos);
+    }
+
+    uint32_t insert_col_val(const void *val, const int val_len, bool set_col_val) {
+      if (cur_col_idx <= 0 && maintain_seq) {
+        val_sequence val_seq_member;
+        val_seq.push_back(val_seq_member);
+      }
+      if (max_val_len < val_len)
+        max_val_len = val_len;
+      char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
+      if (no_primary_trie && cur_col_idx <= 0) {
+        memtrie.node_count++;
+        memtrie.node_set_count++;
+        val_sequence val_seq_nopk;
+        val_seq_nopk.node_set_id = memtrie.all_node_sets.size();
+        val_seq_nopk.node_idx = 0;
+        val_seq.push_back(val_seq_nopk);
+        leopard::node_set_handler::create_node_set(memtrie.all_node_sets, 1);
+        leopard::node_set_handler nsh(memtrie.all_node_sets, cur_seq_idx + 1);
+        leopard::node n = nsh.first_node();
+        n.set_flags(NFLAG_LEAF | NFLAG_TERM);
+        nsh.hdr()->node_id = cur_seq_idx;
+      }
+      uint32_t val_pos = cur_seq_idx;
+      val_sequence &vs = val_seq[cur_seq_idx++];
+      switch (encoding_type) {
+        case 'u': case 'd': case 's': case 'w': {
+          val_pos = append_val(val, val_len);
+          if (set_col_val) {
+            leopard::node_set_handler nsh(memtrie.all_node_sets, vs.node_set_id);
+            leopard::node n = nsh[vs.node_idx];
+            n.set_col_val(val_pos);
+          }
+        } break;
+        case 't': {
+          uint8_t converted_val[10];
+          int converted_val_len = val_len;
+          char data_type = column_types[cur_col_idx + (no_primary_trie ? 0 : 1)];
+          uint8_t *val_to_ins = cmn::convert(val, val_len, converted_val, converted_val_len, data_type);
+          col_trie->insert(val_to_ins, converted_val_len, val_pos);
+        } break;
+      }
+      return val_pos;
     }
 
     uint8_t append_tail_ptr(leopard::node *cur_node) {
@@ -2035,7 +2453,7 @@ class builder : public builder_fwd {
           prev_val = 0;
         if (cur_node.get_flags() & NFLAG_LEAF) {
           uint32_t val_pos = cur_node.get_col_val();
-          int64_t col_val = gen::read_svint60((*memtrie.all_vals)[val_pos]);
+          int64_t col_val = gen::read_svint60((*all_vals)[val_pos]);
           int64_t delta_val = col_val;
           // std::cout << node_id << ", " << val_pos << ", ";
           if (node_id % nodes_per_bv_block_n)
@@ -2051,16 +2469,16 @@ class builder : public builder_fwd {
         cur_node = ni.next();
       }
       std::cout << "All vals len: " << delta_vals->size() << std::endl;
-      delete memtrie.all_vals;
-      memtrie.all_vals = delta_vals;
+      delete all_vals;
+      all_vals = delta_vals;
     }
 
     uint32_t build_col_trie() {
       uint32_t col_trie_size = col_trie_builder->build();
-      std::vector<leopard::val_sequence>& col_trie_val_seq = col_trie_builder->memtrie.val_seq;
+      std::vector<val_sequence>& col_trie_val_seq = col_trie_builder->val_seq;
       uint32_t max_node_id = 0;
       for (size_t seq_idx = 0; seq_idx < col_trie_val_seq.size(); seq_idx++) {
-        leopard::val_sequence& val_seq_obj = col_trie_val_seq[seq_idx];
+        val_sequence& val_seq_obj = col_trie_val_seq[seq_idx];
         leopard::node_set_handler col_trie_ns(col_trie_builder->memtrie.all_node_sets, val_seq_obj.node_set_id);
         leopard::node_set_header *col_trie_ns_hdr = col_trie_ns.hdr();
         int64_t col_trie_node_id = col_trie_ns_hdr->node_id + val_seq_obj.node_idx;
@@ -2068,7 +2486,7 @@ class builder : public builder_fwd {
           col_trie_node_id++;
         if (max_node_id < col_trie_node_id)
           max_node_id = col_trie_node_id;
-        leopard::val_sequence& this_val_seq = memtrie.val_seq[seq_idx];
+        val_sequence& this_val_seq = val_seq[seq_idx];
         leopard::node_set_handler cur_ns(memtrie.all_node_sets, this_val_seq.node_set_id);
         leopard::node cur_node = cur_ns[this_val_seq.node_idx];
         cur_node.set_col_val(col_trie_node_id);
@@ -2190,7 +2608,7 @@ class builder : public builder_fwd {
           }
           rpt_count = 0;
           last_line_sz = line_ptrs.size();
-          gen::append_ovint32(ptrs, line_ptrs.size(), 2, '\xC0');
+          gen::append_ovint(ptrs, line_ptrs.size(), 2, '\xC0');
           ptrs.insert(ptrs.end(), line_ptrs.begin(), line_ptrs.end());
           line_ptrs.clear();
           line_no++;
@@ -2201,8 +2619,8 @@ class builder : public builder_fwd {
       gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
       uint32_t ptr_lkup_tbl_ptr_width = 4;
       output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
-      output_byte(LPDT_WORDS, fp, out_vec); // data type
-      output_byte(LPDT_WORDS, fp, out_vec); // encoding type
+      output_byte(DCT_WORDS, fp, out_vec); // data type
+      output_byte(DCT_WORDS, fp, out_vec); // encoding type
       output_byte(0, fp, out_vec); // flags
       uint32_t hdr_size = 6 * 4 + 4;
       uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
@@ -2212,7 +2630,7 @@ class builder : public builder_fwd {
       uint32_t idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
       uint32_t grp_data_loc = idx2_ptrs_map_loc + 0;
       uint32_t grp_data_size = 2 + words_grp_count * 4 + total_trie_size;
-      output_u32(memtrie.max_val_len, fp, out_vec);
+      output_u32(max_val_len, fp, out_vec);
       output_u32(ptr_lookup_tbl_loc, fp, out_vec); // ptr_lookup_tbl_loc
       output_u32(grp_data_loc, fp, out_vec); // grp_data_loc
       output_u32(idx2_ptr_count, fp, out_vec); // idx2_ptr_count
@@ -2240,7 +2658,7 @@ class builder : public builder_fwd {
     }
 
     uint32_t store_col_val() {
-      gen::word_matcher wm(*memtrie.all_vals);
+      gen::word_matcher wm(*all_vals);
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -2249,7 +2667,7 @@ class builder : public builder_fwd {
           continue;
         }
         // uint32_t col_val_pos = cur_node.get_col_val();
-        // uint8_t *v = (*memtrie.all_vals)[col_val_pos];
+        // uint8_t *v = (*all_vals)[col_val_pos];
         // int8_t vlen;
         // uint32_t len = gen::read_vint32(v, &vlen);
         // wm.add_words(col_val_pos + vlen, len, cur_ns_idx);
@@ -2262,23 +2680,23 @@ class builder : public builder_fwd {
 
     uint32_t build_and_write_col_val() {
       clock_t t = clock();
-      char encoding_type = column_encoding[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
+      char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
       if (encoding_type == 's') {
         return store_col_val();
       }
       if (encoding_type == 'w') {
         uint32_t val_size = build_words();
         gen::gen_printf("Total val size: %u\n", val_size);
-        if (memtrie.cur_col_idx > 0) {
-          uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
-          val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
+        if (cur_col_idx > 0) {
+          uint32_t prev_val_loc = val_table[cur_col_idx - 1];
+          val_table[cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
         }
         memtrie.prev_val_size = val_size;
         return val_size;
       }
-      if (memtrie.cur_seq_idx > 0 || encoding_type == 't') {
-        gen::gen_printf("\nCol: %s, ", names + names_positions[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1) + 2]);
-        char data_type = column_types[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
+      if (cur_seq_idx > 0 || encoding_type == 't') {
+        gen::gen_printf("\nCol: %s, ", names + names_positions[cur_col_idx + (no_primary_trie ? 0 : 1) + 2]);
+        char data_type = column_types[cur_col_idx + (no_primary_trie ? 0 : 1)];
         gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
         if (encoding_type == 'd')
           make_delta_values();
@@ -2289,13 +2707,13 @@ class builder : public builder_fwd {
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, no_primary_trie, opts.dessicate, encoding_type, col_trie_size);
         } else {
-          val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *memtrie.all_vals, uniq_vals);
-          uint32_t tot_freq_count = uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_vals,
-            uniq_vals, uniq_vals_fwd, val_sort_cb, memtrie.max_val_len, 0, data_type);
+          val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *all_vals, uniq_vals);
+          uint32_t tot_freq_count = uniq_maker::make_uniq(memtrie.all_node_sets, *all_vals,
+            uniq_vals, uniq_vals_fwd, val_sort_cb, max_val_len, 0, data_type);
           if (data_type == 't')
-            tail_vals.build_text_val_maps(tot_freq_count, memtrie.max_val_len);
+            tail_vals.build_text_val_maps(tot_freq_count, max_val_len);
           else
-            tail_vals.build_val_maps(tot_freq_count, memtrie.max_val_len, data_type);
+            tail_vals.build_val_maps(tot_freq_count, max_val_len, data_type);
 
           uint32_t rpt_count = 0;
           uint32_t prev1_val_pos, prev2_val_pos, prev3_val_pos;
@@ -2330,27 +2748,27 @@ class builder : public builder_fwd {
     }
 
     void reset_for_next_col() {
-      memtrie.cur_col_idx++;
-      char encoding_type = column_encoding[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
+      cur_seq_idx = 0;
+      cur_col_idx++;
+      char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
       if (encoding_type == 't') {
         if (col_trie_builder != NULL)
           delete col_trie_builder;
         col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
         col_trie_builder->fp = fp;
         col_trie_builder->out_vec = out_vec;
-        return memtrie.reset_for_next_col(&col_trie_builder->memtrie);
+        col_trie = &col_trie_builder->memtrie;
       }
+      if (all_vals != NULL)
+        delete all_vals;
+      all_vals = new gen::byte_blocks();
+      all_vals->push_back("\0", 2);
       uniq_vals.reset();
       wm.reset();
       for (size_t i = 0; i < uniq_vals_fwd.size(); i++)
         delete uniq_vals_fwd[i];
       uniq_vals_fwd.resize(0);
-      return memtrie.reset_for_next_col();
-    }
-
-    bool insert_col_val(const void *val, const int val_len) {
-      memtrie.insert_col_val(val, val_len);
-      return true;
+      return;
     }
 
     builder_fwd *new_instance() {
@@ -2432,7 +2850,7 @@ class builder : public builder_fwd {
       clock_t t = clock();
       tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, *memtrie.all_tails, uniq_tails);
       uint32_t tot_freq_count = uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_tails,
-          uniq_tails, uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, LPDT_BIN);
+          uniq_tails, uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, DCT_BIN);
       uint32_t tail_trie_size = 0;
       if (uniq_tails_rev.size() > 0) {
         if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && uniq_tails_rev.size() > 255) {
@@ -2596,25 +3014,20 @@ class builder : public builder_fwd {
       return tail_vals.get_uniq_vals_fwd()->size();
     }
 
-    bool get(const uint8_t *key, int key_len, int *in_size_out_value_len, void *val) {
-      return memtrie.get(key, key_len, in_size_out_value_len, val);
-    }
-
-    bool put(const uint8_t *key, int key_len, const void *value, int value_len) {
-      return insert(key, key_len, value, value_len);
-    }
-
     bool insert(const uint8_t *key, int key_len) {
-      return memtrie.insert(key, key_len, NULL, 0);
+      return memtrie.insert(key, key_len);
     }
 
     bool insert(const uint8_t *key, int key_len, const void *val, int val_len, uint32_t val_pos = UINT32_MAX) {
+      cur_seq_idx++;
       if (col_trie_builder == nullptr && column_count > 1 && column_encoding[1] == 't') {
         col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
         col_trie_builder->fp = fp;
-        memtrie.col_trie = &col_trie_builder->memtrie;
+        col_trie = &col_trie_builder->memtrie;
       }
-      return memtrie.insert(key, key_len, val, val_len, val_pos);
+      if (val_pos == UINT32_MAX)
+        val_pos = insert_col_val(val, val_len, false);
+      return memtrie.insert(key, key_len, val_pos);
     }
 
     void set_leaf_seq(uint32_t ns_id, uint32_t& seq_idx, std::function<void(uint32_t, uint32_t)> set_seq) {
@@ -2630,8 +3043,8 @@ class builder : public builder_fwd {
     }
 
     void set_level(uint32_t ns_id, uint32_t level) {
-      if (memtrie.max_level < level)
-        memtrie.max_level = level;
+      if (max_level < level)
+        max_level = level;
       leopard::node_set_handler ns(memtrie.all_node_sets, ns_id);
       leopard::node n = ns.first_node();
       for (size_t i = 0; i <= ns.last_node_idx(); i++) {
@@ -2877,7 +3290,7 @@ class builder : public builder_fwd {
       tp = {};
       tp.opts_loc = 4 + 10 + 27 * 4; // 122
       if (!no_primary_trie) {
-        memtrie.sort_node_sets();
+        sort_node_sets();
         set_node_id();
         set_level(1, 1);
         tp.min_stats = make_min_positions();
@@ -3050,9 +3463,9 @@ class builder : public builder_fwd {
       output_u32(memtrie.node_set_count, fp, out_vec);
       output_u32(memtrie.key_count, fp, out_vec);
       output_u32(memtrie.max_key_len, fp, out_vec);
-      output_u32(memtrie.max_val_len, fp, out_vec);
+      output_u32(max_val_len, fp, out_vec);
       output_u16(memtrie.max_tail_len, fp, out_vec);
-      output_u16(memtrie.max_level, fp, out_vec);
+      output_u16(max_level, fp, out_vec);
       output_u32(tp.fwd_cache_count, fp, out_vec);
       output_u32(tp.rev_cache_count, fp, out_vec);
       output_u32(tp.fwd_cache_max_node_id, fp, out_vec);
@@ -3152,8 +3565,8 @@ class builder : public builder_fwd {
       memtrie.prev_val_size = 0;
       if (column_count == 1 && !no_primary_trie)
         return;
-      char encoding_type = column_encoding[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
-      if (memtrie.all_vals->size() > 2 || encoding_type == 't' || encoding_type == 'w') { // TODO: What if column contains only NULL and ""
+      char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
+      if (all_vals->size() > 2 || encoding_type == 't' || encoding_type == 'w') { // TODO: What if column contains only NULL and ""
         memtrie.prev_val_size = build_and_write_col_val();
       }
     }
@@ -3172,12 +3585,12 @@ class builder : public builder_fwd {
     }
 
     uint32_t write_col_val() {
-      char data_type = column_types[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
-      char encoding_type = column_encoding[memtrie.cur_col_idx + (no_primary_trie ? 0 : 1)];
+      char data_type = column_types[cur_col_idx + (no_primary_trie ? 0 : 1)];
+      char encoding_type = column_encoding[cur_col_idx + (no_primary_trie ? 0 : 1)];
       uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, 1, fp, out_vec); // TODO: fix flags
-      if (memtrie.cur_col_idx > 0) {
-        uint32_t prev_val_loc = val_table[memtrie.cur_col_idx - 1];
-        val_table[memtrie.cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
+      if (cur_col_idx > 0) {
+        uint32_t prev_val_loc = val_table[cur_col_idx - 1];
+        val_table[cur_col_idx] = prev_val_loc + memtrie.prev_val_size;
       }
       memtrie.prev_val_size = val_size;
       return val_size;
@@ -3197,7 +3610,7 @@ class builder : public builder_fwd {
       gen::gen_printf("\nCol sizes:");
       for (int i = 1; i < val_count; i++)
         gen::gen_printf(" %u", val_table[i] - val_table[i - 1]);
-      gen::gen_printf("\nTotal size: %u\n", val_table[memtrie.cur_col_idx] + memtrie.prev_val_size);
+      gen::gen_printf("\nTotal size: %u\n", val_table[cur_col_idx] + memtrie.prev_val_size);
       close_file();
     }
 
@@ -3388,7 +3801,13 @@ class builder : public builder_fwd {
     }
 
     uint32_t get_node_id_from_sequence(uint32_t ins_seq_id) {
-      return memtrie.get_node_id_from_sequence(ins_seq_id);
+      val_sequence& vs = val_seq[ins_seq_id];
+      leopard::node_set_handler nsh(memtrie.all_node_sets, vs.node_set_id);
+      leopard::node_set_header *ns_hdr = nsh.hdr();
+      uint32_t node_id = ns_hdr->node_id + vs.node_idx;
+      if (ns_hdr->flags & NODE_SET_LEAP)
+        node_id++;
+      return node_id;
     }
 
     void set_out_vec(byte_vec *ov) {
@@ -3400,6 +3819,57 @@ class builder : public builder_fwd {
     }
 
     int insert(const uint64_t *values, const size_t value_lens[] = NULL) {
+      cur_seq_idx++;
+      byte_vec rec;
+      for (size_t i = 0; i < column_count; i++) {
+        uint8_t type = column_types[i];
+        size_t value_len = 0;
+        if (value_lens != nullptr)
+          value_len = value_lens[i];
+        if (value_lens == nullptr || value_len == 0) {
+          if (type == DCT_TEXT)
+            value_len = strlen((const char *) values[i]);
+        }
+        switch (type) {
+          case DCT_TEXT:
+          case DCT_BIN: {
+            gen::append_ovint(rec, value_len, 2, 0xC0);
+            uint8_t *value = (uint8_t *) values[i];
+            for (size_t j = 0; j < value_len; j++)
+              rec.push_back(value[j]);
+          } break;
+          case DCT_S64_INT: {
+            int64_t i64 = (int64_t) values[i];
+            if (values[i] == UINT64_MAX)
+              rec.push_back(0); // null
+            else
+              gen::append_svint60(rec, i64);
+          } break;
+          case DCT_S64_DEC1 ... DCT_S64_DEC9: {
+            double dbl = (double) values[i];
+            int64_t i64 = static_cast<int64_t>(dbl * gen::pow10(type - DCT_S64_DEC1 + 1));
+            if (values[i] == UINT64_MAX)
+              rec.push_back(0); // null
+            else
+              gen::append_svint60(rec, i64);
+          } break;
+          case DCT_U64_INT:
+            gen::append_svint60(rec, (uint64_t) values[i]);
+            break;
+          case DCT_U64_DEC1 ... DCT_U64_DEC9: {
+            double dbl = (double) values[i];
+            int64_t u64 = static_cast<int64_t>(dbl * gen::pow10(type - DCT_U64_DEC1 + 1));
+            gen::append_svint61(rec, u64);
+          } break;
+          case DCT_U15_DEC1 ... DCT_U15_DEC2: {
+            double dbl = (double) values[i];
+            int64_t u64 = static_cast<int64_t>(dbl * gen::pow10(type - DCT_U15_DEC1 + 1));
+            gen::append_svint61(rec, u64);
+          } break;
+        }
+        all_vals->push_back_with_vlen(rec.data(), rec.size());
+        rec.clear();
+      }
       return 0;
     }
 

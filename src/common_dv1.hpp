@@ -57,6 +57,34 @@ namespace madras_dv1 {
 #define NFLAG_NULL 16
 #define NFLAG_EMPTY 32
 
+#define DCT_BIN '*'
+#define DCT_TEXT 't'
+#define DCT_WORDS 'w'
+#define DCT_FLOAT 'f'
+#define DCT_DOUBLE 'd'
+#define DCT_S64_INT '0'
+#define DCT_S64_DEC1 '1'
+#define DCT_S64_DEC2 '2'
+#define DCT_S64_DEC3 '3'
+#define DCT_S64_DEC4 '4'
+#define DCT_S64_DEC5 '5'
+#define DCT_S64_DEC6 '6'
+#define DCT_S64_DEC7 '7'
+#define DCT_S64_DEC8 '8'
+#define DCT_S64_DEC9 '9'
+#define DCT_U64_INT 'i'
+#define DCT_U64_DEC1 'j'
+#define DCT_U64_DEC2 'k'
+#define DCT_U64_DEC3 'l'
+#define DCT_U64_DEC4 'm'
+#define DCT_U64_DEC5 'n'
+#define DCT_U64_DEC6 'o'
+#define DCT_U64_DEC7 'p'
+#define DCT_U64_DEC8 'q'
+#define DCT_U64_DEC9 'r'
+#define DCT_U15_DEC1 'X'
+#define DCT_U15_DEC2 'Z'
+
 struct PACKED_STRUCT fwd_cache {
   uint8_t parent_node_id1;
   uint8_t parent_node_id2;

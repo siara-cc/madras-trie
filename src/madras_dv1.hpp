@@ -80,34 +80,6 @@ class iter_ctx {
 #define DCT_INSERT_CONVERT -7
 #define DCT_INSERT_CHILD_LEAF -8
 
-#define DCT_BIN '*'
-#define DCT_TEXT 't'
-#define DCT_WORDS 'w'
-#define DCT_FLOAT 'f'
-#define DCT_DOUBLE 'd'
-#define DCT_S64_INT '0'
-#define DCT_S64_DEC1 '1'
-#define DCT_S64_DEC2 '2'
-#define DCT_S64_DEC3 '3'
-#define DCT_S64_DEC4 '4'
-#define DCT_S64_DEC5 '5'
-#define DCT_S64_DEC6 '6'
-#define DCT_S64_DEC7 '7'
-#define DCT_S64_DEC8 '8'
-#define DCT_S64_DEC9 '9'
-#define DCT_U64_INT 'i'
-#define DCT_U64_DEC1 'j'
-#define DCT_U64_DEC2 'k'
-#define DCT_U64_DEC3 'l'
-#define DCT_U64_DEC4 'm'
-#define DCT_U64_DEC5 'n'
-#define DCT_U64_DEC6 'o'
-#define DCT_U64_DEC7 'p'
-#define DCT_U64_DEC8 'q'
-#define DCT_U64_DEC9 'r'
-#define DCT_U15_DEC1 'X'
-#define DCT_U15_DEC2 'Z'
-
 struct min_pos_stats {
   uint8_t min_b;
   uint8_t max_b;
@@ -1064,35 +1036,43 @@ class bvlt_select : public bvlt_rank {
       if (remaining == 0)
         return bv_pos;
       uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
-      return bv_pos + bm_select1(remaining - 1, bm);
+      return bv_pos + bm_select1(remaining, bm);
     }
     inline uint32_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uint32_t)(*block_loc) << pos_n) & 0x100));
     }
     inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
-      uint64_t isolated_bit = _pdep_u64(1ULL << remaining, bm);
-      size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
+      // uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
+      // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
       // if (bit_loc == 65) {
       //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
       //   return 64;
       // }
 
-      // size_t bit_loc = 0;
-      // while (bit_loc < 64) {
-      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-      //   if (block_count + next_count >= target_count)
-      //     break;
-      //   bit_loc += 8;
-      //   block_count += next_count;
-      // }
-      // if (block_count < target_count)
-      //   bit_loc += select_lookup_tbl[target_count - block_count - 1][(bm >> bit_loc) & 0xFF];
+      size_t bit_loc = 0;
+      while (bit_loc < 64) {
+        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+        if (next_count >= remaining)
+          break;
+        bit_loc += 8;
+        remaining -= next_count;
+      }
+      if (remaining > 0)
+        bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
 
+      // size_t bit_loc = 0;
+      // do {
+      //   bit_loc = __builtin_ffsll(bm);
+      //   remaining--;
+      //   bm &= ~(1ULL << (bit_loc - 1));
+      // } while (remaining > 0);
+
+      // size_t bit_loc = 0;
       // uint64_t bm_mask = bm_init_mask << bit_loc;
-      // while (block_count < target_count) {
+      // while (remaining > 0) {
       //   if (bm & bm_mask)
-      //     block_count++;
+      //     remaining--;
       //   bit_loc++;
       //   bm_mask <<= 1;
       // }
@@ -1872,7 +1852,7 @@ class val_ptr_group_map : public ptr_group_map {
             return;
           }
           size_t vlen;
-          uint32_t line_byt_len = gen::read_ovint32(line_loc, vlen, 2);
+          uint32_t line_byt_len = gen::read_ovint(line_loc, vlen, 2);
           line_loc += vlen;
           *p_ptr_bit_count += vlen;
           int line_len = 0;

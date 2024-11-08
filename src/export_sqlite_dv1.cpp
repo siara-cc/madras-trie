@@ -42,10 +42,10 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int s
         double kd64;
         if (key_data_type == LPDT_S64_INT || key_data_type == LPDT_U64_INT) {
           ki64 = sqlite3_column_int64(stmt, key_col_idx - 1);
-          key = leopard::cmn::convert(&ki64, 8, converted_val, key_len, key_data_type);
+          key = madras_dv1::cmn::convert(&ki64, 8, converted_val, key_len, key_data_type);
         } else {
           kd64 = sqlite3_column_double(stmt, key_col_idx - 1);
-          key = leopard::cmn::convert(&kd64, 8, converted_val, key_len, key_data_type);
+          key = madras_dv1::cmn::convert(&kd64, 8, converted_val, key_len, key_data_type);
         }
       }
     }
@@ -117,7 +117,7 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
         zero_count++;
       val = &dbl;
     }
-    bool is_success = bldr.insert_col_val(val, val_len);
+    bool is_success = bldr.insert_col_val(val, val_len, true);
     if (!is_success) {
       std::cerr << "Error inserting into builder" << std::endl;
       return;
@@ -141,7 +141,8 @@ int main(int argc, char* argv[]) {
   int rc;
   if (argc < 6) {
     std::cout << std::endl;
-    std::cout << "Usage: export_sqlite <db_file> <table_or_select> <key_col_idx> <storage_types> [row_count]" << std::endl;
+    // std::cout << "Usage: export_sqlite <db_file> <table_or_select> <storage_types> <encoding_types> <row_count=0> <offset=0> <key_column_list_0> <key_column_list_1> ... <key_column_list_n>" << std::endl;
+    std::cout << "Usage: export_sqlite <db_file> <table_or_select> <key_col_idx> <storage_types> <encoding_types> [row_count]" << std::endl;
     std::cout << std::endl;
     std::cout << "  <db_file>         - Sqlite database file name [with path]" << std::endl;
     std::cout << std::endl;
@@ -403,7 +404,7 @@ int main(int argc, char* argv[]) {
       } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
                  (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
                  (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
-        double sql_val = leopard::cmn::round(sqlite3_column_double(stmt, i), exp_col_type);
+        double sql_val = madras_dv1::cmn::round(sqlite3_column_double(stmt, i), exp_col_type);
         uint8_t val[16];
         size_t val_len;
         bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);

@@ -62,6 +62,8 @@ Issues:
 - stack over flow in reverse_lookup
 - stack overflow because of **NULL**
 - data_type 'i' and delta don't work?
+- uk-urls grasping lookup/rev lookup fail
+- common-crawl lookup fail
 
 + make select faster
 + avoid get_first_byte
@@ -105,7 +107,7 @@ x seperate all flags?
 - date data type
 
 - implement next for val for performance
-- improve statssski using SIMD
+- improve leapfrog using SIMD (not working for freq sorted)
 - Run on CUDA cores?
 - reverse lookup for col_tries
 - Multiple keys/values?
@@ -119,3 +121,16 @@ x seperate all flags?
 - for next pass track parent
 - keep sorting nodes on weight
 
+val interface:
+- export_sqlite <db_file> <table_or_select> <storage_types> <encoding_types> <row_count=0> <offset=0> <key_column_list_0> <key_column_list_1> ... <key_column_list_n>
+- raw inputs, store processed data as column sets with ovint, primary trie holds pointers to columns sets
+
+data layout for LSM
+- store in the order of primary index
+- store in insert order with secondary indices
+- store some/all values as keys so values become tails for better compression ** ??
+- mainly uses insert(vals)
+  - for case 1, store in all_vals, insert into leopard with col_val
+  - for case 2, store in all_vals
+  - for case 3, same as case 1
+  - for all 3 cases, secondary indices can be built later
