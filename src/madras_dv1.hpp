@@ -679,7 +679,7 @@ class ptr_group_map {
         if (*grp_data_loc == 0xA5)
           group_count = 1;
         inner_trie_start_grp = grp_data_loc[1];
-        code_lt_bit_len = grp_data_loc + 2;
+        code_lt_bit_len = grp_data_loc + 8;
         code_lt_code_len = code_lt_bit_len + 256;
         uint8_t *grp_data_idx_start = code_lt_bit_len + (data_type == 'w' ? 0 : 512);
         grp_data = new uint8_t*[group_count]();
@@ -874,7 +874,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
         uint8_t group_count = *data_loc;
         if (group_count == 1)
           int_ptr_bv.init(ptrs_loc, data_loc[1]);
-        uint8_t *data_idx_start = data_loc + 2 + 512;
+        uint8_t *data_idx_start = data_loc + 8 + 512;
         data = tail_loc + gen::read_uint32(data_idx_start);
       }
     }
@@ -1052,23 +1052,23 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
-      // uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
-      // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
+      uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
+      size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
       // if (bit_loc == 65) {
       //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
       //   return 64;
       // }
 
-      size_t bit_loc = 0;
-      while (bit_loc < 64) {
-        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-        if (next_count >= remaining)
-          break;
-        bit_loc += 8;
-        remaining -= next_count;
-      }
-      if (remaining > 0)
-        bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
+      // size_t bit_loc = 0;
+      // while (bit_loc < 64) {
+      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+      //   if (next_count >= remaining)
+      //     break;
+      //   bit_loc += 8;
+      //   remaining -= next_count;
+      // }
+      // if (remaining > 0)
+      //   bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
 
       // size_t bit_loc = 0;
       // do {

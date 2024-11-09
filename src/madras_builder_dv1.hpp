@@ -480,7 +480,7 @@ class ptr_groups {
       return last_byte_bits;
     }
     uint32_t get_hdr_size() {
-      return 514 + grp_data.size() * 4 + inner_tries.size() * 4;
+      return 520 + grp_data.size() * 4 + inner_tries.size() * 4;
     }
     uint32_t get_data_size() {
       uint32_t data_size = 0;
@@ -494,9 +494,13 @@ class ptr_groups {
       return ptrs.size();
     }
     uint32_t get_total_size() {
-      if (enc_type == 't')
-        return grp_data_size + get_ptrs_size() + ptr_lookup_tbl_sz + 6 * 4 + 4;
-      return grp_data_size + get_ptrs_size() + idx2_ptrs_map.size() + ptr_lookup_tbl_sz + 6 * 4 + 4;
+      if (enc_type == 't') {
+        return gen::size_align8(grp_data_size) + get_ptrs_size() +
+                  gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 4;
+      }
+      return gen::size_align8(grp_data_size) + get_ptrs_size() +
+        gen::size_align8(idx2_ptrs_map.size()) +
+        gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 4;
     }
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
       ptr_lkup_tbl_ptr_width = width;
@@ -520,7 +524,7 @@ class ptr_groups {
       }
       if (freq_grp_vec.size() == 2 && !is_tail && col_trie_size == 0)
         build_val_flat_ptrs(all_node_sets, get_info_func, info_vec);
-      ptr_lookup_tbl_loc = 6 * 4 + 4;
+      ptr_lookup_tbl_loc = 7 * 4 + 4;
       if (encoding_type == 't' || col_trie_size > 0 || freq_grp_vec.size() == 2)
         ptr_lookup_tbl_sz = 0;
       else {
@@ -529,7 +533,7 @@ class ptr_groups {
         else // TODO: PTR LT gets created unnecessarily for last level of tail tries
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1) * 2);
       }
-      grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
+      grp_ptrs_loc = ptr_lookup_tbl_loc + gen::size_align8(ptr_lookup_tbl_sz);
       if (encoding_type == 't' || col_trie_size > 0) {
         idx2_ptr_count = idx2_ptrs_map_loc = 0;
         grp_data_loc = grp_ptrs_loc + ptrs.size();
@@ -537,7 +541,7 @@ class ptr_groups {
       } else {
         idx2_ptr_count = get_idx2_ptrs_count();
         idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
-        grp_data_loc = idx2_ptrs_map_loc + idx2_ptrs_map.size();
+        grp_data_loc = idx2_ptrs_map_loc + gen::size_align8(idx2_ptrs_map.size());
         grp_data_size = get_hdr_size() + get_data_size();
       }
       if (dessicate)
@@ -585,6 +589,7 @@ class ptr_groups {
         output_byte(freq_grp_vec[1].grp_log2, fp, out_vec);
       else
         output_byte(0, fp, out_vec);
+      output_bytes((const uint8_t *) "      ", 6, fp, out_vec); // padding
       write_code_lookup_tbl(is_tail, fp, out_vec);
       uint32_t total_data_size = 0;
       for (size_t i = 0; i < grp_data.size(); i++) {
@@ -605,6 +610,7 @@ class ptr_groups {
     }
     void write_ptr_lookup_tbl(FILE *fp, byte_vec *out_vec) {
       output_bytes(ptr_lookup_tbl.data(), ptr_lookup_tbl.size(), fp, out_vec);
+      output_align8(ptr_lookup_tbl_sz, fp, out_vec);
     }
     void write_ptrs(FILE *fp, byte_vec *out_vec) {
       output_bytes(ptrs.data(), ptrs.size(), fp, out_vec);
@@ -780,6 +786,7 @@ class ptr_groups {
       output_u32(idx2_ptr_count, fp, out_vec);
       output_u32(idx2_ptrs_map_loc, fp, out_vec);
       output_u32(grp_ptrs_loc, fp, out_vec);
+      output_u32(0, fp, out_vec); // padding
 
       if (enc_type == 't') {
         write_ptrs(fp, out_vec);
@@ -789,7 +796,9 @@ class ptr_groups {
         write_ptrs(fp, out_vec);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
         output_bytes(idx2_ptrs_map->data(), idx2_ptrs_map->size(), fp, out_vec);
-        write_grp_data(grp_data_loc + 514, is_tail, fp, out_vec); // group count, 512 lookup tbl, tail locs, tails
+        output_align8(idx2_ptrs_map->size(), fp, out_vec);
+        write_grp_data(grp_data_loc + 520, is_tail, fp, out_vec); // group count, 512 lookup tbl, tail locs, tails
+        output_align8(grp_data_size, fp, out_vec);
       }
       gen::gen_printf("Data size: %u, Ptrs size: %u, LkupTbl size: %u\nIdxMap size: %u, Total size: %u\n",
         get_data_size(), get_ptrs_size(), ptr_lookup_tbl_sz, get_idx2_ptrs_map()->size(), get_total_size());
@@ -2636,7 +2645,7 @@ class builder : public builder_fwd {
       output_byte(DCT_WORDS, fp, out_vec); // data type
       output_byte(DCT_WORDS, fp, out_vec); // encoding type
       output_byte(0, fp, out_vec); // flags
-      uint32_t hdr_size = 6 * 4 + 4;
+      uint32_t hdr_size = 7 * 4 + 4;
       uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
       uint32_t ptr_lookup_tbl_loc = hdr_size;
       uint32_t grp_ptrs_loc = ptr_lookup_tbl_loc + ptr_lookup_tbl_sz;
@@ -3006,6 +3015,7 @@ class builder : public builder_fwd {
       }
       //output_bytes(trie_flags.data(), trie_flags.size(), fp, out_vec);
       output_bytes(trie.data(), trie.size(), fp, out_vec);
+      output_align8(trie.size(), fp, out_vec);
       return trie_data_ptr_size();
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
@@ -3018,7 +3028,7 @@ class builder : public builder_fwd {
       return val_fp_offset;
     }
     size_t trie_data_ptr_size() {
-      size_t ret = 8 + trie.size() + tail_vals.get_tail_grp_ptrs()->get_total_size(); // + trie_flags.size();
+      size_t ret = 8 + gen::size_align8(trie.size()) + tail_vals.get_tail_grp_ptrs()->get_total_size(); // + trie_flags.size();
       //if (get_uniq_val_count() > 0)
       //  ret += tail_vals.get_val_grp_ptrs()->get_total_size();
       return ret;
@@ -3301,7 +3311,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       tp = {};
-      tp.opts_loc = 4 + 12 + 27 * 4; // 124
+      tp.opts_loc = 4 + 12 + 28 * 4; // 128
       tp.opts_size = sizeof(bldr_options);
       if (!no_primary_trie) {
         sort_node_sets();
@@ -3509,6 +3519,7 @@ class builder : public builder_fwd {
       output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
       output_u32(tp.trie_flags_loc, fp, out_vec);
       output_u32(tp.tail_flags_loc, fp, out_vec);
+      output_u32(0, fp, out_vec); // padding
 
       output_bytes((const uint8_t *) &opts, tp.opts_size, fp, out_vec);
 
