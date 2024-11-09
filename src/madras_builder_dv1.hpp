@@ -3288,7 +3288,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       tp = {};
-      tp.opts_loc = 4 + 10 + 27 * 4; // 122
+      tp.opts_loc = 4 + 12 + 27 * 4; // 124
       if (!no_primary_trie) {
         sort_node_sets();
         set_node_id();
@@ -3454,7 +3454,8 @@ class builder : public builder_fwd {
       output_byte(0, fp, out_vec);
 
       int val_count = column_count - (no_primary_trie ? 0 : 1);
-      output_u16(val_count, fp, out_vec);
+      output_u32(val_count, fp, out_vec);
+
       output_u32(tp.names_loc, fp, out_vec);
       output_u32(tp.col_val_table_loc, fp, out_vec);
 
