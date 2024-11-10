@@ -154,7 +154,7 @@ void output_align8(size_t nopad_size, FILE *fp, std::vector<uint8_t> *out_vec) {
   }
 }
 
-class cmn {
+class bldr_util {
   public:
     static double round(const double input, char type) {
       double p10;
@@ -2408,7 +2408,7 @@ class builder : public builder_fwd {
           uint8_t converted_val[10];
           int converted_val_len = val_len;
           char data_type = column_types[cur_col_idx + (no_primary_trie ? 0 : 1)];
-          uint8_t *val_to_ins = cmn::convert(val, val_len, converted_val, converted_val_len, data_type);
+          uint8_t *val_to_ins = bldr_util::convert(val, val_len, converted_val, converted_val_len, data_type);
           col_trie->insert(val_to_ins, converted_val_len, val_pos);
         } break;
       }
