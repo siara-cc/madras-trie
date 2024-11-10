@@ -3,8 +3,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "src/madras_dv1.hpp"
-#include "src/madras_builder_dv1.hpp"
+#include "../src/madras_dv1.hpp"
+#include "../src/madras_builder_dv1.hpp"
 
 using namespace std;
 

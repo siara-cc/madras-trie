@@ -22,5 +22,5 @@ clean:
 	rm madras_bench
 	rm -rf madras_bench.dSYM
 
-madras_bench: madras_bench_dv1.cpp src/common_dv1.hpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ../leopard-trie/src/leopard.hpp ../ds_common/src/*.hpp
+madras_bench: madras_bench_dv1.cpp ../src/*.hpp ../../leopard-trie/src/leopard.hpp ../../ds_common/src/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++11 madras_bench_dv1.cpp -o madras_bench $(L_FLAGS) $(M_FLAGS)

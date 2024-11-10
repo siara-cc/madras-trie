@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <immintrin.h>
-#include <nmmintrin.h>
 
 #include "common_dv1.hpp"
 #include "../../ds_common/src/gen.hpp"
@@ -18,6 +16,15 @@
 
 #ifndef __fq2
 #define __fq2
+#endif
+
+// Function qualifiers
+#ifndef __gq1
+#define __gq1
+#endif
+
+#ifndef __gq2
+#define __gq2
 #endif
 
 namespace madras_dv1 {
@@ -94,11 +101,11 @@ class cmn {
       // return ret;
     }
     __fq1 __fq2 static uint32_t read_uint24(const uint8_t *ptr) {
-      return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
-      // uint32_t ret = *ptr++;
-      // ret |= (*ptr++ << 8);
-      // ret |= (*ptr << 16);
-      // return ret;
+      //       return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
+      uint32_t ret = *ptr++;
+      ret |= (*ptr++ << 8);
+      ret |= (*ptr << 16);
+      return ret;
     }
     __fq1 __fq2 static uint32_t read_uint32(uint8_t *ptr) {
       return *((uint32_t *) ptr);
@@ -106,9 +113,19 @@ class cmn {
     __fq1 __fq2 static uint64_t read_uint64(uint8_t *t) {
       return *((uint64_t *) t);
     }
+    __fq1 __fq2 static int memcmp(const void *ptr1, const void *ptr2, size_t num) {
+        const unsigned char *a = (const unsigned char *)ptr1;
+        const unsigned char *b = (const unsigned char *)ptr2;
+        for (size_t i = 0; i < num; ++i) {
+            if (a[i] != b[i]) {
+                return (a[i] < b[i]) ? -1 : 1;
+            }
+        }
+        return 0;
+    }
 };
 
-static const uint8_t bit_count[256] = {
+__gq1 __gq2 static const uint8_t bit_count[256] = {
   0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 
   1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
   1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
@@ -117,7 +134,7 @@ static const uint8_t bit_count[256] = {
   2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
   2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
   3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
-static const uint8_t select_lookup_tbl[8][256] = {{
+__gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
   8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
   6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
   7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
@@ -384,7 +401,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
           tail++;
         if (in_ctx.key_pos + bin_len > in_ctx.key_len)
           return false;
-        if (memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
           in_ctx.key_pos += bin_len;
           return true;
         }
@@ -429,7 +446,7 @@ class GCFC_rev_cache {
         else {
           if (in_ctx.key_pos + cche->tail0_len > in_ctx.key_len)
             return false;
-          if (memcmp(in_ctx.key + in_ctx.key_pos, &cche->parent_node_id1, cche->tail0_len) != 0)
+          if (cmn::memcmp(in_ctx.key + in_ctx.key_pos, &cche->parent_node_id1, cche->tail0_len) != 0)
             return false;
           in_ctx.key_pos += cche->tail0_len;
           node_id = 0;
@@ -533,23 +550,23 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
-      uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
-      size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
+      // uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
+      // size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
       // if (bit_loc == 65) {
       //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
       //   return 64;
       // }
 
-      // size_t bit_loc = 0;
-      // while (bit_loc < 64) {
-      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-      //   if (next_count >= remaining)
-      //     break;
-      //   bit_loc += 8;
-      //   remaining -= next_count;
-      // }
-      // if (remaining > 0)
-      //   bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
+      size_t bit_loc = 0;
+      while (bit_loc < 64) {
+        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+        if (next_count >= remaining)
+          break;
+        bit_loc += 8;
+        remaining -= next_count;
+      }
+      if (remaining > 0)
+        bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
 
       // size_t bit_loc = 0;
       // do {
@@ -644,7 +661,10 @@ class inner_trie : public inner_trie_fwd {
       tail_map = nullptr;
       trie_loc = nullptr;
 
+printf("%x\n", trie_bytes[0]);
+
       node_count = cmn::read_uint32(trie_bytes + 16);
+printf("%u\n", node_count);
       uint32_t node_set_count = cmn::read_uint32(trie_bytes + 24);
       uint32_t key_count = cmn::read_uint32(trie_bytes + 28);
       if (key_count > 0) {
@@ -779,8 +799,10 @@ class static_trie : public inner_trie {
       in_ctx.node_id = 1;
       trie_flags *tf;
       uint64_t bm_mask;
+//printf("Node id0: %u\n", in_ctx.node_id);
       do {
         int ret = fwd_cache.try_find(in_ctx);
+//printf("Node id1: %u\n", in_ctx.node_id);
         bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
         tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
         if (ret == 0)
@@ -810,6 +832,7 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
           }
+//printf("Node id2: %u\n", in_ctx.node_id);
           if (bm_mask & tf->bm_term)
             return false;
           in_ctx.node_id++;
@@ -819,11 +842,14 @@ class static_trie : public inner_trie {
             tf++;
           }
         } while (1);
-        if (in_ctx.key_pos == in_ctx.key_len)
+        if (in_ctx.key_pos == in_ctx.key_len) {
+//printf("Node id3: %u\n", in_ctx.node_id);
           return 0 != (bm_mask & tf->bm_leaf);
+        }
         if ((bm_mask & tf->bm_child) == 0)
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
+//printf("Node id4: %u\n", in_ctx.node_id);
       } while (1);
       return false;
     }
@@ -920,7 +946,7 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf) {
       ctx_vars_next cv;
-      uint8_t tail[max_tail_len + 1];
+      uint8_t *tail = new uint8_t[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
       uint32_t child_count;
       uint32_t node_id = read_from_ctx(ctx, cv, child_count);
@@ -933,8 +959,10 @@ class static_trie : public inner_trie {
           if (ctx.to_skip_first_leaf) {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
-                if (ctx.cur_idx == 0)
+                if (ctx.cur_idx == 0) {
+                  delete [] tail;
                   return -2;
+                }
                 node_id = pop_from_ctx(ctx, cv, child_count);
               }
               node_id++;
@@ -951,6 +979,7 @@ class static_trie : public inner_trie {
             update_ctx(ctx, cv, node_id, child_count);
             memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
+            delete [] tail;
             return ctx.key_len;
           }
         }
@@ -968,6 +997,7 @@ class static_trie : public inner_trie {
           push_to_ctx(ctx, cv, node_id, child_count);
         }
       }
+      delete [] tail;
       return -2;
     }
 
@@ -1028,6 +1058,8 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 void load_static_trie(uint8_t *_trie_bytes = nullptr) {
+
+printf("%x\n", _trie_bytes[0]);
 
       if (_trie_bytes != nullptr)
         trie_bytes = _trie_bytes;
@@ -1118,7 +1150,7 @@ class static_trie : public inner_trie {
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
         printf("Read error: [%s], %ld, %lu\n", filename, (long) file_stat.st_size, bytes_read);
-        throw errno;
+        return;
       }
       fclose(fp);
 

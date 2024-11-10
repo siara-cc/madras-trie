@@ -2,8 +2,10 @@
 *.o
 run_tests*
 !run_tests_dv1.cpp
-madras_bench*
-!madras_bench_dv1.cpp
+bench/madras_bench*
+!bench/madras_bench_dv1.cpp
+cuda_bench/cuda_bench*
+!cuda_bench/cuda_bench_dv1.cu
 prgs/query_mdx*
 !prgs/query_mdx.cpp
 a.out*
