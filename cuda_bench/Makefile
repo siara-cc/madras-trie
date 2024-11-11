@@ -1,12 +1,12 @@
 C = nvcc
 CXX = nvcc
-CXXFLAGS = -std=c++11
+CXXFLAGS = -std=c++11 -arch=sm_61
 INCLUDES = -I./src
 L_FLAGS = 
 M_FLAGS = 
 #OBJS = build/imain.o
 
-opt: CXXFLAGS += -g -O2 -DNDEBUG
+opt: CXXFLAGS += -O2 -DNDEBUG
 opt: cuda_bench
 
 debug: CXXFLAGS += -g -O0 -fno-inline

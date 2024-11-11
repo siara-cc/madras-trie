@@ -2,6 +2,7 @@
 #define STATIC_TRIE_H
 
 #include <fcntl.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -1725,7 +1726,7 @@ class val_ptr_group_map : public ptr_group_map {
       int skip_count = node_id % nodes_per_bv_block_n;
       while (skip_count--) {
         size_t vlen;
-        uint32_t count = cmn::read_fvint32(w, vlen);
+        uint32_t count = gen::read_fvint32(w, vlen);
         w += vlen;
         w += count;
         *p_ptr_byt_count += vlen;
@@ -1778,7 +1779,7 @@ class val_ptr_group_map : public ptr_group_map {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
           if (val_loc != nullptr)
-            col_val += cmn::read_svint60(val_loc);
+            col_val += gen::read_svint60(val_loc);
         }
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
@@ -1804,27 +1805,27 @@ class val_ptr_group_map : public ptr_group_map {
       ret_len = 8;
       switch (data_type) {
         case DCT_S64_INT: {
-          int64_t i64 = cmn::read_svint60(val_loc);
+          int64_t i64 = gen::read_svint60(val_loc);
           memcpy(ret_val, &i64, sizeof(int64_t));
         } break;
         case DCT_S64_DEC1 ... DCT_S64_DEC9: {
-          int64_t i64 = cmn::read_svint60(val_loc);
+          int64_t i64 = gen::read_svint60(val_loc);
           double dbl = static_cast<double>(i64);
           dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
           *((double *)ret_val) = dbl;
         } break;
         case DCT_U64_INT: {
-          uint64_t u64 = cmn::read_svint61(val_loc);
+          uint64_t u64 = gen::read_svint61(val_loc);
           *((uint64_t *) ret_val) = u64;
         } break;
         case DCT_U64_DEC1 ... DCT_U64_DEC9: {
-          uint64_t u64 = cmn::read_svint61(val_loc);
+          uint64_t u64 = gen::read_svint61(val_loc);
           double dbl = static_cast<double>(u64);
           dbl /= gen::pow10(data_type - DCT_U64_DEC1 + 1);
           *((double *)ret_val) = dbl;
         } break;
         case DCT_U15_DEC1 ... DCT_U15_DEC2: {
-          uint64_t u64 = cmn::read_svint15(val_loc);
+          uint64_t u64 = gen::read_svint15(val_loc);
           double dbl = static_cast<double>(u64);
           dbl /= gen::pow10(data_type - DCT_U15_DEC1 + 1);
           *((double *)ret_val) = dbl;
@@ -1878,13 +1879,13 @@ class val_ptr_group_map : public ptr_group_map {
             return;
           }
           size_t vlen;
-          uint32_t line_byt_len = cmn::read_ovint(line_loc, vlen, 2);
+          uint32_t line_byt_len = gen::read_ovint(line_loc, vlen, 2);
           line_loc += vlen;
           *p_ptr_bit_count += vlen;
           int line_len = 0;
           uint8_t *out_buf = (uint8_t *) ret_val;
           while (line_byt_len > 0) {
-            // uint32_t trie_leaf_id = cmn::read_vint32(line_loc, &vlen);
+            // uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
             line_loc += vlen;
             *p_ptr_bit_count += vlen;
             line_byt_len -= vlen;
@@ -1960,13 +1961,13 @@ class val_ptr_group_map : public ptr_group_map {
                 uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) {
       key_count = _key_count;
       init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, val_loc, _key_count, _node_count, false);
-      uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 12);
-      uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 24);
+      uint8_t *data_loc = val_loc + gen::read_uint32(val_loc + 12);
+      uint8_t *ptrs_loc = val_loc + gen::read_uint32(val_loc + 24);
       if (group_count == 1 || val_loc[2] == 't')
         int_ptr_bv.init(ptrs_loc, val_loc[2] == 't' ? val_loc[0] : data_loc[1]);
       if (val_loc[2] == 't') {
         col_trie = new static_trie();
-        col_trie->load_static_trie(val_loc + cmn::read_uint32(val_loc + 12));
+        col_trie->load_static_trie(val_loc + gen::read_uint32(val_loc + 12));
       }
     }
     __fq1 __fq2 val_ptr_group_map() {
@@ -2093,33 +2094,33 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 int64_t get_val_int60(uint8_t *val) {
-      return cmn::read_svint60(val);
+      return gen::read_svint60(val);
     }
 
     __fq1 __fq2 double get_val_int60_dbl(uint8_t *val, char type) {
-      int64_t i64 = cmn::read_svint60(val);
+      int64_t i64 = gen::read_svint60(val);
       double ret = static_cast<double>(i64);
       ret /= gen::pow10(type - DCT_S64_DEC1 + 1);
       return ret;
     }
 
     __fq1 __fq2 uint64_t get_val_int61(uint8_t *val) {
-      return cmn::read_svint61(val);
+      return gen::read_svint61(val);
     }
 
     __fq1 __fq2 double get_val_int61_dbl(uint8_t *val, char type) {
-      uint64_t i64 = cmn::read_svint61(val);
+      uint64_t i64 = gen::read_svint61(val);
       double ret = static_cast<double>(i64);
       ret /= gen::pow10(type - DCT_U64_DEC1 + 1);
       return ret;
     }
 
     __fq1 __fq2 uint64_t get_val_int15(uint8_t *val) {
-      return cmn::read_svint15(val);
+      return gen::read_svint15(val);
     }
 
     __fq1 __fq2 double get_val_int15_dbl(uint8_t *val, char type) {
-      uint64_t i64 = cmn::read_svint15(val);
+      uint64_t i64 = gen::read_svint15(val);
       double ret = static_cast<double>(i64);
       ret /= gen::pow10(type - DCT_U15_DEC1 + 1);
       return ret;

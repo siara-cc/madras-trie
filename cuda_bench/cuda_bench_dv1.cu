@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <chrono>
+#include <thread>
 
 #define __fq1 __device__
 #define __gq1 __device__
@@ -66,22 +68,34 @@ __global__ void init_madras_cuda_wrapper(madras_cuda_wrapper *d_nl, uint8_t *_fi
 }
 
 // Kernel for invoking the lookup on the GPU
-__global__ void lookup_kernel(madras_cuda_wrapper *d_cw, size_t start_idx, size_t num_queries) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < num_queries) {
+__global__ void lookup_kernel(madras_cuda_wrapper *d_cw, uint32_t start_idx, uint32_t num_queries) {
+  uint32_t cuda_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (cuda_idx < num_queries) {
+    uint32_t idx = start_idx + cuda_idx;
     madras_dv1::input_ctx in_ctx;
-    in_ctx.key = d_cw->file_buf_lines + d_cw->lines[start_idx + idx].key_loc;
-    in_ctx.key_len = d_cw->lines[start_idx + idx].key_len;
+    key_ctx *ctx = &d_cw->lines[idx];
+    in_ctx.key = d_cw->file_buf_lines + ctx->key_loc;
+    in_ctx.key_len = ctx->key_len;
     bool is_success = d_cw->get_trie_inst()->lookup(in_ctx);
-    d_cw->query_status[start_idx + idx] = is_success;
+    ctx->leaf_id = d_cw->get_trie_inst()->leaf_rank1(in_ctx.node_id);
+    uint8_t key_buf[256];
+    size_t out_key_len;
+    d_cw->get_trie_inst()->reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
+    if (out_key_len == in_ctx.key_len && madras_dv1::cmn::memcmp(in_ctx.key, key_buf, out_key_len) == 0)
+      d_cw->query_status[idx] = 1;
     // printf("Is success: %d\n", is_success);
     // printf("Node id: %u\n", in_ctx.node_id);
   }
 }
 
-int main(int argc, const char *argv[]) {
+void checkCudaError(cudaError_t result, const char* msg) {
+    if (result != cudaSuccess) {
+        printf("%s Error: %s\n", msg, cudaGetErrorString(result));
+        exit(EXIT_FAILURE);
+    }
+}
 
-  clock_t t = clock();
+int main(int argc, const char *argv[]) {
 
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
@@ -116,7 +130,7 @@ int main(int argc, const char *argv[]) {
       int key_len = line_len;
       if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
-      lines.push_back((key_ctx) {(uint32_t) (line - file_buf), (uint32_t) line_len, 0});
+      lines.push_back((key_ctx) {(uint32_t) (line - file_buf), (uint32_t) line_len, UINT32_MAX});
       prev_line = line;
       prev_line_len = line_len;
       line_count++;
@@ -162,8 +176,13 @@ int main(int argc, const char *argv[]) {
   cudaMemcpy(d_file_buf_lines, file_buf, file_size + 1, cudaMemcpyHostToDevice);
 
   uint8_t *d_file_buf_mdx;
-  cudaMalloc(&d_file_buf_mdx, mdx_file_size + 1);
+  cudaMallocManaged(&d_file_buf_mdx, mdx_file_size + 1);
   cudaMemcpy(d_file_buf_mdx, mdx_file_buf, mdx_file_size + 1, cudaMemcpyHostToDevice);
+  // uint8_t *h_file_buf_mdx;     // Host pointer
+  // uint8_t *d_file_buf_mdx;     // Device pointer
+  // cudaHostAlloc((void**)&h_file_buf_mdx, mdx_file_size + 1, cudaHostAllocMapped);
+  // memcpy(h_file_buf_mdx, mdx_file_buf, mdx_file_size + 1);
+  // cudaHostGetDevicePointer(&d_file_buf_mdx, h_file_buf_mdx, 0);
 
   key_ctx *d_lines;
   cudaMalloc(&d_lines, sizeof(key_ctx) * lines.size());
@@ -182,9 +201,11 @@ int main(int argc, const char *argv[]) {
         d_file_buf_mdx, mdx_file_size + 1, d_lines, lines.size(), d_query_status);
   cudaDeviceSynchronize(); // Ensure initialization completes before lookup_kernel
 
+  clock_t t = clock();
+
   // Launch the kernel to perform lookups
-  size_t threads_per_block = 1024;
-  size_t blocks = 6;
+  size_t threads_per_block = 768;
+  size_t blocks = 12;
   size_t capacity = blocks * threads_per_block;
   size_t iter_count = lines.size() / capacity;
   if ((lines.size() % capacity) > 0)
@@ -197,13 +218,12 @@ int main(int argc, const char *argv[]) {
     cudaDeviceSynchronize();
   }
 
-  // lookup_kernel<<<2, 10>>>(d_cw, num_queries, d_query_status);
+  t = print_time_taken(t, "Time taken for retrieve: ");
 
   // Copy results back to host
   uint8_t *query_status = new uint8_t[lines.size()];
   cudaMemcpy(query_status, d_query_status, lines.size(), cudaMemcpyDeviceToHost);
-
-  t = print_time_taken(t, "Time taken for retrieve: ");
+  // cudaMemcpy(lines.data(), d_lines, sizeof(key_ctx) * lines.size(), cudaMemcpyDeviceToHost);
 
   size_t success_count = 0;
   for (size_t i = 0; i < lines.size(); i++) {
