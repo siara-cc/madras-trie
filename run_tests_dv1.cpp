@@ -1,10 +1,13 @@
 #include <iostream>
 #include <string>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
 #include "src/madras_dv1.hpp"
 #include "src/madras_builder_dv1.hpp"
+
+#include "../ds_common/src/vint.hpp"
 
 using namespace std;
 
@@ -64,6 +67,10 @@ int main(int argc, char *argv[]) {
   }
   fclose(fp);
 
+  int64_t ival;
+  size_t isize;
+  uint8_t istr[10];
+  bool as_int = (data_types == nullptr ? false : (data_types[0] == 't' ? false : true));
   int line_count = 0;
   bool is_sorted = true;
   const uint8_t *prev_line = (const uint8_t *) "";
@@ -86,6 +93,15 @@ int main(int argc, char *argv[]) {
       // }
       if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
+      if (as_int) {
+        ival = std::atoll((const char *) key);
+        if (abs(ival) >= (1ULL << 60))
+          printf("ERROR: overflow!!!!!!!!!!!!!!!!!!!!!: %lld\n", ival);
+        isize = gen::get_svint60_len(ival);
+        gen::copy_svint60(ival, (uint8_t *) istr, isize);
+        key = istr;
+        key_len = isize;
+      }
       if (what == 0)
         sb->insert(key, key_len, val, val_len);
       else if (what == 1)
@@ -120,7 +136,8 @@ int main(int argc, char *argv[]) {
       char val[30];
       snprintf(val, 30, "%zu", line_len);
       // printf("[%.*s]]\n", (int) strlen(val), val);
-      sb->insert_col_val(val, strlen(val));
+      // TODO: Fix
+      sb->insert_col_val(val, strlen(val), false);
     }
     sb->build_and_write_col_val();
 
@@ -134,7 +151,8 @@ int main(int argc, char *argv[]) {
       char val[30];
       snprintf(val, 30, "%d", checksum);
       // printf("[%.*s]]\n", (int) strlen(val), val);
-      sb->insert_col_val(val, strlen(val));
+      // TODO: Fix
+      sb->insert_col_val(val, strlen(val), false);
     }
     sb->build_and_write_col_val();
   }
@@ -158,7 +176,9 @@ int main(int argc, char *argv[]) {
   dict_ctx.init(trie_reader.get_max_key_len(), trie_reader.get_max_level());
 
   if (!is_sorted) {
-    std::sort(lines.begin(), lines.end(), [](const pair<uint8_t *, int> lhs, const pair<uint8_t *, int> rhs) -> bool {
+    std::sort(lines.begin(), lines.end(), [as_int](const pair<uint8_t *, int> lhs, const pair<uint8_t *, int> rhs) -> bool {
+      if (as_int)
+        return atoll((const char *) lhs.first) < atoll((const char *) rhs.first);
       return gen::compare(lhs.first, lhs.second, rhs.first, rhs.second) < 0;
     });
     is_sorted = true;
@@ -180,6 +200,14 @@ int main(int argc, char *argv[]) {
 
     in_ctx.key = lines[i].first;
     in_ctx.key_len = lines[i].second;
+
+    if (as_int) {
+      ival = std::atoll((const char *) in_ctx.key);
+      isize = gen::get_svint60_len(ival);
+      gen::copy_svint60(ival, (uint8_t *) istr, isize);
+      in_ctx.key = istr;
+      in_ctx.key_len = isize;
+    }
 
     // if (strcmp((const char *) in_ctx.key, "a 10 episode") == 0)
     //   int ret = 1;

@@ -112,6 +112,18 @@ class cmn {
     __fq1 __fq2 static uint64_t read_uint64(uint8_t *t) {
       return *((uint64_t *) t);
     }
+    __fq1 __fq2 static uint32_t read_vint32(const uint8_t *ptr, size_t *vlen = NULL) {
+      uint32_t ret = 0;
+      size_t len = 5; // read max 5 bytes
+      do {
+        ret <<= 7;
+        ret += *ptr & 0x7F;
+        len--;
+      } while ((*ptr++ >> 7) && len);
+      if (vlen != NULL)
+        *vlen = 5 - len;
+      return ret;
+    }
 };
 
 class lt_builder {
@@ -791,9 +803,9 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
           return true;
         }
       } else {
-        uint32_t bin_len = read_len(tail);
-        while (*tail < 32)
-          tail++;
+        size_t vlen;
+        uint32_t bin_len = cmn::read_vint32(tail, &vlen);
+        tail += vlen;
         if (in_ctx.key_pos + bin_len > in_ctx.key_len)
           return false;
         if (memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
@@ -818,9 +830,9 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       }
       uint8_t *t = tail + tail_ptr;
       if (*t < 32) {
-        uint32_t bin_len = read_len(t);
-        while (*t < 32)
-          t++;
+        size_t vlen;
+        uint32_t bin_len = cmn::read_vint32(t, &vlen);
+        t += vlen;
         while (bin_len--)
           tail_str.append(*t++);
         return;
@@ -916,11 +928,14 @@ class tail_ptr_flat_map : public tail_ptr_map {
         if (*tail == 0)
           return true;
       } else {
-        uint32_t bin_len = read_len(tail);
-        while (*tail < 32)
-          tail++;
-        if (in_ctx.key_pos + bin_len > in_ctx.key_len)
+        size_t vlen;
+        uint32_t bin_len = cmn::read_vint32(tail, &vlen);
+        tail += vlen;
+        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
+          if (*tail == in_ctx.key[in_ctx.key_pos])
+            in_ctx.key_pos++;
           return false;
+        }
         if (memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
           in_ctx.key_pos += bin_len;
           return true;
@@ -939,11 +954,19 @@ class tail_ptr_flat_map : public tail_ptr_map {
         return;
       }
       uint8_t *t = data + tail_ptr;
-      uint8_t byt = *t;
-      while (byt > 31) {
-        t++;
-        tail_str.append(byt);
-        byt = *t;
+      if (*t > 31) {
+        uint8_t byt = *t;
+        while (byt > 31) {
+          t++;
+          tail_str.append(byt);
+          byt = *t;
+        }
+      } else {
+        size_t vlen;
+        uint32_t bin_len = cmn::read_vint32(t, &vlen);
+        t += vlen;
+        while (bin_len--)
+          tail_str.append(*t++);
       }
     }
 };
@@ -1885,7 +1908,7 @@ class val_ptr_group_map : public ptr_group_map {
           int line_len = 0;
           uint8_t *out_buf = (uint8_t *) ret_val;
           while (line_byt_len > 0) {
-            // uint32_t trie_leaf_id = gen::read_vint32(line_loc, &vlen);
+            // uint32_t trie_leaf_id = cmn::read_vint32(line_loc, &vlen);
             line_loc += vlen;
             *p_ptr_bit_count += vlen;
             line_byt_len -= vlen;

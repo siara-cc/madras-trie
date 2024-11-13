@@ -5,6 +5,7 @@
 
 #include "../src/madras_dv1.hpp"
 #include "../src/madras_builder_dv1.hpp"
+#include "../../ds_common/src/vint.hpp"
 
 using namespace std;
 
@@ -30,7 +31,7 @@ clock_t print_time_taken(clock_t t, const char *msg) {
 
 bool nodes_sorted_on_freq;
 madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines,
-                 bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec) {
+                 bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec, bool as_int) {
 
   int asc = argc > 4 ? atoi(argv[4]) : 0;
   int leapfrog = argc > 5 ? atoi(argv[5]) : 0;
@@ -46,7 +47,18 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, false, bldr_opts);
   sb->set_print_enabled(false);
 
+  int64_t ival;
+  size_t isize;
+  uint8_t istr[10];
+
   for (size_t i = 0; i < lines.size(); i++) {
+    if (as_int) {
+      ival = std::atoll((const char *) lines[i].key);
+      isize = gen::get_svint60_len(ival);
+      gen::copy_svint60(ival, (uint8_t *) istr, isize);
+      memcpy(lines[i].key, istr, isize);
+      lines[i].key_len = isize;
+    }
     sb->insert(lines[i].key, lines[i].key_len, nullptr, 0, i);
   }
   //t = print_time_taken(t, "Time taken for insert/append: ");
@@ -167,12 +179,14 @@ bool bench_next(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reade
 int main(int argc, char *argv[]) {
 
   if (argc < 2) {
-    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [leapfrog]\n");
+    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [leapfrog] [numbers]\n");
     return 0;
   }
 
   int min_inner_tries = argc > 2 ? atoi(argv[2]) : 0;
   int max_inner_tries = argc > 3 ? atoi(argv[3]) : 2;
+  // TODO: only 1 level works for as_int
+  bool as_int = argc > 6 ? (atoi(argv[6]) == 1 ? true : false) : false;
 
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
@@ -236,7 +250,7 @@ int main(int argc, char *argv[]) {
   madras_dv1::static_trie *trie_reader;
 
   for (int i = min_inner_tries; i <= max_inner_tries; i++) {
-    trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec);
+    trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec, as_int);
     if (trie_size == 0) {
       printf("Build fail\n");
       return 1;

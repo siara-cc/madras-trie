@@ -522,10 +522,10 @@ class ptr_groups {
         ptr_lkup_tbl_ptr_width = 4;
         build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec);
       }
-      if (freq_grp_vec.size() == 2 && !is_tail && col_trie_size == 0)
+      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0)
         build_val_flat_ptrs(all_node_sets, get_info_func, info_vec);
       ptr_lookup_tbl_loc = 7 * 4 + 4;
-      if (encoding_type == 't' || col_trie_size > 0 || freq_grp_vec.size() == 2)
+      if (encoding_type == 't' || col_trie_size > 0 || freq_grp_vec.size() <= 2)
         ptr_lookup_tbl_sz = 0;
       else {
         if (dessicate)
@@ -658,9 +658,9 @@ class ptr_groups {
       leopard::node_iterator ni(all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
-        uint8_t cur_node_flags = 0;
-        if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
-          cur_node_flags = cur_node.get_flags();
+        // uint8_t cur_node_flags = 0;
+        // if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
+        //   cur_node_flags = cur_node.get_flags();
         node_id++;
         append_val_ptr(&cur_node, get_info_func, info_vec);
         cur_node = ni.next();
@@ -1110,8 +1110,10 @@ class tail_val_maps {
 
       freq_idx = 0;
       bool is_bin = false;
-      if (uniq_tails_rev[0]->flags & LPDU_BIN)
+      if (uniq_tails_rev[0]->flags & LPDU_BIN) {
+        gen::gen_printf("Tail content not text.\n");
         is_bin = true;
+      }
       if (!is_bin) {
         uniq_info *prev_ti = uniq_tails_freq[freq_idx];
         while (freq_idx < uniq_tails_freq.size()) {
@@ -1175,10 +1177,10 @@ class tail_val_maps {
         freq_idx++;
         if (is_bin) {
           uint32_t bin_len = ti->len;
-          uint32_t len_len = ptr_grps.get_set_len_len(bin_len);
+          uint32_t len_len = gen::get_vlen_of_uint32(bin_len);
           bin_len += len_len;
           uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
+          ti->ptr = ptr_grps.append_bin_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
           ti->grp_no = grp_no;
           ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
