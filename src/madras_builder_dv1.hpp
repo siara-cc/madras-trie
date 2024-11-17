@@ -3784,13 +3784,13 @@ class builder : public builder_fwd {
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
         if (node_qualifies_for_select(&cur_node, cur_node_flags, which)) {
+          one_count++;
           if (one_count && (one_count % sel_divisor) == 0) {
             uint32_t val_to_write = node_id / nodes_per_bv_block;
             output_u24(val_to_write, fp, out_vec);
             if (val_to_write > (1 << 24))
               gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
-          one_count++;
         }
         node_id++;
         cur_node = ni.next();
@@ -3805,13 +3805,13 @@ class builder : public builder_fwd {
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
         if (louds[i]) {
+          one_count++;
           if (one_count && (one_count % sel_divisor) == 0) {
             uint32_t val_to_write = i / nodes_per_bv_block;
             output_u24(val_to_write, fp, out_vec);
             if (val_to_write > (1 << 24))
               gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
           }
-          one_count++;
         }
       }
       output_u24(bit_count / nodes_per_bv_block, fp, out_vec);
