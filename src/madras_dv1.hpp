@@ -37,7 +37,6 @@ class iter_ctx {
     uint16_t key_len;
     uint8_t *key;
     uint32_t *node_path;
-    uint32_t *child_count;
     uint16_t *last_tail_len;
     bool to_skip_first_leaf;
     bool is_allocated = false;
@@ -51,7 +50,6 @@ class iter_ctx {
       if (is_allocated) {
         delete [] key;
         delete [] node_path;
-        delete [] child_count;
         delete [] last_tail_len;
       }
       is_allocated = false;
@@ -62,14 +60,11 @@ class iter_ctx {
       if (!is_allocated) {
         key = new uint8_t[max_key_len];
         node_path = new uint32_t[max_level];
-        child_count = new uint32_t[max_level];
         last_tail_len = new uint16_t[max_level];
       }
       memset(node_path, 0, max_level * sizeof(uint32_t));
-      memset(child_count, 0, max_level * sizeof(uint32_t));
       memset(last_tail_len, 0, max_level * sizeof(uint16_t));
       node_path[0] = 1;
-      child_count[0] = 1;
       cur_idx = key_len = 0;
       to_skip_first_leaf = false;
       is_allocated = true;
@@ -1441,10 +1436,10 @@ class static_trie : public inner_trie {
       return leaf_lt->rank1(node_id);
     }
 
-    __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id, uint32_t child_count) {
+    __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
       ctx.cur_idx++;
       cv.tail.clear();
-      update_ctx(ctx, cv, node_id, child_count);
+      update_ctx(ctx, cv, node_id);
     }
 
     __fq1 __fq2 void insert_arr(uint32_t *arr, int arr_len, int pos, uint32_t val) {
@@ -1459,15 +1454,13 @@ class static_trie : public inner_trie {
       arr[pos] = val;
     }
 
-    __fq1 __fq2 void insert_into_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id, uint32_t child_count) {
-      insert_arr(ctx.child_count, ctx.cur_idx, 0, child_count);
+    __fq1 __fq2 void insert_into_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
       insert_arr(ctx.node_path, ctx.cur_idx, 0, node_id);
       insert_arr(ctx.last_tail_len, ctx.cur_idx, 0, (uint16_t) cv.tail.length());
       ctx.cur_idx++;
     }
 
-    __fq1 __fq2 void update_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id, uint32_t child_count) {
-      ctx.child_count[ctx.cur_idx] = child_count;
+    __fq1 __fq2 void update_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
       ctx.node_path[ctx.cur_idx] = node_id;
       ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
       ctx.last_tail_len[ctx.cur_idx] = cv.tail.length();
@@ -1480,14 +1473,13 @@ class static_trie : public inner_trie {
       ctx.last_tail_len[ctx.cur_idx] = 0;
     }
 
-    __fq1 __fq2 uint32_t pop_from_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t& child_count) {
+    __fq1 __fq2 uint32_t pop_from_ctx(iter_ctx& ctx, ctx_vars_next& cv) {
       clear_last_tail(ctx);
       ctx.cur_idx--;
-      return read_from_ctx(ctx, cv, child_count);
+      return read_from_ctx(ctx, cv);
     }
 
-    __fq1 __fq2 uint32_t read_from_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t& child_count) {
-      child_count = ctx.child_count[ctx.cur_idx];
+    __fq1 __fq2 uint32_t read_from_ctx(iter_ctx& ctx, ctx_vars_next& cv) {
       uint32_t node_id = ctx.node_path[ctx.cur_idx];
       return node_id;
     }
@@ -1496,8 +1488,7 @@ class static_trie : public inner_trie {
       ctx_vars_next cv;
       uint8_t tail[max_tail_len + 1];
       cv.tail.set_buf_max_len(tail, max_tail_len);
-      uint32_t child_count;
-      uint32_t node_id = read_from_ctx(ctx, cv, child_count);
+      uint32_t node_id = read_from_ctx(ctx, cv);
       while (node_id < node_count) {
         if (leaf_lt != nullptr && !(*leaf_lt)[node_id] && !child_lt[node_id]) {
           node_id++;
@@ -1509,10 +1500,10 @@ class static_trie : public inner_trie {
               while (term_lt[node_id]) {
                 if (ctx.cur_idx == 0)
                   return -2;
-                node_id = pop_from_ctx(ctx, cv, child_count);
+                node_id = pop_from_ctx(ctx, cv);
               }
               node_id++;
-              update_ctx(ctx, cv, node_id, child_count);
+              update_ctx(ctx, cv, node_id);
               ctx.to_skip_first_leaf = false;
               continue;
             }
@@ -1522,7 +1513,7 @@ class static_trie : public inner_trie {
               tail_map->get_tail_str(node_id, cv.tail);
             else
               cv.tail.append(trie_loc[node_id]);
-            update_ctx(ctx, cv, node_id, child_count);
+            update_ctx(ctx, cv, node_id);
             memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
@@ -1530,16 +1521,14 @@ class static_trie : public inner_trie {
         }
         ctx.to_skip_first_leaf = false;
         if (child_lt[node_id]) {
-          child_count++;
           cv.tail.clear();
           if (tail_lt[node_id])
             tail_map->get_tail_str(node_id, cv.tail);
           else
             cv.tail.append(trie_loc[node_id]);
-          update_ctx(ctx, cv, node_id, child_count);
-          node_id = term_lt.select1(child_count);
-          child_count = child_lt.rank1(node_id);
-          push_to_ctx(ctx, cv, node_id, child_count);
+          update_ctx(ctx, cv, node_id);
+          node_id = term_lt.select1(child_lt.rank1(node_id) + 1);
+          push_to_ctx(ctx, cv, node_id);
         }
       }
       return -2;
