@@ -236,7 +236,9 @@ int main(int argc, char *argv[]) {
   std::cout << "Sorted? : " << is_sorted << std::endl;
 
   if (!is_sorted) {
-    std::sort(lines.begin(), lines.end(), [](const key_ctx& lhs, const key_ctx& rhs) -> bool {
+    std::sort(lines.begin(), lines.end(), [as_int](const key_ctx& lhs, const key_ctx& rhs) -> bool {
+      if (as_int)
+        return atoll((const char *) lhs.key) < atoll((const char *) rhs.key);
       return gen::compare(lhs.key, lhs.key_len, rhs.key, rhs.key_len) < 0;
     });
     is_sorted = true;

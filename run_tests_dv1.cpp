@@ -99,6 +99,8 @@ int main(int argc, char *argv[]) {
           printf("ERROR: overflow!!!!!!!!!!!!!!!!!!!!!: %lld\n", ival);
         isize = gen::get_svint60_len(ival);
         gen::copy_svint60(ival, (uint8_t *) istr, isize);
+        // isize = 8;
+        // gen::int64ToUint8Sortable(ival, istr);
         key = istr;
         key_len = isize;
       }
@@ -205,6 +207,8 @@ int main(int argc, char *argv[]) {
       ival = std::atoll((const char *) in_ctx.key);
       isize = gen::get_svint60_len(ival);
       gen::copy_svint60(ival, (uint8_t *) istr, isize);
+      // isize = 8;
+      // gen::int64ToUint8Sortable(ival, istr);
       in_ctx.key = istr;
       in_ctx.key_len = isize;
     }
@@ -225,10 +229,13 @@ int main(int argc, char *argv[]) {
     if (is_sorted && !nodes_sorted_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf);
       if (out_key_len != in_ctx.key_len)
-        printf("Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
+        printf("%lu: Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
       else {
-        if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0)
-          printf("Key mismatch: E:[%.*s], A:[%.*s]\n", in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf);
+        if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0) {
+          printf("%lu: Key mismatch: E:[%.*s], A:[%.*s], %u\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len);
+          if (as_int)
+            printf("E: %s, A: %lld\n", lines[i].first, gen::read_svint60(key_buf));
+        }
         if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
           printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
         if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)

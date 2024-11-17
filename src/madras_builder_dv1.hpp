@@ -1783,15 +1783,13 @@ class uniq_maker {
       for (uint32_t i = 1; i < all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(all_node_sets, i);
         leopard::node n = cur_ns.first_node();
-        for (uint8_t k = 0; k <= cur_ns.last_node_idx(); k++) {
+        for (size_t k = 0; k <= cur_ns.last_node_idx(); k++) {
           uint32_t len = 0;
           uint8_t *pos = sic.get_data_and_len(n, len, type);
           if (pos != NULL || len == 1) {
             // printf("%d, [%.*s]\n", len, len, pos);
-            nodes_for_sort.push_back((struct sort_data) { pos, len, i, k});
+            nodes_for_sort.push_back((struct sort_data) { pos, len, i, (uint8_t) k});
           }
-          if (k == 0xFF)
-            break;
           n.next();
         }
       }
