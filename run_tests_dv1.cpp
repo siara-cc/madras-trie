@@ -11,15 +11,17 @@
 
 using namespace std;
 
-double time_taken_in_secs(clock_t t) {
-  t = clock() - t;
-  return ((double)t)/CLOCKS_PER_SEC;
+double time_taken_in_secs(struct timespec t) {
+  struct timespec t_end;
+  clock_gettime(CLOCK_REALTIME, &t_end);
+  return (t_end.tv_sec - t.tv_sec) + (t_end.tv_nsec - t.tv_nsec) / 1e9;
 }
 
-clock_t print_time_taken(clock_t t, const char *msg) {
+struct timespec print_time_taken(struct timespec t, const char *msg) {
   double time_taken = time_taken_in_secs(t); // in seconds
-  std::cout << msg << time_taken << std::endl;
-  return clock();
+  printf("%s %lf\n", msg, time_taken);
+  clock_gettime(CLOCK_REALTIME, &t);
+  return t;
 }
 
 int main(int argc, char *argv[]) {
@@ -46,7 +48,8 @@ int main(int argc, char *argv[]) {
   sb->set_print_enabled(true);
   vector<pair<uint8_t *, uint32_t>> lines;
 
-  clock_t t = clock();
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
