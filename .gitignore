@@ -5,6 +5,7 @@ run_tests*
 bench/madras_bench*
 !bench/madras_bench_dv1.cpp
 cuda_bench/cuda_bench*
+cuda_bench/mt_bench*
 !cuda_bench/cuda_bench_dv1.cu
 prgs/query_mdx*
 !prgs/query_mdx.cpp

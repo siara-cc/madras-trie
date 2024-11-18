@@ -2159,7 +2159,7 @@ class static_trie_map : public static_trie {
       }
       fstat(fd, &buf);
       sz = buf.st_size;
-      uint8_t *map_buf = (uint8_t *) mmap((caddr_t) 0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
+      uint8_t *map_buf = (uint8_t *) mmap(0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
       if (map_buf == MAP_FAILED) {
         perror("mmap: ");
         close(fd);

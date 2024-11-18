@@ -1,0 +1,26 @@
+C = gcc
+CXX = g++
+CXXFLAGS = -std=c++11
+INCLUDES = -I./src
+L_FLAGS = 
+M_FLAGS = -mbmi2 -mpopcnt
+#OBJS = build/imain.o
+
+opt: CXXFLAGS += -O2 -DNDEBUG
+opt: mt_bench
+
+debug: CXXFLAGS += -g -O0 -fno-inline
+debug: mt_bench
+
+release: CXXFLAGS += -O2 -DNDEBUG
+release: mt_bench
+
+asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer
+asan: mt_bench
+
+clean:
+	rm mt_bench
+
+mt_bench: madras_bench_mt_dv1.cpp ./common_mt_dv1.hpp ../src/*.hpp ../../ds_common/src/*.hpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++11 madras_bench_mt_dv1.cpp -o mt_bench $(L_FLAGS) $(M_FLAGS)
+
