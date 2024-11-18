@@ -1,7 +1,10 @@
+#include <cstring>
+#include <cstdlib>
 #include <future>
 #include <functional>
 
 #include "common_mt_dv1.hpp"
+#include "../src/madras_dv1.hpp"
 
 void process_range(size_t start, size_t end, uint8_t *file_buf_lines, key_ctx *lines, uint8_t *query_status, madras_dv1::static_trie *trie) {
   madras_dv1::input_ctx in_ctx;
@@ -43,17 +46,20 @@ int main(int argc, const char *argv[]) {
 
   std::vector<key_ctx> lines;
 
-  uint8_t *file_buf = load_lines(argv[1], lines);
+  size_t file_size;
+  uint8_t *file_buf = load_lines(argv[1], lines, file_size);
   if (file_buf == nullptr)
     return 1;
 
-  uint8_t *mdx_file_buf = load_mdx_file(argv[1]);
+  size_t mdx_file_size;
+  uint8_t *mdx_file_buf = load_mdx_file(argv[1], mdx_file_size);
   if (mdx_file_buf == nullptr) {
     delete [] file_buf;
     return 1;
   }
 
-  clock_t t = clock();
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
 
   uint8_t *query_status = new uint8_t[lines.size()](); // all '\0's
 

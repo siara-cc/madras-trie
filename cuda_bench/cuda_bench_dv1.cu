@@ -1,7 +1,7 @@
 #include "common_mt_dv1.hpp"
 
-#define __fq1 __host__ __device__
-#define __gq1 __host__ __device__
+#define __fq1 __device__
+#define __gq1 __device__
 #include "../src/madras_tt_dv1.hpp"
 
 #include <cuda_runtime.h>
@@ -72,14 +72,21 @@ void checkCudaError(cudaError_t result, const char* msg) {
 
 int main(int argc, const char *argv[]) {
 
+  if (argc < 4) {
+    printf("Usage: cuda_bench <file_name> <num_threads> <num_blocks>\n");
+    return 1;
+  }
+
   std::vector<key_ctx> lines;
-  uint8_t *file_buf = load_lines(argv[1], lines);
+  size_t file_size;
+  uint8_t *file_buf = load_lines(argv[1], lines, file_size);
 
   uint8_t *d_file_buf;
-  cudaMalloc(&d_file_buf, file_stat.st_size + 1);
-  cudaMemcpy(d_file_buf, file_buf, file_stat.st_size + 1, cudaMemcpyHostToDevice);
+  cudaMalloc(&d_file_buf, file_size + 1);
+  cudaMemcpy(d_file_buf, file_buf, file_size + 1, cudaMemcpyHostToDevice);
 
-  uint8_t *mdx_file_buf = load_mdx_file(file_name);
+  size_t mdx_file_size;
+  uint8_t *mdx_file_buf = load_mdx_file(argv[1], mdx_file_size);
 
   uint8_t *d_file_buf_lines;
   cudaMalloc(&d_file_buf_lines, file_size + 1);
@@ -111,11 +118,12 @@ int main(int argc, const char *argv[]) {
         d_file_buf_mdx, mdx_file_size + 1, d_lines, lines.size(), d_query_status);
   cudaDeviceSynchronize(); // Ensure initialization completes before lookup_kernel
 
-  clock_t t = clock();
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
 
   // Launch the kernel to perform lookups
-  size_t threads_per_block = 768;
-  size_t blocks = 12;
+  size_t threads_per_block = atoi(argv[2]);
+  size_t blocks = atoi(argv[3]);
   size_t capacity = blocks * threads_per_block;
   size_t iter_count = lines.size() / capacity;
   if ((lines.size() % capacity) > 0)
@@ -125,8 +133,10 @@ int main(int argc, const char *argv[]) {
     if (i == (iter_count - 1) && (lines.size() % capacity) > 0)
       query_count = (lines.size() % capacity);
     lookup_kernel<<<blocks, threads_per_block>>>(d_cw, i * capacity, query_count);
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
   }
+
+  cudaDeviceSynchronize();
 
   t = print_time_taken(t, "Time taken for retrieve: ");
 

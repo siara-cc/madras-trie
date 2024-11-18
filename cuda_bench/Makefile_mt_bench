@@ -1,6 +1,6 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -std=c++11
+CXXFLAGS = -std=c++11 -march=native
 INCLUDES = -I./src
 L_FLAGS = 
 M_FLAGS = -mbmi2 -mpopcnt
