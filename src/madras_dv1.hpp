@@ -26,6 +26,15 @@
 #define __fq2
 #endif
 
+// Function qualifiers
+#ifndef __gq1
+#define __gq1
+#endif
+
+#ifndef __gq2
+#define __gq2
+#endif
+
 namespace madras_dv1 {
 
 class iter_ctx {
@@ -89,23 +98,64 @@ struct min_pos_stats {
 class cmn {
   public:
     __fq1 __fq2 static uint32_t read_uint16(const uint8_t *ptr) {
+      #ifndef __CUDA_ARCH__
       return *((uint16_t *) ptr); // faster endian dependent
-      // uint32_t ret = *ptr++;
-      // ret |= (*ptr << 8);
-      // return ret;
+      #else
+      uint32_t ret = *ptr++;
+      ret |= (*ptr << 8);
+      return ret;
+      #endif
     }
     __fq1 __fq2 static uint32_t read_uint24(const uint8_t *ptr) {
+      #ifndef __CUDA_ARCH__
       return *((uint32_t *) ptr) & 0x00FFFFFF; // faster endian dependent
-      // uint32_t ret = *ptr++;
-      // ret |= (*ptr++ << 8);
-      // ret |= (*ptr << 16);
-      // return ret;
+      #else
+      uint32_t ret = *ptr++;
+      ret |= (*ptr++ << 8);
+      ret |= (*ptr << 16);
+      return ret;
+      #endif
     }
     __fq1 __fq2 static uint32_t read_uint32(uint8_t *ptr) {
+      // #ifndef __CUDA_ARCH__
       return *((uint32_t *) ptr);
+      // TODO: fix
+      // #else
+      // uint32_t ret = *ptr++;
+      // ret |= (*ptr++ << 8);
+      // ret |= (*ptr++ << 16);
+      // ret |= (*ptr << 24);
+      // return ret;
+      // #endif
     }
-    __fq1 __fq2 static uint64_t read_uint64(uint8_t *t) {
-      return *((uint64_t *) t);
+    __fq1 __fq2 static uint64_t read_uint64(uint8_t *ptr) {
+      // #ifndef __CUDA_ARCH__
+      return *((uint64_t *) ptr);
+      // #else
+      // uint64_t ret = *ptr++;
+      // ret |= (*ptr++ << 8);
+      // ret |= (*ptr++ << 16);
+      // ret |= (*ptr++ << 24);
+      // ret |= (*ptr++ << 32);
+      // ret |= (*ptr++ << 40);
+      // ret |= (*ptr++ << 48);
+      // ret |= (*ptr << 56);
+      // return ret;
+      // #endif
+    }
+    __fq1 __fq2 static int memcmp(const void *ptr1, const void *ptr2, size_t num) {
+      #ifndef __CUDA_ARCH__
+      return memcmp(ptr1, ptr2, num);
+      #else
+      const unsigned char *a = (const unsigned char *)ptr1;
+      const unsigned char *b = (const unsigned char *)ptr2;
+      for (size_t i = 0; i < num; ++i) {
+          if (a[i] != b[i]) {
+              return (a[i] < b[i]) ? -1 : 1;
+          }
+      }
+      return 0;
+      #endif
     }
     __fq1 __fq2 static uint32_t read_vint32(const uint8_t *ptr, size_t *vlen = NULL) {
       uint32_t ret = 0;
@@ -141,7 +191,7 @@ class lt_builder {
       size_t pos4 = 0;
       size_t u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block_n);
       u16_arr_count--;
-      uint16_t bit_counts[u16_arr_count + 1];
+      uint16_t *bit_counts = new uint16_t[u16_arr_count + 1];
       memset(bit_counts, 0, u16_arr_count * 2 + 2UL);
       uint32_t lt_size = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block, ptr_lt_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1) * 2);
       uint8_t *ptr_lt_loc = new uint8_t[lt_size];
@@ -212,6 +262,7 @@ class lt_builder {
         gen::copy_uint16(bit_counts[j], ptr_lt_loc);
         ptr_lt_loc += 2;
       }
+      delete [] bit_counts;
       return ptr_lt_loc;
     }
     __fq1 __fq2 static uint8_t *write_bv3(uint32_t node_id, uint32_t& count, uint32_t& count3, uint8_t *buf3, uint8_t& pos3, uint8_t *lt_pos) {
@@ -290,7 +341,7 @@ class lt_builder {
             uint32_t val_to_write = node_id / nodes_per_bv_block;
             gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
             if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+              printf("WARNING: %u\t%u\n", sel_count, val_to_write);
           }
           sel_count++;
         }
@@ -302,7 +353,7 @@ class lt_builder {
     }
 };
 
-static const uint8_t bit_count[256] = {
+__gq1 __gq2 static const uint8_t bit_count[256] = {
   0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 
   1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
   1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
@@ -311,7 +362,7 @@ static const uint8_t bit_count[256] = {
   2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
   2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 
   3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8};
-static const uint8_t select_lookup_tbl[8][256] = {{
+__gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
   8, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
   6, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
   7, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5, 1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 
@@ -791,19 +842,29 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
         if (*tail == 0)
           return true;
         uint32_t sfx_len = read_len(tail);
+        #ifdef __CUDA_ARCH__
+        uint8_t *sfx_buf = new uint8_t[sfx_len];
+        #else
         uint8_t sfx_buf[sfx_len];
+        #endif
         read_suffix(sfx_buf, grp_data[grp_no] + tail_ptr - 1, sfx_len);
-        if (memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
+        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
           in_ctx.key_pos += sfx_len;
+          #ifdef __CUDA_ARCH__
+          delete [] sfx_buf;
+          #endif
           return true;
         }
+        #ifdef __CUDA_ARCH__
+        delete [] sfx_buf;
+        #endif
       } else {
         size_t vlen;
         uint32_t bin_len = cmn::read_vint32(tail, &vlen);
         tail += vlen;
         if (in_ctx.key_pos + bin_len > in_ctx.key_len)
           return false;
-        if (memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
           in_ctx.key_pos += bin_len;
           return true;
         }
@@ -931,7 +992,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
             in_ctx.key_pos++;
           return false;
         }
-        if (memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
           in_ctx.key_pos += bin_len;
           return true;
         }
@@ -984,7 +1045,7 @@ class GCFC_rev_cache {
         else {
           if (in_ctx.key_pos + cche->tail0_len > in_ctx.key_len)
             return false;
-          if (memcmp(in_ctx.key + in_ctx.key_pos, &cche->parent_node_id1, cche->tail0_len) != 0)
+          if (cmn::memcmp(in_ctx.key + in_ctx.key_pos, &cche->parent_node_id1, cche->tail0_len) != 0)
             return false;
           in_ctx.key_pos += cche->tail0_len;
           node_id = 0;
@@ -1088,23 +1149,27 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
+        #ifndef __CUDA_ARCH__
       uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
       size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
       // if (bit_loc == 65) {
       //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
       //   return 64;
       // }
+      #endif
 
-      // size_t bit_loc = 0;
-      // while (bit_loc < 64) {
-      //   uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-      //   if (next_count >= remaining)
-      //     break;
-      //   bit_loc += 8;
-      //   remaining -= next_count;
-      // }
-      // if (remaining > 0)
-      //   bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
+      #ifdef __CUDA_ARCH__
+      size_t bit_loc = 0;
+      while (bit_loc < 64) {
+        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+        if (next_count >= remaining)
+          break;
+        bit_loc += 8;
+        remaining -= next_count;
+      }
+      if (remaining > 0)
+        bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
+      #endif
 
       // size_t bit_loc = 0;
       // do {
@@ -1486,7 +1551,11 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf) {
       ctx_vars_next cv;
+      #ifdef __CUDA_ARCH__
+      uint8_t *tail = new uint8_t[max_tail_len + 1];
+      #else
       uint8_t tail[max_tail_len + 1];
+      #endif
       cv.tail.set_buf_max_len(tail, max_tail_len);
       uint32_t node_id = read_from_ctx(ctx, cv);
       while (node_id < node_count) {
@@ -1531,6 +1600,9 @@ class static_trie : public inner_trie {
           push_to_ctx(ctx, cv, node_id);
         }
       }
+      #ifdef __CUDA_ARCH__
+      delete [] tail;
+      #endif
       return -2;
     }
 
@@ -1864,12 +1936,19 @@ class val_ptr_group_map : public ptr_group_map {
           *in_size_out_value_len = 8;
           switch (data_type) {
             case DCT_TEXT: case DCT_BIN: {
+              #ifdef __CUDA_ARCH__
+              uint8_t *val_str_buf = new uint8_t[max_len];
+              #else
               uint8_t val_str_buf[max_len];
+              #endif
               gen::byte_str val_str(val_str_buf, max_len);
               get_val_str(val_str, val_loc - grp_data[grp_no], grp_no, max_len);
               size_t val_len = val_str.length();
               *in_size_out_value_len = val_len;
               memcpy(ret_val, val_str.data(), val_len);
+              #ifdef __CUDA_ARCH__
+              delete [] val_str_buf;
+              #endif
             } break;
             default:
               convert_back(val_loc, ret_val, *in_size_out_value_len);
@@ -1973,13 +2052,13 @@ class val_ptr_group_map : public ptr_group_map {
                 uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) {
       key_count = _key_count;
       init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, val_loc, _key_count, _node_count, false);
-      uint8_t *data_loc = val_loc + gen::read_uint32(val_loc + 12);
-      uint8_t *ptrs_loc = val_loc + gen::read_uint32(val_loc + 24);
+      uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 12);
+      uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 24);
       if (group_count == 1 || val_loc[2] == 't')
         int_ptr_bv.init(ptrs_loc, val_loc[2] == 't' ? val_loc[0] : data_loc[1]);
       if (val_loc[2] == 't') {
         col_trie = new static_trie();
-        col_trie->load_static_trie(val_loc + gen::read_uint32(val_loc + 12));
+        col_trie->load_static_trie(val_loc + cmn::read_uint32(val_loc + 12));
       }
     }
     __fq1 __fq2 val_ptr_group_map() {
@@ -2220,7 +2299,11 @@ class static_trie_map : public static_trie {
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
         printf("Read error: [%s], %ld, %lu\n", filename, (long) file_stat.st_size, bytes_read);
+        #ifdef __CUDA_ARCH__
+        return;
+        #else
         throw errno;
+        #endif
       }
       fclose(fp);
 

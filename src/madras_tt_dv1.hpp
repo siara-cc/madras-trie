@@ -30,9 +30,6 @@
 namespace madras_dv1 {
 
 class iter_ctx {
-  private:
-    __fq1 __fq2 iter_ctx(iter_ctx const&);
-    __fq1 __fq2 iter_ctx& operator=(iter_ctx const&);
   public:
     int32_t cur_idx;
     uint16_t key_len;
@@ -209,9 +206,6 @@ __gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
 }};
 
 class leapfrog {
-  private:
-    __fq1 __fq2 leapfrog(leapfrog const&);
-    __fq1 __fq2 leapfrog& operator=(leapfrog const&);
   public:
     __fq1 __fq2 leapfrog() {};
     __fq1 __fq2 virtual ~leapfrog() {};
@@ -220,8 +214,6 @@ class leapfrog {
 
 class leapfrog_asc : public leapfrog {
   private:
-    __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
-    __fq1 __fq2 leapfrog_asc& operator=(leapfrog_asc const&);
     uint8_t *min_pos_loc;
     min_pos_stats min_stats;
   public:
@@ -238,9 +230,6 @@ class leapfrog_asc : public leapfrog {
 };
 
 class bvlt_rank {
-  private:
-    __fq1 __fq2 bvlt_rank(bvlt_rank const&);
-    __fq1 __fq2 bvlt_rank& operator=(bvlt_rank const&);
   protected:
     uint64_t *bm_loc;
     uint8_t *lt_rank_loc;
@@ -296,9 +285,6 @@ struct input_ctx {
 };
 
 class inner_trie_fwd {
-  private:
-    __fq1 __fq2 inner_trie_fwd(inner_trie_fwd const&);
-    __fq1 __fq2 inner_trie_fwd& operator=(inner_trie_fwd const&);
   public:
     bvlt_rank tail_lt;
     __fq1 __fq2 inner_trie_fwd() {
@@ -311,9 +297,6 @@ class inner_trie_fwd {
 };
 
 class tail_ptr_map {
-  private:
-    __fq1 __fq2 tail_ptr_map(tail_ptr_map const&);
-    __fq1 __fq2 tail_ptr_map& operator=(tail_ptr_map const&);
   public:
     __fq1 __fq2 tail_ptr_map() {
     }
@@ -340,9 +323,6 @@ class tail_ptr_map {
 };
 
 class tail_ptr_flat_map : public tail_ptr_map {
-  private:
-    __fq1 __fq2 tail_ptr_flat_map(tail_ptr_flat_map const&);
-    __fq1 __fq2 tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
   public:
     gen::int_bv_reader int_ptr_bv;
     bvlt_rank *tail_lt;
@@ -430,8 +410,6 @@ class tail_ptr_flat_map : public tail_ptr_map {
 
 class GCFC_rev_cache {
   private:
-    __fq1 __fq2 GCFC_rev_cache(GCFC_rev_cache const&);
-    __fq1 __fq2 GCFC_rev_cache& operator=(GCFC_rev_cache const&);
     nid_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -480,9 +458,6 @@ class GCFC_rev_cache {
 };
 
 class bvlt_select : public bvlt_rank {
-  private:
-    __fq1 __fq2 bvlt_select(bvlt_select const&);
-    __fq1 __fq2 bvlt_select& operator=(bvlt_select const&);
   protected:
     uint8_t *lt_sel_loc1;
     uint32_t bv_bit_count;
@@ -606,9 +581,6 @@ struct trie_flags {
 };
 
 class inner_trie : public inner_trie_fwd {
-  private:
-    __fq1 __fq2 inner_trie(inner_trie const&);
-    __fq1 __fq2 inner_trie& operator=(inner_trie const&);
   protected:
     uint32_t node_count;
     uint8_t trie_level;
@@ -739,8 +711,6 @@ struct ctx_vars_next {
 
 class GCFC_fwd_cache {
   private:
-    __fq1 __fq2 GCFC_fwd_cache(GCFC_fwd_cache const&);
-    __fq1 __fq2 GCFC_fwd_cache& operator=(GCFC_fwd_cache const&);
     fwd_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -788,8 +758,6 @@ class static_trie : public inner_trie {
     uint8_t *trie_bytes;
 
   private:
-    __fq1 __fq2 static_trie(static_trie const&);
-    __fq1 __fq2 static_trie& operator=(static_trie const&);
     size_t max_key_len;
     bldr_options *opts;
     uint16_t max_level;
@@ -1169,8 +1137,6 @@ class cleanup_interface {
 
 class cleanup : public cleanup_interface {
   private:
-    __fq1 __fq2 cleanup(cleanup const&);
-    __fq1 __fq2 cleanup& operator=(cleanup const&);
     uint8_t *bytes;
   public:
     __fq1 __fq2 cleanup() {
@@ -1187,3 +1153,4 @@ class cleanup : public cleanup_interface {
 
 }
 #endif
+

@@ -2,7 +2,7 @@
 
 #define __fq1 __device__
 #define __gq1 __device__
-#include "../src/madras_tt_dv1.hpp"
+#include "../src/madras_dv1.hpp"
 
 #include <cuda_runtime.h>
 
