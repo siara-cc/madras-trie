@@ -43,6 +43,25 @@ __global__ void init_madras_cuda_wrapper(madras_cuda_wrapper *d_nl, uint8_t *_fi
 }
 
 // Kernel for invoking the lookup on the GPU
+__global__ void lookup_1x1_kernel(madras_cuda_wrapper *d_cw, uint32_t num_queries) {
+  madras_dv1::input_ctx in_ctx;
+  uint8_t key_buf[256];
+  size_t out_key_len;
+  for (uint32_t idx = 0; idx < num_queries; idx++) {
+    key_ctx *ctx = &d_cw->lines[idx];
+    in_ctx.key = d_cw->file_buf_lines + ctx->key_loc;
+    in_ctx.key_len = ctx->key_len;
+    bool is_success = d_cw->get_trie_inst()->lookup(in_ctx);
+    ctx->leaf_id = d_cw->get_trie_inst()->leaf_rank1(in_ctx.node_id);
+    d_cw->get_trie_inst()->reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
+    if (out_key_len == in_ctx.key_len && madras_dv1::cmn::memcmp(in_ctx.key, key_buf, out_key_len) == 0)
+      d_cw->query_status[idx] = is_success;
+    // printf("Is success: %d\n", is_success);
+    // printf("Node id: %u\n", in_ctx.node_id);
+  }
+}
+
+// Kernel for invoking the lookup on the GPU
 __global__ void lookup_kernel(madras_cuda_wrapper *d_cw, uint32_t start_idx, uint32_t num_queries) {
   uint32_t cuda_idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (cuda_idx < num_queries) {
@@ -76,6 +95,10 @@ int main(int argc, const char *argv[]) {
     printf("Usage: cuda_bench <file_name> <num_threads> <num_blocks>\n");
     return 1;
   }
+
+  cudaSetDevice(0);
+  cudaSetDeviceFlags(cudaDeviceScheduleYield);
+  cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
 
   std::vector<key_ctx> lines;
   size_t file_size;
@@ -133,10 +156,13 @@ int main(int argc, const char *argv[]) {
     if (i == (iter_count - 1) && (lines.size() % capacity) > 0)
       query_count = (lines.size() % capacity);
     lookup_kernel<<<blocks, threads_per_block>>>(d_cw, i * capacity, query_count);
-    //cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
   }
 
-  cudaDeviceSynchronize();
+  // lookup_1x1_kernel<<<1, 1>>>(d_cw, lines.size());
+  // cudaDeviceSynchronize();
+
+  //cudaDeviceSynchronize();
 
   t = print_time_taken(t, "Time taken for retrieve: ");
 
