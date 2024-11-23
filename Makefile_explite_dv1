@@ -2,10 +2,11 @@ C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I./src
-L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd -lcds
+L_FLAGS = -lsqlite3
+#-lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd -lcds
 M_FLAGS = -mbmi2 -mpopcnt
 
-opt: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
+opt: CXXFLAGS += -g -O2 -funroll-loops -DNDEBUG
 opt: export_sqlite
 
 debug: CXXFLAGS += -g -O0 -fno-inline

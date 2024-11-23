@@ -1950,8 +1950,13 @@ class val_ptr_group_map : public ptr_group_map {
               delete [] val_str_buf;
               #endif
             } break;
-            default:
+            default: {
+              if (*val_loc == 0) {
+                *in_size_out_value_len = -1;
+                return;
+              }
               convert_back(val_loc, ret_val, *in_size_out_value_len);
+            }
           }
           break;
         case 'w': {

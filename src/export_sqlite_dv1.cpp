@@ -29,23 +29,23 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int s
     int key_len;
     uint8_t converted_val[10];
     switch (key_data_type) {
-      case LPDT_TEXT:
+      case DCT_TEXT:
         key = (uint8_t *) sqlite3_column_text(stmt, key_col_idx - 1);
         key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
         break;
-      case LPDT_BIN:
+      case DCT_BIN:
         key = (uint8_t *) sqlite3_column_blob(stmt, key_col_idx - 1);
         key_len = sqlite3_column_bytes(stmt, key_col_idx - 1);
         break;
       default: {
         int64_t ki64;
         double kd64;
-        if (key_data_type == LPDT_S64_INT || key_data_type == LPDT_U64_INT) {
+        if (key_data_type == DCT_S64_INT || key_data_type == DCT_U64_INT) {
           ki64 = sqlite3_column_int64(stmt, key_col_idx - 1);
-          key = madras_dv1::cmn::convert(&ki64, 8, converted_val, key_len, key_data_type);
+          key = madras_dv1::bldr_util::convert(&ki64, 8, converted_val, key_len, key_data_type);
         } else {
           kd64 = sqlite3_column_double(stmt, key_col_idx - 1);
-          key = madras_dv1::cmn::convert(&kd64, 8, converted_val, key_len, key_data_type);
+          key = madras_dv1::bldr_util::convert(&kd64, 8, converted_val, key_len, key_data_type);
         }
       }
     }
@@ -56,18 +56,18 @@ void export_key_and_column0(madras_dv1::builder& bldr, sqlite3_stmt *stmt, int s
     if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
       val = nullptr;
       val_len = 0;
-    } else if (exp_col_type == LPDT_TEXT) {
+    } else if (exp_col_type == DCT_TEXT) {
       val = sqlite3_column_text(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_BIN) {
+    } else if (exp_col_type == DCT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
+    } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       val = &s64;
-    } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
-               (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
+    } else if ((exp_col_type >= DCT_S64_DEC1 && exp_col_type <= DCT_S64_DEC9) ||
+               (exp_col_type >= DCT_U64_DEC1 && exp_col_type <= DCT_U64_DEC9) ||
+               (exp_col_type >= DCT_U15_DEC1 && exp_col_type <= DCT_U15_DEC2)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       val = &dbl;
     }
@@ -98,30 +98,26 @@ void export_column(madras_dv1::builder& bldr, sqlite3_stmt *stmt,
       null_count++;
       val = nullptr;
       val_len = 0;
-    } else if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_WORDS) {
+    } else if (exp_col_type == DCT_TEXT || exp_col_type == DCT_WORDS) {
       val = sqlite3_column_text(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_BIN) {
+    } else if (exp_col_type == DCT_BIN) {
       val = sqlite3_column_blob(stmt, sql_col_idx);
       val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-    } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
+    } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
       s64 = sqlite3_column_int64(stmt, sql_col_idx);
       if (s64 == 0)
         zero_count++;
       val = &s64;
-    } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-               (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
-               (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
+    } else if ((exp_col_type >= DCT_S64_DEC1 && exp_col_type <= DCT_S64_DEC9) ||
+               (exp_col_type >= DCT_U64_DEC1 && exp_col_type <= DCT_U64_DEC9) ||
+               (exp_col_type >= DCT_U15_DEC1 && exp_col_type <= DCT_U15_DEC2)) {
       dbl = sqlite3_column_double(stmt, sql_col_idx);
       if (dbl == 0)
         zero_count++;
       val = &dbl;
     }
-    bool is_success = bldr.insert_col_val(val, val_len, true);
-    if (!is_success) {
-      std::cerr << "Error inserting into builder" << std::endl;
-      return;
-    }
+    bldr.insert_col_val(val, val_len, true);
     if (ins_seq_id >= row_count)
       break;
     ins_seq_id++;
@@ -225,13 +221,8 @@ int main(int argc, char* argv[]) {
   std::string col_types;
   std::string col_encodings;
   int exp_col_count = 0;
-  if (key_col_idx != 0) {
-    col_types.append(1, storage_types[key_col_idx - 1]);
-    col_encodings.append(1, encoding_types[key_col_idx - 1]);
-    exp_col_count++;
-  }
   for (int i = 0; i < column_count; i++) {
-    if (storage_types[i] == '-' || i == (key_col_idx - 1))
+    if (storage_types[i] == '-')
       continue;
     const char* column_name = sqlite3_column_name(stmt_col_names, i);
     column_names.append(",");
@@ -268,32 +259,56 @@ int main(int argc, char* argv[]) {
   mb.set_print_enabled();
   mb.open_file();
 
-  int exp_col_idx = 0;
+  size_t exp_col_idx = 0;
   bool first_kv_written = false;
   bool key_exported = false;
-  for (int i = 0; i < column_count; i++) {
-    if (storage_types[i] == '-' || i == (key_col_idx - 1))
-      continue;
-    if (!key_exported && key_col_idx != 0) {
-      export_key_and_column0(mb, stmt, i, exp_col_idx, storage_types[i],
-              key_col_idx, storage_types[key_col_idx - 1], row_count);
-      mb.write_kv();
-      key_exported = true;
-      first_kv_written = true;
-    } else {
-      mb.reset_for_next_col();
-      export_column(mb, stmt, i, exp_col_idx, storage_types[i], row_count);
-      if (first_kv_written)
-        mb.build_and_write_col_val();
-      else {
-        mb.write_kv();
-        first_kv_written = true;
+  size_t ins_seq_id = 0;
+  uint64_t values[exp_col_count];
+  double *values_dbl = (double *) values;
+  size_t value_lens[exp_col_count];
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    exp_col_idx = 0;
+    for (size_t i = 0; i < column_count; i++) {
+      if (storage_types[i] == '-')
+        continue;
+      size_t sql_col_idx = i;
+      char exp_col_type = storage_types[i];
+      int64_t s64;
+      double dbl;
+      if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
+        values[exp_col_idx] = UINT64_MAX;
+        value_lens[exp_col_idx] = 0;
+      } else if (exp_col_type == DCT_TEXT || exp_col_type == DCT_WORDS) {
+        values[exp_col_idx] = (uint64_t) sqlite3_column_text(stmt, sql_col_idx);
+        value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
+      } else if (exp_col_type == DCT_BIN) {
+        values[exp_col_idx] = (uint64_t) sqlite3_column_blob(stmt, sql_col_idx);
+        value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
+      } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
+        s64 = sqlite3_column_int64(stmt, sql_col_idx);
+        memcpy(values + exp_col_idx, &s64, 8);
+        value_lens[exp_col_idx] = 8;
+      } else if ((exp_col_type >= DCT_S64_DEC1 && exp_col_type <= DCT_S64_DEC9) ||
+                (exp_col_type >= DCT_U64_DEC1 && exp_col_type <= DCT_U64_DEC9) ||
+                (exp_col_type >= DCT_U15_DEC1 && exp_col_type <= DCT_U15_DEC2)) {
+        values_dbl[exp_col_idx] = sqlite3_column_double(stmt, sql_col_idx);
+        value_lens[exp_col_idx] = 8;
       }
+      exp_col_idx++;
     }
-    sqlite3_reset(stmt);
-    exp_col_idx++;
+    mb.insert(values, value_lens);
+    if (ins_seq_id >= row_count)
+      break;
+    ins_seq_id++;
+    if ((ins_seq_id % 100000) == 0) {
+      std::cout << ".";
+      std::flush(std::cout);
+    }
   }
-  mb.write_final_val_table();
+
+  sqlite3_reset(stmt);
+
+  mb.write_all();
 
   t = print_time_taken(t, "Time taken for build: ");
 
@@ -316,7 +331,7 @@ int main(int argc, char* argv[]) {
   }
 
   sqlite3_reset(stmt);
-  int64_t ins_seq_id = 0;
+  ins_seq_id = 0;
   uint8_t *key = new uint8_t[stm.get_max_key_len()];
   uint32_t ptr_count[column_count];
   int64_t int_sums[column_count];
@@ -362,7 +377,7 @@ int main(int argc, char* argv[]) {
           }
         }
       } else
-      if (exp_col_type == LPDT_TEXT || exp_col_type == LPDT_BIN || exp_col_type == LPDT_WORDS) {
+      if (exp_col_type == DCT_TEXT || exp_col_type == DCT_BIN || exp_col_type == DCT_WORDS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
         size_t sql_val_len = sqlite3_column_bytes(stmt, i);
         size_t val_len = stm.get_max_val_len(col_val_idx) + 1;
@@ -389,7 +404,7 @@ int main(int argc, char* argv[]) {
             }
           }
         }
-      } else if (exp_col_type == LPDT_S64_INT || exp_col_type == LPDT_U64_INT) {
+      } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
         size_t val_len = 8;
@@ -401,10 +416,10 @@ int main(int argc, char* argv[]) {
           int_sums[col_val_idx] += i64;
         } else
           std::cerr << "Val not found: " << node_id << ", " << ins_seq_id << ", " << sql_val << std::endl;
-      } else if ((exp_col_type >= LPDT_S64_DEC1 && exp_col_type <= LPDT_S64_DEC9) ||
-                 (exp_col_type >= LPDT_U64_DEC1 && exp_col_type <= LPDT_U64_DEC9) ||
-                 (exp_col_type >= LPDT_U15_DEC1 && exp_col_type <= LPDT_U15_DEC2)) {
-        double sql_val = madras_dv1::cmn::round(sqlite3_column_double(stmt, i), exp_col_type);
+      } else if ((exp_col_type >= DCT_S64_DEC1 && exp_col_type <= DCT_S64_DEC9) ||
+                 (exp_col_type >= DCT_U64_DEC1 && exp_col_type <= DCT_U64_DEC9) ||
+                 (exp_col_type >= DCT_U15_DEC1 && exp_col_type <= DCT_U15_DEC2)) {
+        double sql_val = madras_dv1::bldr_util::round(sqlite3_column_double(stmt, i), exp_col_type);
         uint8_t val[16];
         size_t val_len;
         bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
