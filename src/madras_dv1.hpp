@@ -145,7 +145,7 @@ class cmn {
     }
     __fq1 __fq2 static int memcmp(const void *ptr1, const void *ptr2, size_t num) {
       #ifndef __CUDA_ARCH__
-      return memcmp(ptr1, ptr2, num);
+      return std::memcmp(ptr1, ptr2, num);
       #else
       const unsigned char *a = (const unsigned char *)ptr1;
       const unsigned char *b = (const unsigned char *)ptr2;
@@ -621,6 +621,7 @@ class ptr_bits_reader {
       return cmn::read_uint32(block_ptr);
     }
     __fq1 __fq2 ptr_bits_reader() {
+      release_lt_loc = false;
     }
     __fq1 __fq2 ~ptr_bits_reader() {
       if (release_lt_loc)
@@ -1501,6 +1502,10 @@ class static_trie : public inner_trie {
       return leaf_lt->rank1(node_id);
     }
 
+    __fq1 __fq2 uint32_t leaf_select1(uint32_t leaf_id) {
+      return leaf_lt->select1(leaf_id);
+    }
+
     __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
       ctx.cur_idx++;
       cv.tail.clear();
@@ -1862,8 +1867,10 @@ class val_ptr_group_map : public ptr_group_map {
       do {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
-          if (val_loc != nullptr)
-            col_val += gen::read_svint60(val_loc);
+          if (val_loc != nullptr) {
+            int64_t delta_val = gen::read_svint60(val_loc);
+            col_val += delta_val;
+          }
         }
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
@@ -2154,7 +2161,7 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 const char *get_table_name() {
-      return names_start + cmn::read_uint16(names_loc + 2);
+      return names_start + cmn::read_uint16(names_loc);
     }
 
     __fq1 __fq2 const char *get_column_name(int i) {
@@ -2186,7 +2193,7 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 uint16_t get_column_count() {
-      return val_count + (key_count > 0 ? 1 : 0);
+      return val_count;
     }
 
     __fq1 __fq2 int64_t get_val_int60(uint8_t *val) {
@@ -2332,13 +2339,15 @@ class static_trie_map : public static_trie {
 
       names_loc = trie_bytes + cmn::read_uint32(trie_bytes + 8);
       uint8_t *val_table_loc = trie_bytes + cmn::read_uint32(trie_bytes + 12);
-      names_start = (char *) names_loc + (val_count + (key_count > 0 ? 3 : 2)) * sizeof(uint16_t);
+      names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
       if (val_count > 0) {
         val_map = new val_ptr_group_map[val_count];
         for (uint32_t i = 0; i < val_count; i++) {
           uint8_t *val_loc = trie_bytes + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
+          if (val_loc == trie_bytes)
+            continue;
           val_map[i].init(this, trie_loc, tf_leaf_loc + 3, 4, val_loc, key_count, node_count);
         }
       }

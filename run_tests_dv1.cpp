@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
   uint8_t *file_buf = (uint8_t *) malloc(file_stat.st_size + 1);
-  printf("File_name: %s, size: %ld\n", argv[1], (long) file_stat.st_size);
+  printf("File_name: %s, size: %lu\n", argv[1], (long) file_stat.st_size);
 
   FILE *fp = fopen(argv[1], "rb");
   if (fp == NULL) {
@@ -139,12 +139,12 @@ int main(int argc, char *argv[]) {
       line = lines[i].first;
       line_len = lines[i].second;
       char val[30];
-      snprintf(val, 30, "%zu", line_len);
+      snprintf(val, 30, "%lu", line_len);
       // printf("[%.*s]]\n", (int) strlen(val), val);
       // TODO: Fix
       sb->insert_col_val(val, strlen(val), false);
     }
-    sb->build_and_write_col_val();
+    sb->build_col_val();
 
     sb->reset_for_next_col();
     for (size_t i = 0; i < line_count; i++) {
@@ -159,7 +159,7 @@ int main(int argc, char *argv[]) {
       // TODO: Fix
       sb->insert_col_val(val, strlen(val), false);
     }
-    sb->build_and_write_col_val();
+    sb->build_col_val();
   }
 
   sb->write_final_val_table();
