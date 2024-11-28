@@ -778,7 +778,7 @@ class ptr_group_map {
           idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * 3;
           _start_bits += idx_step_bits;
         }
-        if (ptr_lt_loc == data_loc) {
+        if (ptr_lt_loc == data_loc && group_count > 1) {
           ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, _bm_loc, _multiplier, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width);
           release_ptr_lt = true;
         }
@@ -2076,7 +2076,7 @@ class val_ptr_group_map : public ptr_group_map {
     __fq1 __fq2 val_ptr_group_map() {
       col_trie = nullptr;
     }
-    __fq1 __fq2 ~val_ptr_group_map() {
+    __fq1 __fq2 virtual ~val_ptr_group_map() {
       if (col_trie != nullptr)
         delete col_trie;
     }
@@ -2342,8 +2342,9 @@ class static_trie_map : public static_trie {
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
+      val_map = nullptr;
       if (val_count > 0) {
-        val_map = new val_ptr_group_map[val_count];
+        val_map = new val_ptr_group_map[val_count]();
         for (uint32_t i = 0; i < val_count; i++) {
           uint8_t *val_loc = trie_bytes + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
           if (val_loc == trie_bytes)
