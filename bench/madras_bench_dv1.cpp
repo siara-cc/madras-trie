@@ -62,14 +62,12 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
       memcpy(lines[i].key, istr, isize);
       lines[i].key_len = isize;
     }
-    sb->insert(lines[i].key, lines[i].key_len, nullptr, 0, i);
+    sb->insert(lines[i].key, lines[i].key_len, i);
   }
   //t = print_time_taken(t, "Time taken for insert/append: ");
 
   sb->set_out_vec(&output_buf);
-  sb->write_kv();
-
-  sb->write_final_val_table();
+  sb->write_all(0);
 
   uint32_t seq_idx = 0;
   nodes_sorted_on_freq = sb->opts.sort_nodes_on_freq;

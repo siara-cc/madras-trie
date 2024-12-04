@@ -47,23 +47,28 @@ Issues:
 + step idx 1 + inner tries hanging enw
 + ./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 0t0055YYYYYY tttttttttttt seg fault
 + allCountries 7 17 not working
++ cur_col_idx -1 ?
++ max_len not setting for col_trie
 - suf.txt mismatch
 - amazon_products sums not matching
 - ptr_bit_count not working explite all cases
-- cur_col_idx -1 ?
 - normalise values for nulls and empties
+- stack overflow because of **NULL**
 - doubles precision astray
 - daily_weather delta encoding not working 64-128
 - amazon products Val len mismatch: 558782, 2 - : 82: 62
 - amazon_products imgurl trie lookup fail
 - run_tests with val seg fault
-- max_len not setting for col_trie
 - amazon_products_title next() shifting values
 - stack over flow in reverse_lookup
-- stack overflow because of **NULL**
 - data_type 'i' and delta don't work?
 - uk-urls grasping lookup/rev lookup fail
 - common-crawl lookup fail
+- select child count (ns_count) 513 edge case - so_users LastAccessDate 1000
+- col not matching so_users AboutMe 900
+- endless loops (in read_suffix) so_users DisplayName 10000
+- partial_sfx_coding not working daily_weather date 1 (grp_count = 1 flat)
+- replace for !no_primary_trie
 
 + make select faster
 + avoid get_first_byte
@@ -95,15 +100,16 @@ x seperate all flags?
 - bitmap       nnnnnyxx
 - delta?       yyynnnnn xx
 
-- cleanup leopard trie
++ cleanup leopard trie
 - cleanup madras builder
 - implement dessicate
 - implement 32/64 bit
-- Fix explite to insert 1 column at a time
++ Fix explite to insert all columns at a time
 - cleanup concepts such as grouping
 - cleanup null/empty handling
 - tail - part bin and part text
-- next not working on i12
++ next not working on i12
+- next not working for numbers subseq levels
 - date data type
 
 - implement next for val for performance
@@ -113,6 +119,7 @@ x seperate all flags?
 - Multiple keys/values?
 - difference between marisa for small datasets
 
+Making trie build faster
 - sort keys
 - compare 2 keys find cmp
 - keep comparing 3rd, 4th etc. till cmp is the same
@@ -134,3 +141,26 @@ data layout for LSM
   - for case 2, store in all_vals
   - for case 3, same as case 1
   - for all 3 cases, secondary indices can be built later
+
+u32or64
+- bm_loc
+- ptr_bits_reader::ptr_loc
+- ptr_group_map::ptr_bm_loc
+- tail_ptr_group_map::bm_ptr
+- tail_ptr_flat_map::int_ptr_bv
+- select1::bm_loc
+- trie_flags::bm_
+- tf_loc, tf_ptr_loc
+- lookup::bm_mask
+- val_ptr_group_map::bm_ptr
+
+- Storage format for LSM
+- GPU resident
+- Indexed data transfer format for use in browsers
+- Storing historical static data
+- Compressed and indexed Columnar data format
+- Storing data in S3 )??)
+- Full text word index
+- Two way indexing
+- Composite static index
+- Type aware

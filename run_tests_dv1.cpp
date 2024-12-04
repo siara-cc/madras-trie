@@ -30,21 +30,13 @@ int main(int argc, char *argv[]) {
   if (argc > 2)
    what = atoi(argv[2]);
 
-  const char *data_types = nullptr;
-  if (argc > 3)
-    data_types = argv[3];
-
-  const char *encoding = nullptr;
-  if (argc > 4)
-    encoding = argv[4];
-
   madras_dv1::builder *sb;
   if (what == 0)
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, data_types == nullptr ? "tttt" : data_types, encoding == nullptr ? "uuuu" : encoding);
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tt00", "uuuu");
   else if (what == 1) // Process only key
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, data_types == nullptr ? "t" : data_types, encoding == nullptr ? "u" : encoding);
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u");
   else if (what == 2) // Insert key as value to compare trie and prefix coding
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, data_types == nullptr ? "tt" : data_types, encoding == nullptr ? "uu" : encoding);
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu");
   sb->set_print_enabled(true);
   vector<pair<uint8_t *, uint32_t>> lines;
 
@@ -73,7 +65,7 @@ int main(int argc, char *argv[]) {
   int64_t ival;
   size_t isize;
   uint8_t istr[10];
-  bool as_int = (data_types == nullptr ? false : (data_types[0] == 't' ? false : true));
+  bool as_int = (argc > 3 && argv[3][0] == 'i' ? true : false);
   int line_count = 0;
   bool is_sorted = true;
   const uint8_t *prev_line = (const uint8_t *) "";
@@ -84,15 +76,12 @@ int main(int argc, char *argv[]) {
     if (gen::compare(line, line_len, prev_line, prev_line_len) != 0) {
       uint8_t *key = line;
       int key_len = line_len;
-      uint8_t *val = line;
-      int val_len;
       // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
       // if (tab_loc != NULL) {
       //   key_len = tab_loc - line;
       //   val = tab_loc + 1;
       //   val_len = line_len - key_len - 1;
       // } else {
-        val_len = (line_len > 6 ? 7 : line_len);
       // }
       if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
@@ -107,12 +96,28 @@ int main(int argc, char *argv[]) {
         key = istr;
         key_len = isize;
       }
-      if (what == 0)
-        sb->insert(key, key_len, val, val_len);
-      else if (what == 1)
+      if (what == 0 || what == 2) {
+        uint64_t values[4];
+        size_t value_lens[4];
+        values[0] = (uint64_t) key;
+        value_lens[0] = key_len;
+        values[1] = (uint64_t) key;
+        value_lens[1] = key_len;
+        if (what == 0) {
+          int64_t i64 = line_len;
+          memcpy(values + 2, &i64, 8);
+          value_lens[2] = 8;
+          int64_t checksum = 0;
+          for (size_t j = 0; j < strlen((const char *) key); j++) {
+            checksum += key[j];
+          }
+          memcpy(values + 3, &checksum, 8);
+          value_lens[3] = 8;
+        }
+        sb->insert(values, value_lens);
+      } else if (what == 1) {
         sb->insert(key, key_len);
-      else if (what == 2)
-        sb->insert(key, key_len, key, key_len);
+      }
       lines.push_back(make_pair(line, line_len));
       prev_line = line;
       prev_line_len = line_len;
@@ -128,41 +133,10 @@ int main(int argc, char *argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  sb->write_kv(out_file.c_str());
+  sb->write_all(0, out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
   std::cout << "Sorted? : " << is_sorted << std::endl;
-
-  if (what == 0) {
-    sb->reset_for_next_col();
-    for (size_t i = 0; i < line_count; i++) {
-      line = lines[i].first;
-      line_len = lines[i].second;
-      char val[30];
-      snprintf(val, 30, "%lu", line_len);
-      // printf("[%.*s]]\n", (int) strlen(val), val);
-      // TODO: Fix
-      sb->insert_col_val(val, strlen(val), false);
-    }
-    sb->build_col_val();
-
-    sb->reset_for_next_col();
-    for (size_t i = 0; i < line_count; i++) {
-      line = lines[i].first;
-      int checksum = 0;
-      for (size_t j = 0; j < strlen((const char *) line); j++) {
-        checksum += line[j];
-      }
-      char val[30];
-      snprintf(val, 30, "%d", checksum);
-      // printf("[%.*s]]\n", (int) strlen(val), val);
-      // TODO: Fix
-      sb->insert_col_val(val, strlen(val), false);
-    }
-    sb->build_col_val();
-  }
-
-  sb->write_final_val_table();
 
   t = print_time_taken(t, "Time taken for insert/append: ");
 
@@ -268,22 +242,21 @@ int main(int argc, char *argv[]) {
       std::cout << "Get fail: " << in_ctx.key << std::endl;
 
     if (what == 0) {
-      trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
-      val_buf[out_val_len] = 0;
-      if (atoi((const char *) val_buf) != in_ctx.key_len) {
-        std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
-            << (const char *) val_buf << std::endl;
-      }
-
       trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
-      val_buf[out_val_len] = 0;
-      int checksum = 0;
-      for (int i = 0; i < strlen((const char *) in_ctx.key); i++) {
+      int64_t out_len = gen::read_svint60(val_buf);
+      if (out_len != in_ctx.key_len) {
+        std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
+            << out_len << std::endl;
+      }
+      trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, val_buf);
+      int64_t checksum = 0;
+      for (size_t i = 0; i < strlen((const char *) in_ctx.key); i++) {
         checksum += in_ctx.key[i];
       }
-      if (atoi((const char *) val_buf) != checksum) {
+      int64_t out_chksum = gen::read_svint60(val_buf);
+      if (out_chksum != checksum) {
         std::cout << "Second val mismatch - expected: " << checksum << ", found: "
-            << (const char *) val_buf << std::endl;
+            << out_chksum << std::endl;
       }
     }
 

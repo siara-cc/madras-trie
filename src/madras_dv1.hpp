@@ -649,7 +649,7 @@ class tail_ptr_map {
     __fq1 __fq2 virtual bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) = 0;
     __fq1 __fq2 virtual void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) = 0;
     __fq1 __fq2 static uint32_t read_len(uint8_t *t) {
-      while (*t & 0x10 && *t < 32)
+      while (*t > 15 && *t < 32)
         t++;
       t--;
       uint32_t ret;
@@ -658,9 +658,11 @@ class tail_ptr_map {
     }
     __fq1 __fq2 static uint8_t *read_len_bw(uint8_t *t, uint32_t& out_len) {
       out_len = 0;
-      while (*t & 0x10 && *t < 32) {
-        out_len <<= 4;
-        out_len += (*t-- & 0x0F);
+      while (*t > 15 && *t < 32) {
+        out_len <<= 3;
+        out_len += (*t & 0x07);
+        if (*t-- & 0x08)
+          break;
       }
       return t;
     }
@@ -833,14 +835,14 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       if (*tail != 0)
         return inner_tries[grp_no]->compare_trie_tail(tail_ptr, in_ctx);
       tail += tail_ptr;
-      if (*tail >= 32) {
+      if (*tail < 15 || *tail > 31) {
         do {
           if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
             return false;
           tail++;
           in_ctx.key_pos++;
-        } while (*tail >= 32);
-        if (*tail == 0)
+        } while (*tail < 15 || *tail > 31);
+        if (*tail == 15)
           return true;
         uint32_t sfx_len = read_len(tail);
         #ifdef __CUDA_ARCH__
@@ -860,9 +862,8 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
         delete [] sfx_buf;
         #endif
       } else {
-        size_t vlen;
-        uint32_t bin_len = cmn::read_vint32(tail, &vlen);
-        tail += vlen;
+        uint32_t bin_len;
+        read_len_bw(tail++, bin_len);
         if (in_ctx.key_pos + bin_len > in_ctx.key_len)
           return false;
         if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
@@ -886,37 +887,36 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
         return;
       }
       uint8_t *t = tail + tail_ptr;
-      if (*t < 32) {
-        size_t vlen;
-        uint32_t bin_len = cmn::read_vint32(t, &vlen);
-        t += vlen;
+      if (*t > 15 && *t < 32) {
+        uint32_t bin_len;
+        read_len_bw(t++, bin_len);
         while (bin_len--)
           tail_str.append(*t++);
         return;
       }
       uint8_t byt = *t;
-      while (byt > 31) {
+      while (byt < 15 || byt > 31) {
         t++;
         tail_str.append(byt);
         byt = *t;
       }
-      if (byt == 0)
+      if (byt == 15)
         return;
       uint32_t sfx_len = read_len(t);
       read_suffix(tail_str.data() + tail_str.length(), tail + tail_ptr - 1, sfx_len);
       tail_str.set_length(tail_str.length() + sfx_len);
     }
     __fq1 __fq2 void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
-      while (*t > 31)
+      while (*t < 15 || *t > 31)
         t--;
-      while (*t > 0) {
+      while (*t != 15) {
         uint32_t prev_sfx_len;
         t = read_len_bw(t, prev_sfx_len);
         while (sfx_len > prev_sfx_len) {
           sfx_len--;
           *out_str++ = *(t + prev_sfx_len - sfx_len);
         }
-        while (*t > 31)
+        while (*t < 15 || *t > 31)
           t--;
       }
       while (sfx_len > 0) {
@@ -975,19 +975,18 @@ class tail_ptr_flat_map : public tail_ptr_map {
       if (inner_trie != nullptr)
         return inner_trie->compare_trie_tail(tail_ptr, in_ctx);
       uint8_t *tail = data + tail_ptr;
-      if (*tail >= 32) {
+      if (*tail < 15 || *tail > 31) {
         do {
           if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
             return false;
           tail++;
           in_ctx.key_pos++;
-        } while (*tail >= 32);
-        if (*tail == 0)
+        } while (*tail < 15 || *tail > 31);
+        if (*tail == 15)
           return true;
       } else {
-        size_t vlen;
-        uint32_t bin_len = cmn::read_vint32(tail, &vlen);
-        tail += vlen;
+        uint32_t bin_len;
+        read_len_bw(tail++, bin_len);
         if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
           if (*tail == in_ctx.key[in_ctx.key_pos])
             in_ctx.key_pos++;
@@ -1011,17 +1010,16 @@ class tail_ptr_flat_map : public tail_ptr_map {
         return;
       }
       uint8_t *t = data + tail_ptr;
-      if (*t > 31) {
+      if (*t < 15 || *t > 31) {
         uint8_t byt = *t;
-        while (byt > 31) {
+        while (byt < 15 || byt > 31) {
           t++;
           tail_str.append(byt);
           byt = *t;
         }
       } else {
-        size_t vlen;
-        uint32_t bin_len = cmn::read_vint32(t, &vlen);
-        t += vlen;
+        uint32_t bin_len;
+        read_len_bw(t++, bin_len);
         while (bin_len--)
           tail_str.append(*t++);
       }
@@ -1815,7 +1813,7 @@ class val_ptr_group_map : public ptr_group_map {
       int skip_count = node_id % nodes_per_bv_block_n;
       while (skip_count--) {
         size_t vlen;
-        uint32_t count = gen::read_fvint32(w, vlen);
+        size_t count = gen::read_fvint(w, vlen);
         w += vlen;
         w += count;
         *p_ptr_byt_count += vlen;
@@ -1932,14 +1930,6 @@ class val_ptr_group_map : public ptr_group_map {
       switch (encoding_type) {
         case 'u':
           val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-          if (val_loc == grp_data[grp_no]) {
-            *in_size_out_value_len = -1;
-            return;
-          }
-          if (val_loc - grp_data[grp_no] == 1) {
-            *in_size_out_value_len = 0;
-            return;
-          }
           *in_size_out_value_len = 8;
           switch (data_type) {
             case DCT_TEXT: case DCT_BIN: {
@@ -1959,7 +1949,7 @@ class val_ptr_group_map : public ptr_group_map {
             } break;
             default: {
               if (*val_loc == 0) {
-                *in_size_out_value_len = -1;
+                *in_size_out_value_len = 0;
                 return;
               }
               convert_back(val_loc, ret_val, *in_size_out_value_len);
@@ -2018,22 +2008,21 @@ class val_ptr_group_map : public ptr_group_map {
       uint8_t *val = grp_data[grp_no];
       ret.clear();
       uint8_t *t = val + val_ptr;
-      if (*t < 32) {
-        uint32_t bin_len = tail_ptr_flat_map::read_len(t);
-        while (*t < 32)
-          t++;
+      if (*t > 15 && *t < 32) {
+        uint32_t bin_len;
+        tail_ptr_flat_map::read_len_bw(t++, bin_len);
         while (bin_len--)
           ret.append(*t++);
         return;
       }
-      while (*t > 31)
+      while (*t < 15 || *t > 31)
         t--;
       t++;
-      while (*t > 31)
+      while (*t < 15 || *t > 31)
         ret.append(*t++);
-      if (val[val_ptr - 1] > 31)
+      if (val[val_ptr - 1] < 15 || val[val_ptr - 1] > 31)
         ret.set_length(ret.length() - (t - val - val_ptr));
-      if (*t == 0)
+      if (*t == 15)
         return;
       uint32_t pfx_len = tail_ptr_flat_map::read_len(t);
       memmove(ret.data() + pfx_len, ret.data(), ret.length());
@@ -2041,12 +2030,12 @@ class val_ptr_group_map : public ptr_group_map {
       read_prefix(ret.data() + pfx_len - 1, val + val_ptr - 1, pfx_len);
     }
     __fq1 __fq2 void read_prefix(uint8_t *out_str, uint8_t *t, uint32_t pfx_len) {
-      while (*t > 31)
+      while (*t < 15 || *t > 31)
         t--;
-      while (*t > 0) {
+      while (*t != 15) {
         uint32_t prev_pfx_len;
         t = tail_ptr_flat_map::read_len_bw(t, prev_pfx_len);
-        while (*t > 31)
+        while (*t < 15 || *t > 31)
           t--;
         while (pfx_len > prev_pfx_len) {
           *out_str-- = *(t + pfx_len - prev_pfx_len);
@@ -2054,7 +2043,7 @@ class val_ptr_group_map : public ptr_group_map {
         }
       }
       t--;
-      while (*t > 31)
+      while (*t < 15 || *t > 31)
         t--;
       t++;
       while (pfx_len-- > 0)
@@ -2148,8 +2137,8 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 bool get(input_ctx& in_ctx, size_t *in_size_out_value_len, void *val) {
       bool is_found = lookup(in_ctx);
       if (is_found) {
-        if (val_count > 0)
-          val_map[0].get_val(in_ctx.node_id, in_size_out_value_len, val);
+        if (val_count > 1)
+          val_map[1].get_val(in_ctx.node_id, in_size_out_value_len, val);
         return true;
       }
       return false;
@@ -2346,7 +2335,8 @@ class static_trie_map : public static_trie {
       if (val_count > 0) {
         val_map = new val_ptr_group_map[val_count]();
         for (uint32_t i = 0; i < val_count; i++) {
-          uint8_t *val_loc = trie_bytes + cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
+          uint32_t vl32 = cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
+          uint8_t *val_loc = trie_bytes + vl32;
           if (val_loc == trie_bytes)
             continue;
           val_map[i].init(this, trie_loc, tf_leaf_loc + 3, 4, val_loc, key_count, node_count);

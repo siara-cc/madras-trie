@@ -4,7 +4,9 @@
 namespace madras_dv1 {
 
 const uint8_t *NULL_VALUE =  (const uint8_t *) " ";
-const uint8_t *EMPTY_VALUE = (const uint8_t *) "_";
+const size_t NULL_VALUE_LEN = 1;
+const uint8_t *EMPTY_VALUE = (const uint8_t *) "!";
+const size_t EMPTY_VALUE_LEN = 1;
 
 #if defined(__GNUC__) || defined(__clang__)
 #define PACKED_STRUCT __attribute__((packed))
