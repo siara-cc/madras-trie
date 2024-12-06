@@ -170,6 +170,7 @@ int main(int argc, char *argv[]) {
   t = print_time_taken(t, "Time taken for load: ");
 
   line_count = 0;
+  size_t err_count = 0;
   bool success = false;
   for (size_t i = 0; i < lines.size(); i++) {
     // if (gen::compare(line, line_len, prev_line, prev_line_len) == 0)
@@ -205,41 +206,56 @@ int main(int argc, char *argv[]) {
 
     if (is_sorted && !nodes_sorted_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf);
-      if (out_key_len != in_ctx.key_len)
+      if (out_key_len != in_ctx.key_len) {
         printf("%lu: Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
-      else {
+        err_count++;
+      } else {
         if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0) {
+          err_count++;
           printf("%lu: Key mismatch: E:[%.*s], A:[%.*s], %u\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len);
           if (as_int)
             printf("E: %s, A: %lld\n", lines[i].first, gen::read_svint60(key_buf));
         }
-        if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
+        if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
           printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-        if (what == 0 && memcmp(val, val_buf, out_val_len) != 0)
+          err_count++;
+        }
+        if (what == 0 && memcmp(val, val_buf, out_val_len) != 0) {
           printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+          err_count++;
+        }
       }
     }
 
     bool is_found = trie_reader.lookup(in_ctx);
-    if (!is_found)
+    if (!is_found) {
       std::cout << "Lookup fail: " << in_ctx.key << std::endl;
-    else {
+      err_count++;
+    } else {
       uint32_t leaf_id = trie_reader.leaf_rank1(in_ctx.node_id);
       bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
-      if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0)
+      if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0) {
         printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, in_ctx.key_len, key_buf);
+        err_count++;
+      }
     }
 
     success = trie_reader.get(in_ctx, &out_val_len, val_buf);
     if (success) {
       val_buf[out_val_len] = 0;
-      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0)
+      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
         printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-      if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0)
+        err_count++;
+      }
+      if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0) {
         printf("key: [%.*s], val: [%.*s]\n", (int) out_key_len, in_ctx.key, (int) out_val_len, val_buf);
-    } else
+        err_count++;
+      }
+    } else {
       std::cout << "Get fail: " << in_ctx.key << std::endl;
+      err_count++;
+    }
 
     if (what == 0) {
       trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
@@ -247,6 +263,7 @@ int main(int argc, char *argv[]) {
       if (out_len != in_ctx.key_len) {
         std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << out_len << std::endl;
+        err_count++;
       }
       trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, val_buf);
       int64_t checksum = 0;
@@ -257,6 +274,7 @@ int main(int argc, char *argv[]) {
       if (out_chksum != checksum) {
         std::cout << "Second val mismatch - expected: " << checksum << ", found: "
             << out_chksum << std::endl;
+        err_count++;
       }
     }
 
@@ -271,6 +289,7 @@ int main(int argc, char *argv[]) {
   //   printf("Expected Eof: [%.*s], %d\n", out_key_len, key_buf, out_key_len);
 
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
+  printf("Error count: %lu\n", err_count);
   t = print_time_taken(t, "Time taken for retrieve: ");
 
   free(file_buf);

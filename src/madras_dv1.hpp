@@ -666,6 +666,91 @@ class tail_ptr_map {
       }
       return t;
     }
+    __fq1 __fq2 void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
+      while (*t < 15 || *t > 31)
+        t--;
+      while (*t != 15) {
+        uint32_t prev_sfx_len;
+        t = read_len_bw(t, prev_sfx_len);
+        while (sfx_len > prev_sfx_len) {
+          sfx_len--;
+          *out_str++ = *(t + prev_sfx_len - sfx_len);
+        }
+        while (*t < 15 || *t > 31)
+          t--;
+      }
+      while (sfx_len > 0) {
+        *out_str++ = *(t - sfx_len);
+        sfx_len--;
+      }
+    }
+    inline __fq1 __fq2 bool compare_tail_data(uint8_t *data, uint32_t tail_ptr, input_ctx& in_ctx) {
+      uint8_t *tail = data + tail_ptr;
+      if (*tail < 15 || *tail > 31) {
+        do {
+          if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
+            return false;
+          tail++;
+          in_ctx.key_pos++;
+        } while (*tail < 15 || *tail > 31);
+        if (*tail == 15)
+          return true;
+        uint32_t sfx_len = read_len(tail);
+        #ifdef __CUDA_ARCH__
+        uint8_t *sfx_buf = new uint8_t[sfx_len];
+        #else
+        uint8_t sfx_buf[sfx_len];
+        #endif
+        read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
+        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
+          in_ctx.key_pos += sfx_len;
+          #ifdef __CUDA_ARCH__
+          delete [] sfx_buf;
+          #endif
+          return true;
+        }
+        #ifdef __CUDA_ARCH__
+        delete [] sfx_buf;
+        #endif
+      } else {
+        uint32_t bin_len;
+        read_len_bw(tail++, bin_len);
+        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
+          if (*tail == in_ctx.key[in_ctx.key_pos])
+            in_ctx.key_pos++;
+          return false;
+        }
+        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+          in_ctx.key_pos += bin_len;
+          return true;
+        }
+        if (*tail == in_ctx.key[in_ctx.key_pos])
+          in_ctx.key_pos++;
+        return false;
+      }
+      return false;
+    }
+    void get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str) {
+      uint8_t *t = data + tail_ptr;
+      if (*t < 15 || *t > 31) {
+        uint8_t byt = *t;
+        while (byt < 15 || byt > 31) {
+          t++;
+          tail_str.append(byt);
+          byt = *t;
+        }
+        if (byt == 15)
+          return;
+        uint32_t sfx_len = read_len(t);
+        read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
+        tail_str.set_length(tail_str.length() + sfx_len);
+      } else {
+        uint32_t bin_len;
+        read_len_bw(t++, bin_len);
+        while (bin_len--)
+          tail_str.append(*t++);
+      }
+    }
 };
 
 class ptr_group_map {
@@ -834,47 +919,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0)
         return inner_tries[grp_no]->compare_trie_tail(tail_ptr, in_ctx);
-      tail += tail_ptr;
-      if (*tail < 15 || *tail > 31) {
-        do {
-          if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
-            return false;
-          tail++;
-          in_ctx.key_pos++;
-        } while (*tail < 15 || *tail > 31);
-        if (*tail == 15)
-          return true;
-        uint32_t sfx_len = read_len(tail);
-        #ifdef __CUDA_ARCH__
-        uint8_t *sfx_buf = new uint8_t[sfx_len];
-        #else
-        uint8_t sfx_buf[sfx_len];
-        #endif
-        read_suffix(sfx_buf, grp_data[grp_no] + tail_ptr - 1, sfx_len);
-        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
-          in_ctx.key_pos += sfx_len;
-          #ifdef __CUDA_ARCH__
-          delete [] sfx_buf;
-          #endif
-          return true;
-        }
-        #ifdef __CUDA_ARCH__
-        delete [] sfx_buf;
-        #endif
-      } else {
-        uint32_t bin_len;
-        read_len_bw(tail++, bin_len);
-        if (in_ctx.key_pos + bin_len > in_ctx.key_len)
-          return false;
-        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
-          in_ctx.key_pos += bin_len;
-          return true;
-        }
-        if (*tail == in_ctx.key[in_ctx.key_pos])
-          in_ctx.key_pos++;
-        return false;
-      }
-      return false;
+      return compare_tail_data(tail, tail_ptr, in_ctx);
     }
     __fq1 __fq2 void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
       //ptr_bit_count = UINT32_MAX;
@@ -886,43 +931,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
         inner_tries[grp_no]->copy_trie_tail(tail_ptr, tail_str);
         return;
       }
-      uint8_t *t = tail + tail_ptr;
-      if (*t > 15 && *t < 32) {
-        uint32_t bin_len;
-        read_len_bw(t++, bin_len);
-        while (bin_len--)
-          tail_str.append(*t++);
-        return;
-      }
-      uint8_t byt = *t;
-      while (byt < 15 || byt > 31) {
-        t++;
-        tail_str.append(byt);
-        byt = *t;
-      }
-      if (byt == 15)
-        return;
-      uint32_t sfx_len = read_len(t);
-      read_suffix(tail_str.data() + tail_str.length(), tail + tail_ptr - 1, sfx_len);
-      tail_str.set_length(tail_str.length() + sfx_len);
-    }
-    __fq1 __fq2 void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
-      while (*t < 15 || *t > 31)
-        t--;
-      while (*t != 15) {
-        uint32_t prev_sfx_len;
-        t = read_len_bw(t, prev_sfx_len);
-        while (sfx_len > prev_sfx_len) {
-          sfx_len--;
-          *out_str++ = *(t + prev_sfx_len - sfx_len);
-        }
-        while (*t < 15 || *t > 31)
-          t--;
-      }
-      while (sfx_len > 0) {
-        *out_str++ = *(t - sfx_len);
-        sfx_len--;
-      }
+      get_tail_data(tail, tail_ptr, tail_str);
     }
     __fq1 __fq2 tail_ptr_group_map() {
     }
@@ -974,33 +983,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
       uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count);
       if (inner_trie != nullptr)
         return inner_trie->compare_trie_tail(tail_ptr, in_ctx);
-      uint8_t *tail = data + tail_ptr;
-      if (*tail < 15 || *tail > 31) {
-        do {
-          if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
-            return false;
-          tail++;
-          in_ctx.key_pos++;
-        } while (*tail < 15 || *tail > 31);
-        if (*tail == 15)
-          return true;
-      } else {
-        uint32_t bin_len;
-        read_len_bw(tail++, bin_len);
-        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
-          if (*tail == in_ctx.key[in_ctx.key_pos])
-            in_ctx.key_pos++;
-          return false;
-        }
-        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
-          in_ctx.key_pos += bin_len;
-          return true;
-        }
-        if (*tail == in_ctx.key[in_ctx.key_pos])
-          in_ctx.key_pos++;
-        return false;
-      }
-      return false;
+      return compare_tail_data(data, tail_ptr, in_ctx);
     }
     __fq1 __fq2 void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
       uint32_t tail_ptr = UINT32_MAX;
@@ -1009,20 +992,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
         inner_trie->copy_trie_tail(tail_ptr, tail_str);
         return;
       }
-      uint8_t *t = data + tail_ptr;
-      if (*t < 15 || *t > 31) {
-        uint8_t byt = *t;
-        while (byt < 15 || byt > 31) {
-          t++;
-          tail_str.append(byt);
-          byt = *t;
-        }
-      } else {
-        uint32_t bin_len;
-        read_len_bw(t++, bin_len);
-        while (bin_len--)
-          tail_str.append(*t++);
-      }
+      get_tail_data(data, tail_ptr, tail_str);
     }
 };
 
@@ -1894,10 +1864,18 @@ class val_ptr_group_map : public ptr_group_map {
       ret_len = 8;
       switch (data_type) {
         case DCT_S64_INT: {
+          if (*val_loc == 0) {
+            ret_len = 0;
+            return;
+          }
           int64_t i64 = gen::read_svint60(val_loc);
           memcpy(ret_val, &i64, sizeof(int64_t));
         } break;
         case DCT_S64_DEC1 ... DCT_S64_DEC9: {
+          if (*val_loc == 0) {
+            ret_len = 0;
+            return;
+          }
           int64_t i64 = gen::read_svint60(val_loc);
           double dbl = static_cast<double>(i64);
           dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
@@ -1994,8 +1972,6 @@ class val_ptr_group_map : public ptr_group_map {
         } break;
         case 't':
           get_col_trie_val(node_id, in_size_out_value_len, ret_val);
-          // TODO: if (*in_size_out_value_len == -1)
-          //  return;
           if (data_type != DCT_TEXT && data_type != DCT_BIN)
             convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
           break;

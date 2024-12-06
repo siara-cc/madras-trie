@@ -298,6 +298,7 @@ int main(int argc, char* argv[]) {
   uint32_t ptr_count[column_count];
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
+  uint8_t key_val[stm.get_max_key_len() + 1];
   memset(ptr_count, '\xFF', sizeof(uint32_t) * column_count);
   memset(int_sums, '\0', sizeof(int64_t) * column_count);
   memset(dbl_sums, '\0', sizeof(double) * column_count);
@@ -311,6 +312,24 @@ int main(int argc, char* argv[]) {
       int sql_key_len = sqlite3_column_bytes(stmt, key_col_sql_idx - 1);
       in_ctx.key = (const uint8_t *) (sql_key == nullptr ? madras_dv1::NULL_VALUE : sql_key);
       in_ctx.key_len = sql_key == nullptr ? strlen((const char *) madras_dv1::NULL_VALUE) : sql_key_len;
+      char key_col_type = storage_types[key_col_sql_idx - 1];
+      if (key_col_type >= DCT_S64_INT && key_col_type <= DCT_S64_DEC9) {
+        in_ctx.key = key_val;
+        if (sql_key == nullptr) {
+          key_val[0] = 0;
+          in_ctx.key_len = 1;
+        } else {
+          int64_t i64;
+          if (key_col_type == DCT_S64_INT)
+            i64 = sqlite3_column_int(stmt, key_col_sql_idx - 1);
+          else {
+            double dbl = sqlite3_column_double(stmt, key_col_sql_idx - 1);
+            i64 = static_cast<int64_t>(dbl * gen::pow10(key_col_type - DCT_S64_DEC1 + 1));
+          }
+          in_ctx.key_len = gen::get_svint60_len(i64);
+          gen::copy_svint60(i64, key_val, in_ctx.key_len);
+        }
+      }
       bool is_found = stm.lookup(in_ctx);
       if (!is_found) {
         std::cout << "Key not found: nid:" << in_ctx.node_id << ", seq:" << ins_seq_id << ", len:" << sql_key_len << std::endl;
@@ -334,7 +353,8 @@ int main(int argc, char* argv[]) {
         if (is_success) {
           if (val_len != 0 && memcmp(val_buf, madras_dv1::NULL_VALUE, madras_dv1::NULL_VALUE_LEN) != 0) {
             val_buf[val_len] = 0;
-            std::cout << "Val not null: nid:" << node_id << ", seq:" << ins_seq_id << " col:" << col_val_idx << ": A:" << val_buf << std::endl;
+            std::cout << "Val not null: nid:" << node_id << ", seq:" << ins_seq_id << " col:" << col_val_idx << ": A:" << val_len << "/" << val_buf << std::endl;
+            printf("%d, %d\n", val_buf[0], val_buf[1]);
           }
         }
       } else

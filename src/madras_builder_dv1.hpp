@@ -1326,9 +1326,11 @@ class tail_val_maps {
         //printf("Inner Trie size:\t%u\n", trie_size);
       }
 
-      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-        uniq_info *ti = uniq_tails_freq[freq_idx];
-        ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
+      if (ptr_grps.get_grp_count() > 2) {
+        for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
+          uniq_info *ti = uniq_tails_freq[freq_idx];
+          ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
+        }
       }
 
       // check_remaining_text(uniq_tails_freq, uniq_tails, true);
@@ -3591,8 +3593,7 @@ class builder : public builder_fwd {
     }
 
     void write_col_val_table() {
-      int val_count = column_count;
-      for (int i = 0; i < val_count; i++)
+      for (size_t i = 0; i < column_count; i++)
         output_u32(val_table[i], fp, out_vec);
       output_align8(tp.col_val_table_sz, fp, out_vec);
     }
@@ -3611,8 +3612,13 @@ class builder : public builder_fwd {
 
     // TODO: write to out_vec
     void write_final_val_table() {
-      fseek(fp, tp.col_val_table_loc, SEEK_SET);
-      write_col_val_table();
+      if (fp == NULL) {
+        for (size_t i = 0; i < column_count; i++)
+          gen::copy_uint32(val_table[i], out_vec->data() + tp.col_val_table_loc + i * 4);
+      } else {
+        fseek(fp, tp.col_val_table_loc, SEEK_SET);
+        write_col_val_table();
+      }
       int val_count = column_count;
       gen::gen_printf("Val count: %d, tbl:", val_count);
       for (int i = 0; i < val_count; i++)
