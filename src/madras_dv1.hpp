@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <errno.h>
 #include <sys/stat.h> 
 #include <immintrin.h>
 #include <nmmintrin.h>
@@ -786,6 +787,7 @@ class ptr_group_map {
       trie_loc = nullptr;
       grp_data = nullptr;
       inner_tries = nullptr;
+      max_len = 0;
     }
 
     __fq1 __fq2 virtual ~ptr_group_map() {
@@ -1315,11 +1317,6 @@ class inner_trie : public inner_trie_fwd {
 
 };
 
-struct ctx_vars_next {
-  public:
-    gen::byte_str tail;
-};
-
 class GCFC_fwd_cache {
   private:
     __fq1 __fq2 GCFC_fwd_cache(GCFC_fwd_cache const&);
@@ -1474,10 +1471,10 @@ class static_trie : public inner_trie {
       return leaf_lt->select1(leaf_id);
     }
 
-    __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
+    __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, gen::byte_str& tail, uint32_t node_id) {
       ctx.cur_idx++;
-      cv.tail.clear();
-      update_ctx(ctx, cv, node_id);
+      tail.clear();
+      update_ctx(ctx, tail, node_id);
     }
 
     __fq1 __fq2 void insert_arr(uint32_t *arr, int arr_len, int pos, uint32_t val) {
@@ -1492,18 +1489,12 @@ class static_trie : public inner_trie {
       arr[pos] = val;
     }
 
-    __fq1 __fq2 void insert_into_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
-      insert_arr(ctx.node_path, ctx.cur_idx, 0, node_id);
-      insert_arr(ctx.last_tail_len, ctx.cur_idx, 0, (uint16_t) cv.tail.length());
-      ctx.cur_idx++;
-    }
-
-    __fq1 __fq2 void update_ctx(iter_ctx& ctx, ctx_vars_next& cv, uint32_t node_id) {
+    __fq1 __fq2 void update_ctx(iter_ctx& ctx, gen::byte_str& tail, uint32_t node_id) {
       ctx.node_path[ctx.cur_idx] = node_id;
       ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
-      ctx.last_tail_len[ctx.cur_idx] = cv.tail.length();
-      memcpy(ctx.key + ctx.key_len, cv.tail.data(), cv.tail.length());
-      ctx.key_len += cv.tail.length();
+      ctx.last_tail_len[ctx.cur_idx] = tail.length();
+      memcpy(ctx.key + ctx.key_len, tail.data(), tail.length());
+      ctx.key_len += tail.length();
     }
 
     __fq1 __fq2 void clear_last_tail(iter_ctx& ctx) {
@@ -1511,26 +1502,26 @@ class static_trie : public inner_trie {
       ctx.last_tail_len[ctx.cur_idx] = 0;
     }
 
-    __fq1 __fq2 uint32_t pop_from_ctx(iter_ctx& ctx, ctx_vars_next& cv) {
+    __fq1 __fq2 uint32_t pop_from_ctx(iter_ctx& ctx, gen::byte_str& tail) {
       clear_last_tail(ctx);
       ctx.cur_idx--;
-      return read_from_ctx(ctx, cv);
+      return read_from_ctx(ctx, tail);
     }
 
-    __fq1 __fq2 uint32_t read_from_ctx(iter_ctx& ctx, ctx_vars_next& cv) {
+    __fq1 __fq2 uint32_t read_from_ctx(iter_ctx& ctx, gen::byte_str& tail) {
       uint32_t node_id = ctx.node_path[ctx.cur_idx];
       return node_id;
     }
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf) {
-      ctx_vars_next cv;
+      gen::byte_str tail;
       #ifdef __CUDA_ARCH__
-      uint8_t *tail = new uint8_t[max_tail_len + 1];
+      uint8_t *tail_bytes = new uint8_t[max_tail_len + 1];
       #else
-      uint8_t tail[max_tail_len + 1];
+      uint8_t tail_bytes[max_tail_len + 1];
       #endif
-      cv.tail.set_buf_max_len(tail, max_tail_len);
-      uint32_t node_id = read_from_ctx(ctx, cv);
+      tail.set_buf_max_len(tail_bytes, max_tail_len);
+      uint32_t node_id = read_from_ctx(ctx, tail);
       while (node_id < node_count) {
         if (leaf_lt != nullptr && !(*leaf_lt)[node_id] && !child_lt[node_id]) {
           node_id++;
@@ -1542,20 +1533,20 @@ class static_trie : public inner_trie {
               while (term_lt[node_id]) {
                 if (ctx.cur_idx == 0)
                   return -2;
-                node_id = pop_from_ctx(ctx, cv);
+                node_id = pop_from_ctx(ctx, tail);
               }
               node_id++;
-              update_ctx(ctx, cv, node_id);
+              update_ctx(ctx, tail, node_id);
               ctx.to_skip_first_leaf = false;
               continue;
             }
           } else {
-            cv.tail.clear();
+            tail.clear();
             if (tail_lt[node_id])
-              tail_map->get_tail_str(node_id, cv.tail);
+              tail_map->get_tail_str(node_id, tail);
             else
-              cv.tail.append(trie_loc[node_id]);
-            update_ctx(ctx, cv, node_id);
+              tail.append(trie_loc[node_id]);
+            update_ctx(ctx, tail, node_id);
             memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
             return ctx.key_len;
@@ -1563,14 +1554,14 @@ class static_trie : public inner_trie {
         }
         ctx.to_skip_first_leaf = false;
         if (child_lt[node_id]) {
-          cv.tail.clear();
+          tail.clear();
           if (tail_lt[node_id])
-            tail_map->get_tail_str(node_id, cv.tail);
+            tail_map->get_tail_str(node_id, tail);
           else
-            cv.tail.append(trie_loc[node_id]);
-          update_ctx(ctx, cv, node_id);
+            tail.append(trie_loc[node_id]);
+          update_ctx(ctx, tail, node_id);
           node_id = term_lt.select1(child_lt.rank1(node_id) + 1);
-          push_to_ctx(ctx, cv, node_id);
+          push_to_ctx(ctx, tail, node_id);
         }
       }
       #ifdef __CUDA_ARCH__
@@ -1599,29 +1590,46 @@ class static_trie : public inner_trie {
       return max_tail_len;
     }
 
-    // __fq1 __fq2 bool find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
-    //   input_ctx in_ctx;
-    //   in_ctx.key = prefix;
-    //   in_ctx.key_len = prefix_len;
-    //   bool is_found = lookup(in_ctx);
-    //   if (!is_found && in_ctx.cmp == 0)
-    //     in_ctx.cmp = 10000;
-    //     uint8_t key_buf[max_key_len];
-    //     int key_len;
-    //     // TODO: set last_key_len
-    //   ctx.cur_idx = 0;
-    //   reverse_lookup_from_node_id(lkup_node_id, &key_len, key_buf, nullptr, nullptr, cmp, &ctx);
-    //   ctx.cur_idx--;
-    //     // for (int i = 0; i < ctx.key_len; i++)
-    //     //   printf("%c", ctx.key[i]);
-    //     // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
-    //   if (for_next) {
-    //     ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
-    //     ctx.last_tail_len[ctx.cur_idx] = 0;
-    //     ctx.to_skip_first_leaf = false;
-    //   }
-    //   return true;
-    // }
+    __fq1 __fq2 void insert_into_ctx(iter_ctx& ctx, gen::byte_str& tail, uint32_t node_id) {
+      insert_arr(ctx.node_path, ctx.cur_idx, 0, node_id);
+      insert_arr(ctx.last_tail_len, ctx.cur_idx, 0, (uint16_t) tail.length());
+      memmove(ctx.key + tail.length(), ctx.key, ctx.key_len);
+      for (size_t i = 0; i < tail.length(); i++)
+        ctx.key[i] = tail[i];
+      ctx.key_len += tail.length();
+      ctx.cur_idx++;
+    }
+
+    __fq1 __fq2 bool find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
+      input_ctx in_ctx;
+      in_ctx.key = prefix;
+      in_ctx.key_len = prefix_len;
+      lookup(in_ctx);
+      uint8_t tail_buf[max_tail_len];
+      ctx.cur_idx = 0;
+      gen::byte_str tail(tail_buf, max_tail_len);
+      do {
+        if (tail_lt[in_ctx.node_id])
+          tail_map->get_tail_str(in_ctx.node_id, tail);
+        else
+          tail.append(trie_loc[in_ctx.node_id]);
+        insert_into_ctx(ctx, tail, in_ctx.node_id);
+        // printf("[%.*s]\n", (int) tail.length(), tail.data());
+        // if (!rev_cache.try_find(in_ctx.node_id, tail))
+          in_ctx.node_id = child_lt.select1(term_lt.rank1(in_ctx.node_id)) - 1;
+        tail.clear();
+      } while (in_ctx.node_id != 0);
+      ctx.cur_idx--;
+        // for (int i = 0; i < ctx.key_len; i++)
+        //   printf("%c", ctx.key[i]);
+        // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
+      if (for_next) {
+        ctx.key_len -= ctx.last_tail_len[ctx.cur_idx];
+        ctx.last_tail_len[ctx.cur_idx] = 0;
+        ctx.to_skip_first_leaf = false;
+      }
+      return true;
+    }
 
     __fq1 __fq2 bvlt_select *get_leaf_lt() {
       return leaf_lt;
