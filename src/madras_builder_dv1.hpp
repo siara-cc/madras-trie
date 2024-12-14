@@ -2156,6 +2156,134 @@ class builder : public builder_fwd {
       return freq_count;
     }
 
+    void split_tails() {
+      clock_t t = clock();
+      typedef struct {
+        uint8_t *part;
+        uint32_t uniq_arr_idx;
+        uint32_t ns_id;
+        uint16_t part_len;
+        uint8_t node_idx;
+      } tail_part;
+      typedef struct {
+        uint8_t *uniq_part;
+        uint32_t freq_count;
+        uint16_t uniq_part_len;
+      } tail_uniq_part;
+      std::vector<tail_part> tail_parts;
+      std::vector<tail_uniq_part> tail_uniq_parts;
+      leopard::node_iterator ni(memtrie.all_node_sets, 1);
+      leopard::node cur_node = ni.next();
+      while (cur_node != nullptr) {
+        if (cur_node.get_flags() & NFLAG_TAIL) {
+          uint8_t *tail = (*memtrie.all_tails)[cur_node.get_tail()];
+          size_t vlen;
+          uint32_t tail_len = gen::read_vint32(tail, &vlen);
+          tail += vlen;
+          int last_word_len = 0;
+          bool is_prev_non_word = false;
+          std::vector<tail_part> tail_parts1;
+          for (size_t i = 0; i < tail_len; i++) {
+            uint8_t c = tail[i];
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
+              if (last_word_len >= 5 && is_prev_non_word) {
+                if (tail_len - i < 5) {
+                  last_word_len += (tail_len - i);
+                  break;
+                }
+                if (i > last_word_len)
+                  tail_parts1.push_back((tail_part) {tail + i - last_word_len, 0, (uint32_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+                last_word_len = 0;
+              }
+              is_prev_non_word = false;
+            } else {
+              is_prev_non_word = true;
+            }
+            last_word_len++;
+          }
+          if (last_word_len < tail_len)
+            tail_parts1.push_back((tail_part) {tail + tail_len - last_word_len, 0, (uint32_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+          if (tail_parts1.size() > 0) {
+            tail_parts.insert(tail_parts.end(), tail_parts1.begin(), tail_parts1.end());
+            // printf("Tail: [%.*s]\n", (int) tail_len, tail);
+            // for (size_t i = 0; i < tail_parts1.size(); i++) {
+            //   tail_part *tp = &tail_parts1[i];
+            //   printf("[%.*s]\n", tp->part_len, tp->part);
+            // }
+          }
+        }
+        cur_node = ni.next();
+      }
+      gen::gen_printf("Parts count: %lu\n", tail_parts.size());
+      if (tail_parts.size() == 0)
+        return;
+      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
+        return gen::compare(lhs.part, lhs.part_len, rhs.part, rhs.part_len) < 0;
+      });
+      tail_part *prev_tp = &tail_parts[0];
+      uint32_t freq_count = 0;
+      uint32_t uniq_arr_idx = 0;
+      for (size_t i = 0; i < tail_parts.size(); i++) {
+        tail_part *tp = &tail_parts[i];
+        tp->uniq_arr_idx = uniq_arr_idx;
+        int cmp = gen::compare(tp->part, tp->part_len, prev_tp->part, prev_tp->part_len);
+        if (cmp == 0) {
+          freq_count++;
+        } else {
+          tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+          uniq_arr_idx++;
+          freq_count = 1;
+        }
+        prev_tp = tp;
+      }
+      tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
+        return lhs.part > rhs.part;
+      });
+      gen::gen_printf("Uniq Parts count: %lu\n", tail_uniq_parts.size());
+      // std::sort(tail_uniq_parts.begin(), tail_uniq_parts.end(), [](const tail_uniq_part& lhs, const tail_uniq_part& rhs) -> bool {
+      //   return lhs.freq_count > rhs.freq_count;
+      // });
+      // for (size_t i = 0; i < tail_uniq_parts.size(); i++) {
+      //   tail_uniq_part *tup = &tail_uniq_parts[i];
+      //   printf("%u\t[%.*s]\n", tup->freq_count, (int) tup->uniq_part_len, tup->uniq_part);
+      // }
+      leopard::node new_node;
+      leopard::node_set_handler new_nsh(memtrie.all_node_sets, 0);
+      leopard::node_set_handler nsh(memtrie.all_node_sets, 0);
+      for (size_t i = 0; i < tail_parts.size(); i++) {
+        tail_part *tp = &tail_parts[i];
+        tail_uniq_part *utp = &tail_uniq_parts[tp->uniq_arr_idx];
+        // if (utp->freq_count > 1) {
+          nsh.set_pos(tp->ns_id);
+          cur_node = nsh[tp->node_idx];
+          uint8_t *tail = (*memtrie.all_tails)[cur_node.get_tail()];
+          size_t vlen;
+          uint32_t tail_len = gen::read_vint32(tail, &vlen);
+          uint32_t orig_tail_new_len = tp->part - tail - vlen;
+          uint32_t new_tail_len = tail_len - orig_tail_new_len;
+          gen::copy_vint32(orig_tail_new_len, tail, vlen);
+          //printf("Tail: [%.*s], pos: %u, len: %u, new len: %u, Part: [%.*s], len: %u\n", (int) tail_len, tail + vlen, cur_node.get_tail(), tail_len, orig_tail_new_len, (int) tp->part_len, tp->part, new_tail_len);
+          size_t new_tail_pos = memtrie.all_tails->push_back_with_vlen(tp->part, new_tail_len);
+          uint32_t new_ns_pos = leopard::node_set_handler::create_node_set(memtrie.all_node_sets, 1);
+          new_nsh.set_pos(new_ns_pos);
+          new_node = new_nsh.first_node();
+          new_node.set_flags(cur_node.get_flags() | NFLAG_TERM);
+          new_node.set_child(cur_node.get_child());
+          new_node.set_col_val(cur_node.get_col_val());
+          //printf("New tail pos: %lu\n", new_tail_pos);
+          new_node.set_tail(new_tail_pos);
+          cur_node.set_flags((cur_node.get_flags() | NFLAG_CHILD) & ~NFLAG_LEAF);
+          cur_node.set_child(new_ns_pos);
+          cur_node.set_col_val(0);
+          memtrie.node_set_count++;
+          memtrie.node_count++;
+        // }
+      }
+      gen::gen_printf("New NS count: %lu\n", memtrie.all_node_sets.size());
+      gen::print_time_taken(t, "Time taken for tail split: ");
+    }
+
     void sort_nodes_on_freq(leopard::node_set_handler& nsh) {
       leopard::node cur_node = nsh.first_node();
       leopard::node_s *ns = cur_node.get_node_struct();
@@ -3284,6 +3412,8 @@ class builder : public builder_fwd {
       tp.opts_size = sizeof(bldr_options);
 
       if (!no_primary_trie) {
+        if (opts.split_tails_method > 0)
+          split_tails();
         sort_node_sets();
         set_node_id();
         set_level(1, 1);
