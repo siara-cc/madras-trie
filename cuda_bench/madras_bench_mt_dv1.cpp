@@ -8,7 +8,7 @@
 
 void process_range(size_t start, size_t end, uint8_t *file_buf_lines, key_ctx *lines, uint8_t *query_status, madras_dv1::static_trie *trie, bool as_int) {
   madras_dv1::input_ctx in_ctx;
-  uint8_t key_buf[256];
+  uint8_t key_buf[trie->get_max_key_len()];
   size_t out_key_len;
   int64_t ival;
   size_t isize;

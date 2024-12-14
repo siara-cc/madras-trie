@@ -39,10 +39,10 @@ const static size_t EMPTY_VALUE_LEN = 1;
 // #define nodes_per_ptr_block_n 32
 // #define bytes_per_ptr_block_n 48
 
-#define nodes_per_ptr_block 2048
+#define nodes_per_ptr_block 1984
 #define nodes_per_ptr_block_n 64
 // ptr_lt_blk_width = 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
-#define ptr_lt_blk_width 66
+#define ptr_lt_blk_width 64
 
 // #define sel_divisor 256
 

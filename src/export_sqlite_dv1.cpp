@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstring>
+#include <limits.h>
 #include <sqlite3.h>
 #include <sys/stat.h>
 
@@ -418,7 +419,7 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < stm_col_count; i++) {
     printf(" %s:", stm.get_column_name(i));
     if (int_sums[i] != 0)
-      printf(" %lld", int_sums[i]);
+      printf(" %ld", int_sums[i]);
     if (dbl_sums[i] != 0)
       printf(" %f", dbl_sums[i]);
   }

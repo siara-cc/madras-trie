@@ -3965,7 +3965,7 @@ class builder : public builder_fwd {
     int insert(const uint64_t *values, const size_t value_lens[] = NULL, int key_col_idx = 0) {
       cur_seq_idx++;
       byte_vec rec;
-      size_t key_loc_pos = SIZE_T_MAX;
+      size_t key_loc_pos = SIZE_MAX;
       size_t key_len = 0;
       const double *values_dbl = (double *) values;
       for (size_t i = 0; i < column_count; i++) {
@@ -4023,7 +4023,7 @@ class builder : public builder_fwd {
         nsh.hdr()->node_id = cur_seq_idx;
         memtrie.node_count++;
       } else {
-        if (key_loc_pos != SIZE_T_MAX)
+        if (key_loc_pos != SIZE_MAX)
           memtrie.insert(rec.data() + key_loc_pos, key_len, val_pos);
       }
       return 0;

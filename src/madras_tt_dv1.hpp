@@ -7,6 +7,8 @@
 #include <stdint.h>
 
 #include "common_dv1.hpp"
+#include "../../ds_common/src/bv.hpp"
+#include "../../ds_common/src/vint.hpp"
 #include "../../ds_common/src/gen.hpp"
 
 // Function qualifiers

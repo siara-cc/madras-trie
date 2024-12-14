@@ -29,7 +29,7 @@
 #define __fq2
 #endif
 
-// Function qualifiers
+// Attribute qualifiers
 #ifndef __gq1
 #define __gq1
 #endif
@@ -733,7 +733,7 @@ class tail_ptr_map {
       }
       return false;
     }
-    void get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str) {
+    __fq1 __fq2 void get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str) {
       uint8_t *t = data + tail_ptr;
       if (*t < 15 || *t > 31) {
         uint8_t byt = *t;
@@ -902,7 +902,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
     }
     __fq1 __fq2 uint32_t get_tail_ptr(uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
       uint8_t node_byte = trie_loc[node_id];
-      uint32_t code_len = code_lt_code_len[node_byte];
+      uint8_t code_len = code_lt_code_len[node_byte];
       grp_no = code_len & 0x0F;
       code_len >>= 4;
       uint32_t ptr = node_byte & (0xFF >> code_len);
@@ -1421,8 +1421,9 @@ class static_trie : public inner_trie {
             tf++;
           }
         } while (1);
-        if (in_ctx.key_pos == in_ctx.key_len)
+        if (in_ctx.key_pos == in_ctx.key_len) {
           return 0 != (bm_mask & tf->bm_leaf);
+        }
         if ((bm_mask & tf->bm_child) == 0)
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
@@ -1571,7 +1572,7 @@ class static_trie : public inner_trie {
         }
       }
       #ifdef __CUDA_ARCH__
-      delete [] tail;
+      delete [] tail_bytes;
       #endif
       return -2;
     }
@@ -1611,7 +1612,11 @@ class static_trie : public inner_trie {
       in_ctx.key = prefix;
       in_ctx.key_len = prefix_len;
       lookup(in_ctx);
+      #ifdef __CUDA_ARCH__
+      uint8_t *tail_buf = new uint8_t[max_tail_len];
+      #else
       uint8_t tail_buf[max_tail_len];
+      #endif
       ctx.cur_idx = 0;
       gen::byte_str tail(tail_buf, max_tail_len);
       do {
@@ -1634,6 +1639,9 @@ class static_trie : public inner_trie {
         ctx.last_tail_len[ctx.cur_idx] = 0;
         ctx.to_skip_first_leaf = false;
       }
+      #ifdef __CUDA_ARCH__
+      delete [] tail_buf;
+      #endif
       return true;
     }
 
