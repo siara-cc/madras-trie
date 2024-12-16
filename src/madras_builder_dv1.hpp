@@ -2696,7 +2696,7 @@ class builder : public builder_fwd {
               data_len = gen::read_vint32(data_pos, &len_len);
               data_pos += len_len;
             } break;
-            case DCT_S64_INT ... DCT_S64_DEC9: {
+            case DCT_S64_INT ... DCT_DATETIME_US: {
               data_len = gen::read_svint60_len(data_pos);
             } break;
           }
@@ -2797,7 +2797,7 @@ class builder : public builder_fwd {
                 pos += len_len;
                 pos += data_len;
               } break;
-              case DCT_S64_INT ... DCT_S64_DEC9: {
+              case DCT_S64_INT ... DCT_DATETIME_US: {
                 data_len = gen::read_svint60_len(data_pos);
                 pos += data_len;
               } break;
@@ -2816,6 +2816,7 @@ class builder : public builder_fwd {
               }
               if (encoding_type == 't') {
                 col_trie_builder->insert(data_pos, data_len);
+                // printf("Key: [%.*s]\n", (int) data_len, data_pos);
                 // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
                 n.set_col_val(pos - data_len - len_len);
               } else
@@ -2879,6 +2880,7 @@ class builder : public builder_fwd {
       if (col_trie_builder != nullptr)
         delete col_trie_builder;
       opts.dart = false;
+      opts.split_tails_method = 0;
       opts.partial_sfx_coding = false;
       //opts.sort_nodes_on_freq = false;
       col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
@@ -3993,13 +3995,13 @@ class builder : public builder_fwd {
             for (size_t j = 0; j < value_len; j++)
               rec.push_back(value[j]);
           } break;
-          case DCT_S64_INT ... DCT_S64_DEC9: {
+          case DCT_S64_INT ... DCT_DATETIME_US: {
             if (values[i] == INT64_MAX) {
               rec.push_back(0); // null
               value_len = 1;
             } else {
               int64_t i64 = (int64_t) values[i];
-              if (type != DCT_S64_INT) {
+              if (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9) {
                 double dbl = values_dbl[i];
                 i64 = static_cast<int64_t>(dbl * gen::pow10(type - DCT_S64_DEC1 + 1));
               }
@@ -4023,8 +4025,10 @@ class builder : public builder_fwd {
         nsh.hdr()->node_id = cur_seq_idx;
         memtrie.node_count++;
       } else {
-        if (key_loc_pos != SIZE_MAX)
+        if (key_loc_pos != SIZE_MAX) {
           memtrie.insert(rec.data() + key_loc_pos, key_len, val_pos);
+          // printf("Key: [%.*s]\n", (int) key_len, rec.data() + key_loc_pos);
+        }
       }
       return 0;
     }

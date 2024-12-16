@@ -42,6 +42,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define nodes_per_ptr_block 1984
 #define nodes_per_ptr_block_n 64
 // ptr_lt_blk_width = 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
+// Ensure ptr_lt_blk_width is multiple of 4 so it works on CUDA cores
 #define ptr_lt_blk_width 64
 
 // #define sel_divisor 256
@@ -65,8 +66,15 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define DCT_BIN '*'
 #define DCT_TEXT 't'
 #define DCT_WORDS 'w'
-#define DCT_FLOAT 'f'
+#define DCT_RINT32 'a'
+#define DCT_RINT64 'b'
+#define DCT_UINT32 'c'
 #define DCT_DOUBLE 'd'
+#define DCT_UINT64 'e'
+#define DCT_FLOAT 'f'
+#define DCT_INT32 'g'
+#define DCT_INT64 'h'
+// '0' to 'H' in sequence for coding simplicity and performance
 #define DCT_S64_INT '0'
 #define DCT_S64_DEC1 '1'
 #define DCT_S64_DEC2 '2'
@@ -77,6 +85,15 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define DCT_S64_DEC7 '7'
 #define DCT_S64_DEC8 '8'
 #define DCT_S64_DEC9 '9'
+#define DCT_DATETIME_ISOT '@'
+#define DCT_DATETIME_EUR 'A'
+#define DCT_DATE_EUR 'B'
+#define DCT_DATE_US 'C'
+#define DCT_DATE_ISO 'D'
+#define DCT_DATETIME 'E'
+#define DCT_DATETIME_ISO 'F'
+#define DCT_DATETIME_MS 'G'
+#define DCT_DATETIME_US 'H'
 #define DCT_U64_INT 'i'
 #define DCT_U64_DEC1 'j'
 #define DCT_U64_DEC2 'k'

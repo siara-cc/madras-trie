@@ -1885,23 +1885,18 @@ class val_ptr_group_map : public ptr_group_map {
     __fq1 __fq2 void convert_back(uint8_t *val_loc, void *ret_val, size_t& ret_len) {
       ret_len = 8;
       switch (data_type) {
-        case DCT_S64_INT: {
+        case DCT_S64_INT ... DCT_DATETIME_US: {
           if (*val_loc == 0) {
             ret_len = 0;
             return;
           }
           int64_t i64 = gen::read_svint60(val_loc);
-          memcpy(ret_val, &i64, sizeof(int64_t));
-        } break;
-        case DCT_S64_DEC1 ... DCT_S64_DEC9: {
-          if (*val_loc == 0) {
-            ret_len = 0;
-            return;
-          }
-          int64_t i64 = gen::read_svint60(val_loc);
-          double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
-          *((double *)ret_val) = dbl;
+          if (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9) {
+            double dbl = static_cast<double>(i64);
+            dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
+            *((double *)ret_val) = dbl;
+          } else
+            memcpy(ret_val, &i64, sizeof(int64_t));
         } break;
         case DCT_U64_INT: {
           uint64_t u64 = gen::read_svint61(val_loc);

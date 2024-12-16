@@ -1,13 +1,20 @@
 #include <iostream>
 #include <cstring>
+#include <time.h>
+#include <stdio.h>
+#include <string.h>
 #include <limits.h>
 #include <sqlite3.h>
+#include <inttypes.h>
 #include <sys/stat.h>
 
 #include "../../ds_common/src/gen.hpp"
 
 #include "madras_dv1.hpp"
 #include "madras_builder_dv1.hpp"
+
+const static char *dt_formats[] = {"%Y-%m-%dT%H:%M:%S", "%d-%m-%Y", "%d-%m-%Y %H:%M:%S", "%m-%d-%Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%m-%d-%Y %H:%M:%S"};
+const static size_t dt_format_lens[] = {19, 8, 19, 8, 8, 19, 19, 19, 19};
 
 double time_taken_in_secs(clock_t t) {
   t = clock() - t;
@@ -173,6 +180,29 @@ int main(int argc, char* argv[]) {
       } else if (exp_col_type == DCT_BIN) {
         values[exp_col_idx] = (uint64_t) sqlite3_column_blob(stmt, sql_col_idx);
         value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
+      } else if (exp_col_type >= DCT_DATETIME_ISOT && exp_col_type <= DCT_DATETIME_US) {
+        struct tm tm = {0};
+        const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
+        char dt_txt[dt_format_lens[exp_col_type - DCT_DATETIME_ISOT] + 1];
+        strncpy(dt_txt, (const char *) dt_txt_db, dt_format_lens[exp_col_type - DCT_DATETIME_ISOT]);
+        //printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - DCT_DATETIME_ISOT]);
+        char *result = strptime((const char *) dt_txt, dt_formats[exp_col_type - DCT_DATETIME_ISOT], &tm);
+        if (result == nullptr || *result != '\0') {
+          printf(" e%lu/%lu", ins_seq_id, i);
+          values[exp_col_idx] = INT64_MAX;
+        } else {
+          uint64_t dt_val = (uint64_t) mktime(&tm);
+          if (exp_col_type >= DCT_DATE_EUR && exp_col_type <= DCT_DATE_ISO)
+            dt_val /= 86400;
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO) {
+            dt_val *= 1000;
+            char *dot_pos = (char *) memchr(dt_txt_db, '.', strnlen((const char *) dt_txt_db, 24));
+            if (dot_pos != nullptr)
+              dt_val += atoi(dot_pos + 1);
+          }
+          values[exp_col_idx] = dt_val;
+        }
+        value_lens[exp_col_idx] = 8;
       } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
         s64 = sqlite3_column_int64(stmt, sql_col_idx);
         memcpy(values + exp_col_idx, &s64, 8);
@@ -384,6 +414,42 @@ int main(int argc, char* argv[]) {
             }
           }
         }
+      } else if (exp_col_type >= DCT_DATETIME_ISOT && exp_col_type <= DCT_DATETIME_US) {
+        const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, i);
+        size_t sql_val_len = sqlite3_column_bytes(stmt, i);
+        uint8_t val[16];
+        size_t val_len = 8;
+        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
+        if (is_success) {
+          time_t original_epoch = *((int64_t *) val);
+          if (exp_col_type >= DCT_DATE_EUR && exp_col_type <= DCT_DATE_ISO)
+            original_epoch *= 86400;
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO)
+            original_epoch /= 1000;
+          char dt_txt[50];
+          strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - DCT_DATETIME_ISOT], localtime(&original_epoch));
+          val_len = strlen(dt_txt);
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO) {
+            original_epoch = *((int64_t *) val);
+            dt_txt[val_len++] = '.';
+            dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
+            dt_txt[val_len++] = '0' + ((original_epoch / 10) % 10);
+            dt_txt[val_len++] = '0' + (original_epoch % 10);
+            dt_txt[val_len] = 0;
+          }
+          if (val_len != sql_val_len) {
+            std::cout << "Val len mismatch: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
+            std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
+            std::cout << "Found: " << dt_txt << std::endl;
+          } else {
+            if (memcmp(sql_val, dt_txt, val_len) != 0) {
+              std::cout << "Val not matching: " << node_id << ", seq:" << ins_seq_id << ", " << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
+              std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
+              std::cout << "Found: " << dt_txt << std::endl;
+            }
+          }
+        } else
+          std::cerr << "Date/time not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
       } else if (exp_col_type == DCT_S64_INT || exp_col_type == DCT_U64_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, i);
         uint8_t val[16];
@@ -419,7 +485,7 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < stm_col_count; i++) {
     printf(" %s:", stm.get_column_name(i));
     if (int_sums[i] != 0)
-      printf(" %ld", int_sums[i]);
+      printf(" %" PRId64, int_sums[i]);
     if (dbl_sums[i] != 0)
       printf(" %f", dbl_sums[i]);
   }
