@@ -1,17 +1,3 @@
-- Fix grouping logic
-- Fix NULLs and Empty on trie
-- Auto encoding option
-- Sqlite SQL interface
-- Secondary indices
-- Date time export
-- MySQL Export
-
-- Refactoring
-- testing with boundary conditions 64/512
-- Doxyfile
-- Adding checksum and other reserved features
-- Documentation and format definition
-
 - Papers
   - Madras-trie
   - Leopard trie
@@ -49,31 +35,26 @@ Issues:
 + allCountries 7 17 not working
 + cur_col_idx -1 ?
 + max_len not setting for col_trie
-- suf.txt mismatch
-- amazon_products sums not matching
-- ptr_bit_count not working explite all cases
-- normalise values for nulls and empties
-- stack overflow because of **NULL**
-- doubles precision astray
-- daily_weather delta encoding not working 64-128
-- amazon products Val len mismatch: 558782, 2 - : 82: 62
-- amazon_products imgurl trie lookup fail
-- run_tests with val seg fault
-- amazon_products_title next() shifting values
++ daily_weather delta encoding not working 64-128
++ suf.txt mismatch
++ amazon_products sums not matching
+x ptr_bit_count not working explite all cases
++ amazon products Val len mismatch: 558782, 2 - : 82: 62
++ amazon_products imgurl trie lookup fail
++ run_tests with val seg fault
++ amazon_products_title next() shifting values
++ data_type 'i' and delta don't work?
++ uk-urls grasping lookup/rev lookup fail
++ select child count (ns_count) 513 edge case - so_users LastAccessDate 1000
++ col not matching so_users AboutMe 900
++ endless loops (in read_suffix) so_users DisplayName 10000
++ partial_sfx_coding not working daily_weather date 1 (grp_count = 1 flat)
 - stack over flow in reverse_lookup
-- data_type 'i' and delta don't work?
-- uk-urls grasping lookup/rev lookup fail
 - common-crawl lookup fail
-- select child count (ns_count) 513 edge case - so_users LastAccessDate 1000
-- col not matching so_users AboutMe 900
-- endless loops (in read_suffix) so_users DisplayName 10000
-- partial_sfx_coding not working daily_weather date 1 (grp_count = 1 flat)
-- replace for !no_primary_trie
 
 + make select faster
 + avoid get_first_byte
 x tail_ptr cache
-- improve dart
 + improve get_tail_ptr (32/64 bit ptr buckets)
 x remove reverse cache
 
@@ -87,13 +68,16 @@ x 6 byte cache struct
 + is reverse cache effective?
 + rank/select is slow?
 
+- improve dart
 - next cascading greedy cuckoo
+- ptr bit count in fwd cache
+- differentiating using term flag, leaf flag for ptr reduction?
+- improve leapfrog using SIMD (not working for freq sorted)
 
 # sort nodes on freq for madras bench
 x separate leaf flags
 x seperate all flags?
 + reverse cache end tail
-- ptr bit count in fwd cache
 
 - single value yyynnnnn xx 
 - range        yyynnnnn xx
@@ -101,23 +85,11 @@ x seperate all flags?
 - delta?       yyynnnnn xx
 
 + cleanup leopard trie
-- cleanup madras builder
-- implement dessicate
-- implement 32/64 bit
++ splitting tails into words?
 + Fix explite to insert all columns at a time
-- cleanup concepts such as grouping
-- cleanup null/empty handling
-- tail - part bin and part text
++ date data type
++ cleanup null/empty handling
 + next not working on i12
-- next not working for numbers subseq levels
-- date data type
-
-- implement next for val for performance
-- improve leapfrog using SIMD (not working for freq sorted)
-- Run on CUDA cores?
-- reverse lookup for col_tries
-- Multiple keys/values?
-- difference between marisa for small datasets
 
 Making trie build faster
 - sort keys
@@ -164,3 +136,42 @@ u32or64
 - Two way indexing
 - Composite static index
 - Type aware
+- Open format
+
+Split tails and val texts
+- Code for start Multiple
+  - For tail, followed by ptr to parts
+  - For value, followed by parts
+  - Ends with same code
+- Code for (huffman encoded?) literals
+
+- Setting value for NULL/EMPTY
+- Implement Repeat (RLE)
+- Next val for performance
+- Col trie
+- Multiple column key/values
+- Compression levels as parameter
+- INT32/64, float double
+- Reverse lookup
+- GUI for viewing
+- Auto encoding option
+- Sqlite SQL interface
+- testing with boundary conditions 64/512
+- Doxyfile
+- Integrity check
+- Fix grouping logic
+- Documentation and format definition
+- ALP and fast fast_lanes
+- run_tests chk_sum and len
+- col_trie tail split not working
+- cleanup madras builder
+- implement dessicate
+- implement 32/64 bit
+- cleanup concepts such as grouping
+- tail - part bin and part text
+- next not working for numbers subseq levels (dart)
+- check release and leaks
+- replace for !no_primary_trie
+- Run on CUDA cores?
+- reverse lookup for col_tries
+- difference between marisa for small datasets
