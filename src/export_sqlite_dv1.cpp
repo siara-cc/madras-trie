@@ -185,7 +185,8 @@ int main(int argc, char* argv[]) {
         const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
         char dt_txt[dt_format_lens[exp_col_type - DCT_DATETIME_ISOT] + 1];
         strncpy(dt_txt, (const char *) dt_txt_db, dt_format_lens[exp_col_type - DCT_DATETIME_ISOT]);
-        //printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - DCT_DATETIME_ISOT]);
+        dt_txt[dt_format_lens[exp_col_type - DCT_DATETIME_ISOT]] = 0;
+        // printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - DCT_DATETIME_ISOT]);
         char *result = strptime((const char *) dt_txt, dt_formats[exp_col_type - DCT_DATETIME_ISOT], &tm);
         if (result == nullptr || *result != '\0') {
           printf(" e%lu/%lu", ins_seq_id, i);

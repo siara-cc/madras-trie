@@ -2271,6 +2271,7 @@ class builder : public builder_fwd {
           new_node.set_flags(cur_node.get_flags() | NFLAG_TERM);
           new_node.set_child(cur_node.get_child());
           new_node.set_col_val(cur_node.get_col_val());
+          new_node.set_byte(*tp->part);
           //printf("New tail pos: %lu\n", new_tail_pos);
           new_node.set_tail(new_tail_pos);
           cur_node.set_flags((cur_node.get_flags() | NFLAG_CHILD) & ~NFLAG_LEAF);
@@ -2880,7 +2881,7 @@ class builder : public builder_fwd {
       if (col_trie_builder != nullptr)
         delete col_trie_builder;
       opts.dart = false;
-      opts.split_tails_method = 0;
+      //opts.split_tails_method = 0;
       opts.partial_sfx_coding = false;
       //opts.sort_nodes_on_freq = false;
       col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);

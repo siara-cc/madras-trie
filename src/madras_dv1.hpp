@@ -8,8 +8,11 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <sys/stat.h> 
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
 #include <nmmintrin.h>
+#endif
 #ifndef _WIN32
 #include <sys/mman.h>
 #endif
@@ -1122,7 +1125,7 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 inline uint32_t bm_select1(uint32_t remaining, uint64_t bm) {
 
-        #ifndef __CUDA_ARCH__
+      #ifdef __BMI2__
       uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
       size_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
       // if (bit_loc == 65) {
@@ -1131,7 +1134,7 @@ class bvlt_select : public bvlt_rank {
       // }
       #endif
 
-      #ifdef __CUDA_ARCH__
+      #ifndef __BMI2__
       size_t bit_loc = 0;
       while (bit_loc < 64) {
         uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
@@ -1140,7 +1143,7 @@ class bvlt_select : public bvlt_rank {
         bit_loc += 8;
         remaining -= next_count;
       }
-      if (remaining > 0)
+      if (remaining > 0) // && remaining <= 256)
         bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
       #endif
 
@@ -2290,6 +2293,14 @@ class static_trie_map : public static_trie {
       ((cleanup *)cleanup_object)->init(trie_bytes);
 
       FILE *fp = fopen(filename, "rb");
+      if (fp == nullptr) {
+        printf("fopen failed: %s (errno: %d), %ld\n", strerror(errno), errno, (long) file_stat.st_size);
+        #ifdef __CUDA_ARCH__
+        return;
+        #else
+        throw errno;
+        #endif
+      }
       long bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
         printf("Read error: [%s], %ld, %lu\n", filename, (long) file_stat.st_size, bytes_read);
