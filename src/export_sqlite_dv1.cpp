@@ -195,7 +195,7 @@ int main(int argc, char* argv[]) {
           uint64_t dt_val = (uint64_t) mktime(&tm);
           if (exp_col_type >= DCT_DATE_EUR && exp_col_type <= DCT_DATE_ISO)
             dt_val /= 86400;
-          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO) {
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO || exp_col_type == DCT_DATETIME_ISOT) {
             dt_val *= 1000;
             char *dot_pos = (char *) memchr(dt_txt_db, '.', strnlen((const char *) dt_txt_db, 24));
             if (dot_pos != nullptr)
@@ -425,12 +425,12 @@ int main(int argc, char* argv[]) {
           time_t original_epoch = *((int64_t *) val);
           if (exp_col_type >= DCT_DATE_EUR && exp_col_type <= DCT_DATE_ISO)
             original_epoch *= 86400;
-          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO)
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO || exp_col_type == DCT_DATETIME_ISOT)
             original_epoch /= 1000;
           char dt_txt[50];
           strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - DCT_DATETIME_ISOT], localtime(&original_epoch));
           val_len = strlen(dt_txt);
-          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO) {
+          if (exp_col_type == DCT_DATETIME_MS || exp_col_type == DCT_DATETIME_ISO || exp_col_type == DCT_DATETIME_ISOT) {
             original_epoch = *((int64_t *) val);
             dt_txt[val_len++] = '.';
             dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
