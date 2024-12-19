@@ -1660,6 +1660,18 @@ class static_trie : public inner_trie {
       return trie_bytes;
     }
 
+    __fq1 __fq2 uint8_t *get_null_value(size_t& null_value_len) {
+      uint8_t *nv_loc = trie_bytes + cmn::read_uint32(trie_bytes + 124);
+      null_value_len = *nv_loc++;
+      return nv_loc;
+    }
+
+    __fq1 __fq2 uint8_t *get_empty_value(size_t& empty_value_len) {
+      uint8_t *ev_loc = trie_bytes + cmn::read_uint32(trie_bytes + 128);
+      empty_value_len = *ev_loc++;
+      return ev_loc;
+    }
+
     __fq1 __fq2 void load_static_trie(uint8_t *_trie_bytes = nullptr) {
 
       if (_trie_bytes != nullptr)

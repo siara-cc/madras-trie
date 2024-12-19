@@ -152,7 +152,7 @@ int main(int argc, char* argv[]) {
   madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
   bldr_opts.inner_tries = true;
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
-      col_types.c_str(), col_encodings.c_str(), 0, true, key_col_sql_idx == 0,
+      col_types.c_str(), col_encodings.c_str(), 0, key_col_sql_idx == 0,
       bldr_opts);
   mb.set_print_enabled();
   mb.open_file();

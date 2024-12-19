@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
 
     if (what == 0) {
       trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
-      int64_t out_len = gen::read_svint60(val_buf);
+      int64_t out_len = *((int64_t *) val_buf);
       if (out_len != in_ctx.key_len) {
         std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << out_len << std::endl;
@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
       for (size_t i = 0; i < strlen((const char *) in_ctx.key); i++) {
         checksum += in_ctx.key[i];
       }
-      int64_t out_chksum = gen::read_svint60(val_buf);
+      int64_t out_chksum = *((int64_t *) val_buf);
       if (out_chksum != checksum) {
         std::cout << "Second val mismatch - expected: " << checksum << ", found: "
             << out_chksum << std::endl;

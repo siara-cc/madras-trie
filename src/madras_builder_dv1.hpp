@@ -97,6 +97,8 @@ struct trie_parts {
   uint32_t col_val_table_loc;
   uint32_t col_val_table_sz;
   uint32_t col_val_loc0;
+  uint32_t null_val_loc;
+  uint32_t empty_val_loc;
   uint32_t total_idx_size;
   bldr_min_pos_stats min_stats;
 };
@@ -246,11 +248,10 @@ class builder_fwd {
     FILE *fp;
     byte_vec *out_vec;
     bldr_options opts;
-    bool maintain_seq;
     bool no_primary_trie;
     int trie_level;
-    builder_fwd(bldr_options _opts, bool _maintain_seq, bool _no_primary_trie)
-      : opts (_opts), maintain_seq (_maintain_seq), no_primary_trie (_no_primary_trie) {
+    builder_fwd(bldr_options _opts, bool _no_primary_trie)
+      : opts (_opts), no_primary_trie (_no_primary_trie) {
     }
     virtual ~builder_fwd() {
     }
@@ -1954,14 +1955,23 @@ class builder : public builder_fwd {
     leopard::trie *col_trie;
     builder *col_trie_builder;
     builder *tail_trie_builder;
+    uint8_t null_value[15];
+    size_t null_value_len;
+    uint8_t empty_value[15];
+    size_t empty_value_len;
     trie_parts tp;
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
-        bool _maintain_seq = true, bool _no_primary_trie = false,
-        bldr_options _opts = dflt_opts)
-        : memtrie(_no_primary_trie),
+        bool _no_primary_trie = false, bldr_options _opts = dflt_opts,
+        const char *_null_value = " ", size_t _null_value_len = 1,
+        const char *_empty_value = "!", size_t _empty_value_len = 1)
+        : memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
           tail_vals (this, uniq_tails, uniq_tails_rev, uniq_vals, uniq_vals_fwd),
-          builder_fwd (_opts, _maintain_seq, _no_primary_trie), wm (uniq_vals) {
+          builder_fwd (_opts, _no_primary_trie), wm (uniq_vals) {
+      memcpy(null_value, _null_value, _null_value_len);
+      null_value_len = _null_value_len;
+      memcpy(empty_value, _empty_value, _empty_value_len);
+      empty_value_len = _empty_value_len;
       trie_level = _trie_level;
       tp = {};
       col_trie = NULL;
@@ -2452,7 +2462,7 @@ class builder : public builder_fwd {
       int words_grp_count = wm.grp_count;
       builder *word_tries[words_grp_count];
       for (int i = 0; i < words_grp_count; i++) {
-        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, false, false, word_tries_dflt_opts);
+        word_tries[i] = new builder(NULL, "word_trie,key", 1, "t", "u", 0, false, word_tries_dflt_opts);
         word_tries[i]->fp = fp;
       }
       for (size_t i = 0; i < word_positions->size(); i++) {
@@ -2607,12 +2617,12 @@ class builder : public builder_fwd {
 
     bool lookup_memtrie(const uint8_t *key, size_t key_len, leopard::node_set_vars& nsv) {
       if (key == NULL) {
-        key = NULL_VALUE;
-        key_len = strlen((const char *) NULL_VALUE);
+        key = null_value;
+        key_len = null_value_len;
       }
       if (key_len == 0) {
-        key = EMPTY_VALUE;
-        key_len = strlen((const char *) EMPTY_VALUE);
+        key = empty_value;
+        key_len = empty_value_len;
       }
       nsv.level = 0;
       nsv.key_pos = 0;
@@ -2884,7 +2894,7 @@ class builder : public builder_fwd {
       //opts.split_tails_method = 0;
       opts.partial_sfx_coding = false;
       //opts.sort_nodes_on_freq = false;
-      col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, true, false, opts);
+      col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, false, opts);
       col_trie_builder->fp = fp;
       col_trie_builder->out_vec = out_vec;
       col_trie = &col_trie_builder->memtrie;
@@ -2914,7 +2924,7 @@ class builder : public builder_fwd {
       if (opts.max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
       }
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, false, false, inner_trie_opts);
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, false, inner_trie_opts);
       ret->fp = fp;
       ret->out_vec = out_vec;
       return ret;
@@ -2926,7 +2936,7 @@ class builder : public builder_fwd {
       tt_opts.leaf_lt = false;
       tt_opts.tail_tries = true;
       tt_opts.max_inner_tries = opts.max_inner_tries;
-      tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", trie_level + 1, false, false, tt_opts);
+      tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", trie_level + 1, false, tt_opts);
       for (size_t i = 0; i < uniq_tails_rev.size(); i++) {
         uniq_info *ti = uniq_tails_rev[i];
         uint8_t rev[ti->len];
@@ -3411,7 +3421,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       tp = {};
-      tp.opts_loc = 4 + 12 + 28 * 4; // 128
+      tp.opts_loc = 4 + 12 + 30 * 4; // 136
       tp.opts_size = sizeof(bldr_options);
 
       if (!no_primary_trie) {
@@ -3516,7 +3526,9 @@ class builder : public builder_fwd {
       tp.col_val_table_loc = tp.names_loc + gen::size_align8(tp.names_sz);
       int val_count = column_count;
       tp.col_val_table_sz = val_count * sizeof(uint32_t);
-      tp.col_val_loc0 = tp.col_val_table_loc + gen::size_align8(tp.col_val_table_sz);
+      tp.null_val_loc = tp.col_val_table_loc + gen::size_align8(tp.col_val_table_sz);
+      tp.empty_val_loc = tp.null_val_loc + 16;
+      tp.col_val_loc0 = tp.empty_val_loc + 16;
       tp.total_idx_size = tp.opts_loc + tp.opts_size +
                 (trie_level > 0 ? louds.size_bytes() : trie_flags.size()) +
                 trie_flags_tail.size() +
@@ -3526,7 +3538,7 @@ class builder : public builder_fwd {
                   (gen::size_align8(tp.louds_sel1_lt_sz) + gen::size_align8(tp.louds_rank_lt_sz))) +
                 gen::size_align8(tp.leaf_select_lt_sz) +
                 gen::size_align8(tp.leaf_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz) +
-                gen::size_align8(tp.names_sz) + gen::size_align8(tp.col_val_table_sz);
+                gen::size_align8(tp.names_sz) + gen::size_align8(tp.col_val_table_sz) + 32;
       if (!no_primary_trie)
         tp.total_idx_size += trie_data_ptr_size();
 
@@ -3622,6 +3634,8 @@ class builder : public builder_fwd {
       output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
       output_u32(tp.trie_flags_loc, fp, out_vec);
       output_u32(tp.tail_flags_loc, fp, out_vec);
+      output_u32(tp.null_val_loc, fp, out_vec);
+      output_u32(tp.empty_val_loc, fp, out_vec);
       output_u32(0, fp, out_vec); // padding
 
       output_bytes((const uint8_t *) &opts, tp.opts_size, fp, out_vec);
@@ -3663,6 +3677,7 @@ class builder : public builder_fwd {
       val_table[0] = tp.col_val_loc0;
       write_names();
       write_col_val_table();
+      write_null_empty();
 
       gen::gen_printf("\nNodes#: %u, Node set#: %u\nTrie bv: %u, Leaf bv: %u, Tail bv: %u\n"
         "Select lt - Term: %u, Child: %u, Leaf: %u\n"
@@ -3723,6 +3738,13 @@ class builder : public builder_fwd {
         output_u16(names_positions[i], fp, out_vec);
       output_bytes((const uint8_t *) names, names_len, fp, out_vec);
       output_align8(tp.names_sz, fp, out_vec);
+    }
+
+    void write_null_empty() {
+      output_byte(null_value_len, fp, out_vec);
+      output_bytes(null_value, 15, fp, out_vec);
+      output_byte(empty_value_len, fp, out_vec);
+      output_bytes(empty_value, 15, fp, out_vec);
     }
 
     void write_col_val_table() {
@@ -3985,12 +4007,12 @@ class builder : public builder_fwd {
           case DCT_BIN: {
             const uint8_t *value = (uint8_t *) values[i];
             if (values[i] == INT64_MAX) {
-              value = NULL_VALUE;
-              value_len = strlen((const char *) NULL_VALUE);
+              value = null_value;
+              value_len = null_value_len;
             }
             if (value_len == 0) {
-              value = EMPTY_VALUE;
-              value_len = strlen((const char *) EMPTY_VALUE);
+              value = empty_value;
+              value_len = empty_value_len;
             }
             gen::append_vint32(rec, value_len);
             for (size_t j = 0; j < value_len; j++)

@@ -47,7 +47,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   bldr_opts.max_inner_tries = trie_count;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
   bldr_opts.dart = leapfrog > 0 ? true : false;
-  sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, false, bldr_opts);
+  sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, bldr_opts);
   sb->set_print_enabled(false);
 
   int64_t ival;
