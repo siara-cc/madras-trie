@@ -135,10 +135,9 @@ struct PACKED_STRUCT nid_cache {
 
 struct PACKED_STRUCT bldr_options {
   uint8_t inner_tries;
-  uint8_t tail_tries;
   uint8_t fwd_cache;
   uint8_t rev_cache;
-  uint8_t dart;
+  uint8_t leap_frog;
   uint8_t dessicate;
   uint8_t sort_nodes_on_freq;
   uint8_t leaf_lt;
@@ -150,9 +149,10 @@ struct PACKED_STRUCT bldr_options {
   uint8_t max_inner_tries;
   uint8_t fwd_cache_multipler;
   uint8_t rev_cache_multipler;
-  uint8_t trie_leaf_count;  // not used
+  uint8_t trie_leaf_count;
   uint8_t max_groups;
   uint8_t split_tails_method;
+  uint8_t align8_padding1;
   uint8_t align8_padding2;
   uint8_t align8_padding3;
   uint8_t align8_padding4;
@@ -160,24 +160,19 @@ struct PACKED_STRUCT bldr_options {
 }; // 24 bytes
 
 const static bldr_options preset_opts[] = {
-  //  it,    tt,    fc,    rc,  dart,  dsct, sortn,   llt,    sc, scidx, mt, si, sr,  it, cm, cm, lc, mg, st, p, p, p, sfx
-  {false, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 64},
-  { true, false,  true,  true, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 64},
-  { true, false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 64}
+  //  it,    fc,   rc,     lf,  dsct, sortn,   llt,    sc, scidx, mt, si, sr,  it, cm, cm, lc, mg, st, p, p, p, p, sfx
+  {false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 0, 64},
+  { true,  true,  true, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 0, 64},
+  { true,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 0, 64}
 };
 
 const static bldr_options dflt_opts =
-  { true, false,  true,  true, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  1,  1, 16,  1, 0, 0, 0, 64};
-
-// const static bldr_options dflt_opts =
-//   {false,  true,  true,  true, false, false,  true,  true, false, false,  4,  3,  3,   2,  2,  1,  1,  1,  0, 0, 0, 0, 64};
+  { true,  true,  true,  true, false, false,  true,  true, false,  4,  3,  3,   1,  2,  1,  1, 16,  0, 0, 0, 0, 0, 64};
 
 const static bldr_options word_tries_dflt_opts =
-  {false, false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 64};
+  {false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 0, 64};
 const static bldr_options inner_tries_dflt_opts =
-  { true, false, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0, 0, 0, 0, 64};
-const static bldr_options tail_tries_dflt_opts =
-  {false, false, false,  true, false, false, false, false, false, false,  4,  3,  3, 127,  2,  3,  1,  1,  0, 0, 0, 0, 64};
+  { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0, 0, 0, 0, 0, 64};
 
 #if defined(_MSC_VER)
 #pragma pack(pop)

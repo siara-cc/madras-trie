@@ -33,7 +33,7 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
 
 bool nodes_sorted_on_freq;
 madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines,
-                 bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec, bool as_int) {
+    bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec, bool as_int, int max_groups) {
 
   int asc = argc > 4 ? atoi(argv[4]) : 0;
   int leapfrog = argc > 5 ? atoi(argv[5]) : 0;
@@ -45,8 +45,9 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   madras_dv1::builder *sb;
   madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
   bldr_opts.max_inner_tries = trie_count;
+  bldr_opts.max_groups = max_groups;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
-  bldr_opts.dart = leapfrog > 0 ? true : false;
+  bldr_opts.leap_frog = leapfrog > 0 ? true : false;
   sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, bldr_opts);
   sb->set_print_enabled(false);
 
@@ -183,7 +184,7 @@ bool bench_next(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reade
 int main(int argc, char *argv[]) {
 
   if (argc < 2) {
-    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [leapfrog] [numbers]\n");
+    printf("Usage: madras_bench <input_file> [min_inner_tries] [max_inner_tries] [asc] [leapfrog] [numbers] [max_groups]\n");
     return 0;
   }
 
@@ -191,6 +192,7 @@ int main(int argc, char *argv[]) {
   int max_inner_tries = argc > 3 ? atoi(argv[3]) : 2;
   // TODO: only 1 level works for as_int
   bool as_int = argc > 6 ? (atoi(argv[6]) == 1 ? true : false) : false;
+  int max_groups = argc > 7 ? atoi(argv[7]) : 1;
 
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
@@ -256,7 +258,7 @@ int main(int argc, char *argv[]) {
   madras_dv1::static_trie *trie_reader;
 
   for (int i = min_inner_tries; i <= max_inner_tries; i++) {
-    trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec, as_int);
+    trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec, as_int, max_groups);
     if (trie_size == 0) {
       printf("Build fail\n");
       return 1;

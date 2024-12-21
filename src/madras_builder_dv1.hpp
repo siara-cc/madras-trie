@@ -2406,7 +2406,7 @@ class builder : public builder_fwd {
     uint8_t append_tail_ptr(leopard::node *cur_node) {
       if ((cur_node->get_flags() & NFLAG_TAIL) == 0)
         return cur_node->get_byte();
-      if (opts.tail_tries) {
+      if (opts.inner_tries && tail_trie_builder != nullptr) {
         uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
         return ti->ptr & 0xFF;
       }
@@ -2890,7 +2890,7 @@ class builder : public builder_fwd {
     void init_col_trie_builder() {
       if (col_trie_builder != nullptr)
         delete col_trie_builder;
-      opts.dart = false;
+      opts.leap_frog = false;
       //opts.split_tails_method = 0;
       opts.partial_sfx_coding = false;
       //opts.sort_nodes_on_freq = false;
@@ -2920,6 +2920,7 @@ class builder : public builder_fwd {
       bldr_options inner_trie_opts = inner_tries_dflt_opts;
       inner_trie_opts.trie_leaf_count = 0;
       inner_trie_opts.leaf_lt = false;
+      inner_trie_opts.max_groups = opts.max_groups;
       inner_trie_opts.max_inner_tries = opts.max_inner_tries;
       if (opts.max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
@@ -2931,10 +2932,11 @@ class builder : public builder_fwd {
     }
 
     uint32_t build_tail_trie(uint32_t tot_freq_count) {
-      bldr_options tt_opts = tail_tries_dflt_opts;
+      bldr_options tt_opts = inner_tries_dflt_opts;
       tt_opts.trie_leaf_count = 0;
       tt_opts.leaf_lt = false;
-      tt_opts.tail_tries = true;
+      tt_opts.inner_tries = true;
+      tt_opts.max_groups = opts.max_groups;
       tt_opts.max_inner_tries = opts.max_inner_tries;
       tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", trie_level + 1, false, tt_opts);
       for (size_t i = 0; i < uniq_tails_rev.size(); i++) {
@@ -2998,10 +3000,10 @@ class builder : public builder_fwd {
           uniq_tails, uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, 0, 0, DCT_BIN);
       uint32_t tail_trie_size = 0;
       if (uniq_tails_rev.size() > 0) {
-        if (opts.tail_tries && opts.max_inner_tries >= trie_level + 1 && uniq_tails_rev.size() > 255) {
+        if (opts.inner_tries && opts.max_groups == 1 && opts.max_inner_tries >= trie_level + 1 && uniq_tails_rev.size() > 255) {
           tail_trie_size = build_tail_trie(tot_freq_count);
         } else {
-          opts.tail_tries = false;
+          //opts.inner_tries = false;
           tail_vals.build_tail_maps(memtrie.all_node_sets, tot_freq_count, memtrie.max_tail_len);
         }
       }
@@ -3125,12 +3127,12 @@ class builder : public builder_fwd {
     }
     uint32_t write_trie_tail_ptrs_data(FILE *fp, byte_vec *out_vec) {
       uint32_t tail_size = tail_vals.get_tail_grp_ptrs()->get_total_size();
-      gen::gen_printf("\nTrie size: %u, Tail size: %u\n", trie.size(), tail_size);
+      gen::gen_printf("\nTrie: %u, Flags: %u, Tail size: %u\n", trie.size(), trie_flags.size(), tail_size);
       output_u32(tail_size, fp, out_vec);
       output_u32(trie_flags.size(), fp, out_vec);
       gen::gen_printf("Tail stats - ");
       tail_vals.write_tail_ptrs_data(memtrie.all_node_sets, fp, out_vec);
-      if (opts.tail_tries && tail_trie_builder != nullptr) {
+      if (opts.inner_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->out_vec = out_vec;
         tail_trie_builder->write_trie(NULL);
@@ -3196,7 +3198,7 @@ class builder : public builder_fwd {
         nsh.set_pos(i);
         leopard::node_set_header *ns_hdr = nsh.hdr();
         ns_hdr->node_id = node_id;
-        if (ns_hdr->last_node_idx > 4 && trie_level == 0 && opts.dart) {
+        if (ns_hdr->last_node_idx > 4 && trie_level == 0 && opts.leap_frog) {
           if (!opts.sort_nodes_on_freq) {
             ns_hdr->flags |= NODE_SET_LEAP;
             node_id++;
@@ -3357,7 +3359,7 @@ class builder : public builder_fwd {
         //   min_len_last_ns_id[len] = i;
         // }
         leopard::node cur_node = cur_ns.first_node();
-        for (int k = 0; k <= len; k++) {
+        for (size_t k = 0; k <= len; k++) {
           uint8_t b = cur_node.get_byte();
           if (min_pos[len][b] > k)
              min_pos[len][b] = k;
@@ -3449,7 +3451,7 @@ class builder : public builder_fwd {
           tp.rev_cache_max_node_id = 0;
         tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
         tp.sec_cache_size = 0;
-        if (opts.dart)
+        if (opts.leap_frog)
           tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256; // already aligned
 
         if (trie_level == 0) {
@@ -3472,7 +3474,7 @@ class builder : public builder_fwd {
 
         tp.leaf_rank_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count + 1, sel_divisor, 3);
-        if (opts.tail_tries || tail_vals.get_tail_grp_ptrs()->get_grp_count() == 2)
+        if (opts.inner_tries || tail_vals.get_tail_grp_ptrs()->get_grp_count() == 2)
           tp.tail_rank_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
 
         if (opts.dessicate) {
@@ -3514,7 +3516,7 @@ class builder : public builder_fwd {
         tp.tail_flags_loc = tp.leaf_rank_lt_loc + gen::size_align8(tp.leaf_rank_lt_sz);
         tp.leaf_select_lkup_loc = tp.tail_flags_loc + trie_flags_tail.size();
 
-        if (!opts.dart)
+        if (!opts.leap_frog)
           tp.sec_cache_loc = 0;
       } else {
         tp.leaf_select_lkup_loc = tp.opts_loc + tp.opts_size;
