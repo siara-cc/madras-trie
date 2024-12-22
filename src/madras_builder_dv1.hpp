@@ -3475,7 +3475,7 @@ class builder : public builder_fwd {
 
         tp.leaf_rank_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
         tp.leaf_select_lt_sz = gen::get_lkup_tbl_size2(memtrie.key_count + 1, sel_divisor, 3);
-        if (tail_vals.get_tail_grp_ptrs()->get_grp_count() == 2)
+        if (tail_vals.get_tail_grp_ptrs()->get_grp_count() <= 2)
           tp.tail_rank_lt_sz = gen::get_lkup_tbl_size2(memtrie.node_count, nodes_per_bv_block, width_of_bv_block);
 
         if (opts.dessicate) {
