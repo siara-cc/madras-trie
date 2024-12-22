@@ -492,7 +492,7 @@ class ptr_groups {
     uint32_t get_data_size() {
       uint32_t data_size = 0;
       for (size_t i = 0; i < grp_data.size(); i++)
-        data_size += grp_data[i].size();
+        data_size += gen::size_align8(grp_data[i].size());
       for (size_t i = 0; i < inner_tries.size(); i++)
         data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       return data_size;
@@ -601,7 +601,7 @@ class ptr_groups {
       uint32_t total_data_size = 0;
       for (size_t i = 0; i < grp_data.size(); i++) {
         output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
-        total_data_size += grp_data[i].size();
+        total_data_size += gen::size_align8(grp_data[i].size());
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
         output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
@@ -609,6 +609,7 @@ class ptr_groups {
       }
       for (size_t i = 0; i < grp_data.size(); i++) {
         output_bytes(grp_data[i].data(), grp_data[i].size(), fp, out_vec);
+        output_align8(grp_data[i].size(), fp, out_vec);
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
         inner_tries[i]->fp = fp;

@@ -580,6 +580,7 @@ class inner_trie_fwd {
     __fq1 __fq2 inner_trie_fwd& operator=(inner_trie_fwd const&);
   public:
     bvlt_rank tail_lt;
+    uint8_t trie_level;
     __fq1 __fq2 inner_trie_fwd() {
     }
     __fq1 __fq2 virtual ~inner_trie_fwd() {
@@ -1190,7 +1191,7 @@ class inner_trie : public inner_trie_fwd {
     __fq1 __fq2 inner_trie& operator=(inner_trie const&);
   protected:
     uint32_t node_count;
-    uint8_t trie_level;
+    
     uint8_t lt_not_given;
     uint8_t *trie_loc;
     tail_ptr_map *tail_map;
