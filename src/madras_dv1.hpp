@@ -2351,9 +2351,9 @@ class static_trie_map : public static_trie {
       val_map = nullptr;
       if (val_count > 0) {
         val_map = new val_ptr_group_map[val_count]();
-        for (uint32_t i = 0; i < val_count; i++) {
-          uint32_t vl32 = cmn::read_uint32(val_table_loc + i * sizeof(uint32_t));
-          uint8_t *val_loc = trie_bytes + vl32;
+        for (size_t i = 0; i < val_count; i++) {
+          uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
+          uint8_t *val_loc = trie_bytes + vl64;
           if (val_loc == trie_bytes)
             continue;
           val_map[i].init(this, trie_loc, tf_leaf_loc + 3, 4, val_loc, key_count, node_count);
