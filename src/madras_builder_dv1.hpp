@@ -2718,7 +2718,7 @@ class builder : public builder_fwd {
               data_len = gen::read_vint32(data_pos, &len_len);
               data_pos += len_len;
             } break;
-            case DCT_S64_INT ... DCT_DATETIME_US: {
+            case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
               data_len = gen::read_svint60_len(data_pos);
             } break;
           }
@@ -2820,7 +2820,7 @@ class builder : public builder_fwd {
                 pos += len_len;
                 pos += data_len;
               } break;
-              case DCT_S64_INT ... DCT_DATETIME_US: {
+              case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
                 data_len = gen::read_svint60_len(data_pos);
                 pos += data_len;
               } break;
@@ -4014,7 +4014,7 @@ class builder : public builder_fwd {
           if (val_type == APPEND_REC_KEY_MIDDLE)
             rec.push_back(0);
         } break;
-        case DCT_S64_INT ... DCT_DATETIME_US: {
+        case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
           if (*ptr == INT64_MAX) {
             rec.push_back(0); // null
             value_len = 1;
@@ -4032,7 +4032,7 @@ class builder : public builder_fwd {
       return value_len;
     }
 
-    int insert(const uint64_t *values, const size_t value_lens[] = NULL) {
+    bool insert(const uint64_t *values, const size_t value_lens[] = NULL) {
       cur_seq_idx++;
       byte_vec rec;
       byte_vec key_rec;
@@ -4079,6 +4079,7 @@ class builder : public builder_fwd {
             memcpy(val_loc + vlen, rec.data(), rec.size());
             rec_pos_vec.push_back(val_pos);
           }
+          return true;
         }
         if (to_append) {
           val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size());
@@ -4089,7 +4090,7 @@ class builder : public builder_fwd {
         }
         // printf("Key: [%.*s]\n", (int) key_len, rec.data() + key_loc_pos);
       }
-      return 0;
+      return false;
     }
 
 };

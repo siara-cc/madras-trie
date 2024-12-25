@@ -39,7 +39,7 @@ void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, 
   } else if (exp_col_type == DCT_BIN) {
     values[exp_col_idx] = (uint64_t) sqlite3_column_blob(stmt, sql_col_idx);
     value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
-  } else if (exp_col_type >= DCT_DATETIME_US && exp_col_type <= DCT_DATETIME_US) {
+  } else if (exp_col_type >= DCT_DATETIME_US && exp_col_type <= DCT_DATETIME_ISOT_MS) {
     struct tm tm = {0};
     const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
     char dt_txt[dt_format_lens[exp_col_type - DCT_DATETIME_US] + 1];
@@ -245,7 +245,12 @@ int main(int argc, char* argv[]) {
       reduce_sql_value(values, values_dbl, value_lens, stmt, exp_col_idx, exp_col_type, ins_seq_id, sql_col_idx);
       exp_col_idx++;
     }
-    mb.insert(values, value_lens);
+    if (mb.insert(values, value_lens)) {
+      std::cerr << "Unexpected: Record found: " << ins_seq_id << ". Check Primary key definition." << std::endl;
+      sqlite3_finalize(stmt_col_names);
+      sqlite3_close(db);
+      return 1;
+    }
     if (ins_seq_id >= row_count)
       break;
     ins_seq_id++;
@@ -354,7 +359,7 @@ int main(int argc, char* argv[]) {
             }
           }
         }
-      } else if (exp_col_type >= DCT_DATETIME_US && exp_col_type <= DCT_DATETIME_US) {
+      } else if (exp_col_type >= DCT_DATETIME_US && exp_col_type <= DCT_DATETIME_ISOT_MS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
         size_t sql_val_len = sqlite3_column_bytes(stmt, sql_col_idx);
         uint8_t val[16];
