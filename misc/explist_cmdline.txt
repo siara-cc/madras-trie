@@ -14,8 +14,9 @@
 
 ~/Downloads/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
 ./export_sqlite ~/Downloads/allCountries.db countries 0 0ttt77tttttttt000tt dtttdduuuuuuuuuuuut
+./export_sqlite ~/Downloads/allCountries.db countries 0 ----------------0-- dtttdduuuuuuuuuuuut
 
-./export_sqlite ~/git2/stackoverflow_db/census.db surnames 2 0t0022222222 utdddduuuuuu 
-./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 0t0099999999 utdddduuuuuu 
+./export_sqlite ~/git2/stackoverflow_db/census.db surnames 2 itIIffffffff utdddduuuuuu 
+./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 itIIffffffff utuu99999999
 
-./export_sqlite ~/git2/stackoverflow_db/babynames.db gendered_names 0 0tt0t01 uuuuuud 
+./export_sqlite ~/git2/stackoverflow_db/babynames.db gendered_names 0 ittitif uutuuu1

@@ -10,15 +10,17 @@
 #include <inttypes.h>
 #include <sys/stat.h>
 
-double time_taken_in_secs(clock_t t) {
-  t = clock() - t;
-  return ((double)t)/CLOCKS_PER_SEC;
+double time_taken_in_secs(struct timespec t) {
+  struct timespec t_end;
+  clock_gettime(CLOCK_REALTIME, &t_end);
+  return (t_end.tv_sec - t.tv_sec) + (t_end.tv_nsec - t.tv_nsec) / 1e9;
 }
 
-clock_t print_time_taken(clock_t t, const char *msg) {
+struct timespec print_time_taken(struct timespec t, const char *msg) {
   double time_taken = time_taken_in_secs(t); // in seconds
-  std::cout << msg << time_taken << std::endl;
-  return clock();
+  printf("%s %lf\n", msg, time_taken);
+  clock_gettime(CLOCK_REALTIME, &t);
+  return t;
 }
 
 int countDecimalPlaces(double num) {
@@ -43,17 +45,17 @@ double dbl_div[] = {1.0000000000000000001, 10.000000000000000001, 100.0000000000
                     10000000000000000.001, 100000000000000000.01, 1000000000000000000.1};
 
 uint8_t convert_to_int(double dbl, int64_t& i64) {
+  const double epsilon = 1e-20;
+  const size_t zero_nine_thres = 5;
   i64 = (int64_t) dbl;
   int64_t ifrac = 0;
   size_t frac_width = 0;
-  const double epsilon = 1e-20;
-  const size_t zero_nine_thres = 5;
   double frac = fabs(dbl - i64);
-  int prev_digit = 8;
+  int digit, prev_digit = 8;
   size_t rpt_count = 0;
   while (frac > epsilon && frac_width < 20) {
     frac *= 10;
-    int digit = frac;
+    digit = frac;
     frac -= digit;
     // printf("d: %d, pd: %d, fw: %lu\n", digit, prev_digit, frac_width);
     if ((prev_digit == 0 && digit == 0) ||
@@ -74,7 +76,6 @@ uint8_t convert_to_int(double dbl, int64_t& i64) {
       frac_width++;
       rpt_count--;
     }
-    rpt_count = 0;
     ifrac = (ifrac * 10) + digit;
     frac_width++;
     prev_digit = digit;
@@ -94,10 +95,10 @@ bool check_dbl_error(double dbl) {
     //printf("Orig: %.20lf\n", dbl);
     return false;
   }
-  // double convert_back = (double) i64 / tens[c];
-  double convert_back = (double) i64 / dbl_div[c];
+  double convert_back = (double) i64 / tens[c];
+  // double convert_back = (double) i64 / dbl_div[c];
   if (dbl != convert_back) {
-    printf("orig: %.16lf, converted: %.16lf, i: %lld, dc: %d\n", dbl, convert_back, i64, c);
+    // printf("orig: %.16lf, converted: %.16lf, i: %lld, dc: %d\n", dbl, convert_back, i64, c);
     return false;
   }
   // printf("Dbl: %.20lf, dc: %d\n", dbl, c);
@@ -106,7 +107,8 @@ bool check_dbl_error(double dbl) {
 
 int main(int argc, char* argv[]) {
 
-  time_t t = clock();
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
 
   // check_dbl_error(54.6838400000000036);
   // return 1;
@@ -152,6 +154,7 @@ int main(int argc, char* argv[]) {
 
   size_t err_count = 0;
   size_t total_count = 0;
+  // double dbl_total = 0;
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     total_count++;
     if (sqlite3_column_type(stmt, 0) == SQLITE_NULL)
@@ -159,10 +162,12 @@ int main(int argc, char* argv[]) {
     // if (total_count > 10)
     //   break;
     double dbl = sqlite3_column_double(stmt, 0);
+    // dbl_total += dbl;
     if (!check_dbl_error(dbl))
       err_count++;
   }
   printf("Error count: %lu, total count: %lu\n", err_count, total_count);
+  // printf("Dbl total: %lf\n", dbl_total);
 
   sqlite3_finalize(stmt);
   sqlite3_close(db);

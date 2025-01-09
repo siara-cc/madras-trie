@@ -63,49 +63,62 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define NFLAG_NULL 16
 #define NFLAG_EMPTY 32
 
-#define DCT_BIN '*'
-#define DCT_TEXT 't'
-#define DCT_WORDS 'w'
-#define DCT_RINT32 'a'
-#define DCT_RINT64 'b'
-#define DCT_UINT32 'c'
-#define DCT_DOUBLE 'd'
-#define DCT_UINT64 'e'
-#define DCT_FLOAT 'f'
-#define DCT_INT32 'g'
-#define DCT_INT64 'h'
-// '0' to 'H' in sequence for coding simplicity and performance
-#define DCT_S64_INT '0'
-#define DCT_S64_DEC1 '1'
-#define DCT_S64_DEC2 '2'
-#define DCT_S64_DEC3 '3'
-#define DCT_S64_DEC4 '4'
-#define DCT_S64_DEC5 '5'
-#define DCT_S64_DEC6 '6'
-#define DCT_S64_DEC7 '7'
-#define DCT_S64_DEC8 '8'
-#define DCT_S64_DEC9 '9'
-#define DCT_DATETIME_US '@'
-#define DCT_DATETIME_EUR 'A'
-#define DCT_DATE_EUR 'B'
-#define DCT_DATE_US 'C'
-#define DCT_DATE_ISO 'D'
-#define DCT_DATETIME_ISO 'E'
-#define DCT_DATETIME_ISOT 'F'
-#define DCT_DATETIME_ISO_MS 'G'
-#define DCT_DATETIME_ISOT_MS 'H'
-#define DCT_U64_INT 'i'
-#define DCT_U64_DEC1 'j'
-#define DCT_U64_DEC2 'k'
-#define DCT_U64_DEC3 'l'
-#define DCT_U64_DEC4 'm'
-#define DCT_U64_DEC5 'n'
-#define DCT_U64_DEC6 'o'
-#define DCT_U64_DEC7 'p'
-#define DCT_U64_DEC8 'q'
-#define DCT_U64_DEC9 'r'
-#define DCT_U15_DEC1 'X'
-#define DCT_U15_DEC2 'Z'
+#define MST_BIN '*'
+#define MST_TEXT 't'
+#define MST_INT 'i'
+#define MST_INT_DELTA 'I'
+#define MST_DEC 'f'
+#define MST_DEC_DELTA 'F'
+#define MST_DATETIME 'd'
+
+#define MSE_TRIE 't'
+#define MSE_WORDS 'w'
+
+#define MSE_DATE_US 'a'
+#define MSE_DATE_EUR 'b'
+#define MSE_DATE_ISO 'c'
+
+#define MSE_DATETIME_US 'd'
+#define MSE_DATETIME_EUR 'e'
+#define MSE_DATETIME_ISO 'f'
+#define MSE_DATETIME_ISOT 'g'
+#define MSE_DATETIME_ISO_MS 'h'
+#define MSE_DATETIME_ISOT_MS 'i'
+
+#define MSE_DICT 'u'
+#define MSE_STORE 's'
+#define MSE_VINTGB 'v'
+#define MSE_SORTABLE 's'
+
+#define MSE_DEC1 '1'
+#define MSE_DEC2 '2'
+#define MSE_DEC3 '3'
+#define MSE_DEC4 '4'
+#define MSE_DEC5 '5'
+#define MSE_DEC6 '6'
+#define MSE_DEC7 '7'
+#define MSE_DEC8 '8'
+#define MSE_DEC9 '9'
+
+// int / float format
+// b1 - header - iwdr-n
+// i - 0=int, 1=float
+// w - 0=32, 1=64
+// d - 0=no, 1=delta
+// r - 0=no, 1=repeats
+// - - 0=no, 1=negatives
+// e - 0=no, 1=float exceptions
+// ss - scheme
+//      00 - vintgb
+//      01 - fixed width in iwd (1-8)
+//      10 - PFor
+//      11 - reserved
+// b2 - count excluding repeats - nnnnnnnn
+// b3 - repeat block of bytes - ppppnnnn
+//      pppp - position from last
+//             if 0, shift nnnn by 4 and add to next
+//      nnnn - number of repetitions
+//             if 0, no repeat at pos, see next
 
 struct PACKED_STRUCT fwd_cache {
   uint8_t parent_node_id1;

@@ -21,7 +21,6 @@
 #include "../../ds_common/src/gen.hpp"
 #include "../../ds_common/src/vint.hpp"
 #include "../../ds_common/src/huffman.hpp"
-#include "../../ds_common/src/match_words.hpp"
 
 namespace madras_dv1 {
 
@@ -158,61 +157,6 @@ void output_align8(size_t nopad_size, FILE *fp, std::vector<uint8_t> *out_vec) {
     fwrite(padding, 1, remaining, fp);
   }
 }
-
-class bldr_util {
-  public:
-    static double round(const double input, char type) {
-      double p10;
-      switch (type) {
-        case DCT_S64_DEC1 ... DCT_S64_DEC9:
-          p10 = gen::pow10(type - DCT_S64_DEC1 + 1);
-          break;
-        case DCT_U64_DEC1 ... DCT_U64_DEC9:
-          p10 = gen::pow10(type - DCT_U64_DEC1 + 1);
-          break;
-        case DCT_U15_DEC1 ... DCT_U15_DEC2:
-          p10 = gen::pow10(type - DCT_U15_DEC1 + 1);
-          break;
-      }
-      int64_t i64 = static_cast<int64_t>(input * p10);
-      double ret = i64;
-      ret /= p10;
-      return ret;
-    }
-    static uint8_t *convert(const void *val, const int val_len, uint8_t *converted_val, int& converted_val_len, char type) {
-      if (val == NULL) {
-        converted_val_len = 0;
-        return NULL;
-      } else if (type == DCT_TEXT || type == DCT_BIN) {
-        converted_val_len = val_len;
-        converted_val = (uint8_t *) val;
-      } else if (type == DCT_S64_INT) {
-        int64_t *i64 = (int64_t *) val;
-        converted_val_len = gen::get_svint60_len(*i64);
-        gen::copy_svint60(*i64, converted_val, converted_val_len);
-      } else if (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9) {
-        double *d64 = (double *) val;
-        int64_t i64 = static_cast<int64_t>((*d64) * gen::pow10(type - DCT_S64_DEC1 + 1));
-        converted_val_len = gen::get_svint60_len(i64);
-        gen::copy_svint60(i64, converted_val, converted_val_len);
-      } else if (type == DCT_U64_INT) {
-        uint64_t *i64 = (uint64_t *) val;
-        converted_val_len = gen::get_svint61_len(*i64);
-        gen::copy_svint61(*i64, converted_val, converted_val_len);
-      } else if (type >= DCT_U64_DEC1 && type <= DCT_U64_DEC9) {
-        double *d64 = (double *) val;
-        uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U64_DEC1 + 1));
-        converted_val_len = gen::get_svint61_len(i64);
-        gen::copy_svint61(i64, converted_val, converted_val_len);
-      } else if (type >= DCT_U15_DEC1 && type <= DCT_U15_DEC2) {
-        double *d64 = (double *) val;
-        uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U15_DEC1 + 1));
-        converted_val_len = gen::get_svint15_len(i64);
-        gen::copy_svint15(i64, converted_val, converted_val_len);
-      }
-      return converted_val;
-    }
-};
 
 typedef int (*cmp_fn) (const uint8_t *v1, int len1, const uint8_t *v2, int len2);
 
@@ -450,19 +394,19 @@ class ptr_groups {
         grp_data_vec.push_back(15);
       return ptr;
     }
-    uint32_t append_bin_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = DCT_BIN) {
+    uint32_t append_bin_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = MST_BIN) {
       byte_vec& grp_data_vec = get_data(grp_no);
       uint32_t ptr = grp_data_vec.size();
-      if (data_type == DCT_TEXT || data_type == DCT_BIN)
+      if (data_type == MST_TEXT || data_type == MST_BIN)
         gen::append_vint32(grp_data_vec, len);
       for (uint32_t k = 0; k < len; k++)
         grp_data_vec.push_back(val[k]);
       return ptr;
     }
-    uint32_t append_bin15_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = DCT_BIN) {
+    uint32_t append_bin15_to_grp_data(uint32_t grp_no, uint8_t *val, uint32_t len, char data_type = MST_BIN) {
       byte_vec& grp_data_vec = get_data(grp_no);
       uint32_t ptr = grp_data_vec.size();
-      if (data_type == DCT_TEXT || data_type == DCT_BIN) {
+      if (data_type == MST_TEXT || data_type == MST_BIN) {
         get_set_len_len(len, &grp_data_vec);
         ptr = grp_data_vec.size() - 1;
       }
@@ -905,6 +849,15 @@ class ptr_groups {
     }
 };
 
+struct node_data {
+  uint8_t *data;
+  uint32_t len;
+  uint32_t ns_id;
+  uint8_t node_idx;
+  uint8_t offset;
+};
+typedef std::vector<node_data> node_data_vec;
+
 class tail_val_maps {
   private:
     builder_fwd *bldr;
@@ -926,13 +879,6 @@ class tail_val_maps {
       for (size_t i = 0; i < uniq_vals_fwd.size(); i++)
         delete uniq_vals_fwd[i];
     }
-    struct sort_data {
-      uint8_t *data;
-      uint32_t len;
-      uint32_t freq;
-      uint32_t ns_id;
-      uint8_t node_idx;
-    };
 
     uint8_t *get_tail(gen::byte_blocks& all_tails, leopard::node n, uint32_t& len) {
       uint8_t *v = all_tails[n.get_tail()];
@@ -1592,7 +1538,7 @@ class tail_val_maps {
         uniq_info *vi = uniq_vals_freq[freq_idx];
         freq_idx++;
         uint8_t len_of_len = 0;
-        if (data_type == DCT_TEXT || data_type == DCT_BIN)
+        if (data_type == MST_TEXT || data_type == MST_BIN)
           len_of_len = ptr_grps.get_set_len_len(vi->len);
         uint32_t len_plus_len = vi->len + len_of_len;
         cur_limit = ptr_grps.next_grp(grp_no, cur_limit, len_plus_len, tot_freq_count);
@@ -1613,7 +1559,7 @@ class tail_val_maps {
     }
 
     void write_tail_ptrs_data(byte_ptr_vec& all_node_sets, FILE *fp, byte_vec *out_vec) {
-      ptr_grps.write_ptrs_data(DCT_BIN, 1, true, fp, out_vec);
+      ptr_grps.write_ptrs_data(MST_BIN, 1, true, fp, out_vec);
     }
 
     void write_val_ptrs_data(byte_ptr_vec& all_node_sets, char data_type, char encoding_type, uint8_t flags, FILE *fp, byte_vec *out_vec) {
@@ -1652,38 +1598,31 @@ class tail_val_maps {
 };
 
 typedef std::vector<uniq_info *> uniq_info_vec;
-struct sort_data {
-  uint8_t *data;
-  uint32_t len;
-  uint32_t ns_id;
-  uint8_t node_idx;
-  uint8_t offset;
-};
-typedef std::vector<sort_data> sort_data_vec;
 
 class sort_callbacks {
   public:
     virtual uint8_t *get_data_and_len(leopard::node& n, uint32_t& len, char type = '*') = 0;
     virtual void set_uniq_pos(uint32_t ns_id, uint8_t node_idx, size_t pos) = 0;
     virtual int compare(const uint8_t *v1, int len1, const uint8_t *v2, int len2, int trie_level) = 0;
-    virtual void sort_data(sort_data_vec& nodes_for_sort, int trie_level) = 0;
+    virtual void sort_data(node_data_vec& nodes_for_sort, int trie_level) = 0;
     uint8_t *get_data(gen::byte_blocks& vec, uint32_t pos, uint32_t& len, char type = '*') {
       if (pos >= vec.size())
         std::cout << "WARNING:: accessing beyond vec size !!!!!!!!!!!!!!!!!!!!!!!!!!!!!: " << pos << ", " << vec.size() << std::endl;
       uint8_t *v = vec[pos];
-      if (type == DCT_TEXT || type == DCT_BIN) {
-        size_t vlen;
-        len = gen::read_vint32(v, &vlen);
-        v += vlen;
-      } else if (type == DCT_S64_INT || (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9)) {
-        len = gen::read_svint60_len(v);
-        len++;
-      } else if (type == DCT_U64_INT || (type >= DCT_U64_DEC1 && type <= DCT_U64_DEC9)) {
-        len = (*v >> 5);
-        len++;
-      } else if (type >= DCT_U15_DEC1 && type <= DCT_U15_DEC2) {
-        len = (*v >> 7);
-        len++;
+      switch (type) {
+        case MST_TEXT:
+        case MST_BIN: {
+          size_t vlen;
+          len = gen::read_vint32(v, &vlen);
+          v += vlen;
+        } break;
+        case MST_INT:
+        case MST_INT_DELTA:
+        case MST_DEC:
+        case MST_DEC_DELTA:
+          len = gen::read_svint60_len(v);
+          len++;
+          break;
       }
       return v;
     }
@@ -1718,14 +1657,14 @@ class tail_sort_callbacks : public sort_callbacks {
         return gen::compare_rev(v1, len1, v2, len2);
       return gen::compare(v1, len1, v2, len2);
     }
-    void sort_data(sort_data_vec& nodes_for_sort, int trie_level) {
+    void sort_data(node_data_vec& nodes_for_sort, int trie_level) {
       clock_t t = clock();
       if (trie_level == 0) {
-        std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct sort_data& lhs, const struct sort_data& rhs) -> bool {
+        std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct node_data& lhs, const struct node_data& rhs) -> bool {
           return gen::compare_rev(lhs.data, lhs.len, rhs.data, rhs.len) < 0;
         });
       } else {
-        std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct sort_data& lhs, const struct sort_data& rhs) -> bool {
+        std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct node_data& lhs, const struct node_data& rhs) -> bool {
           return gen::compare(lhs.data, lhs.len, rhs.data, rhs.len) < 0;
         });
       }
@@ -1770,9 +1709,9 @@ class val_sort_callbacks : public sort_callbacks {
         return 1;
       return gen::compare(v1, len1, v2, len2);
     }
-    void sort_data(sort_data_vec& nodes_for_sort, int trie_level) {
+    void sort_data(node_data_vec& nodes_for_sort, int trie_level) {
       clock_t t = clock();
-      std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct sort_data& lhs, const struct sort_data& rhs) -> bool {
+      std::sort(nodes_for_sort.begin(), nodes_for_sort.end(), [](const struct node_data& lhs, const struct node_data& rhs) -> bool {
         if (rhs.data == NULL)
           return false;
         if (lhs.data == NULL)
@@ -1786,13 +1725,13 @@ class val_sort_callbacks : public sort_callbacks {
 class uniq_maker {
   public:
     static uint32_t make_uniq(byte_ptr_vec& all_node_sets, gen::byte_blocks& all_data, gen::byte_blocks& uniq_data,
-          uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level = 0, size_t col_idx = 0, size_t column_count = 0, char type = DCT_BIN) {
-      sort_data_vec nodes_for_sort;
-      add_to_sort_data_vec(nodes_for_sort, all_node_sets, sic, all_data, type);
+          uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level = 0, size_t col_idx = 0, size_t column_count = 0, char type = MST_BIN) {
+      node_data_vec nodes_for_sort;
+      add_to_node_data_vec(nodes_for_sort, all_node_sets, sic, all_data, type);
       return sort_and_reduce(nodes_for_sort, all_data, uniq_data, uniq_vec, sic, max_len, trie_level, type);
     }
-    static void add_to_sort_data_vec(sort_data_vec& nodes_for_sort, byte_ptr_vec& all_node_sets, sort_callbacks& sic,
-          gen::byte_blocks& all_data, char type = DCT_BIN) {
+    static void add_to_node_data_vec(node_data_vec& nodes_for_sort, byte_ptr_vec& all_node_sets, sort_callbacks& sic,
+          gen::byte_blocks& all_data, char type = MST_BIN) {
       for (uint32_t i = 1; i < all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(all_node_sets, i);
         leopard::node n = cur_ns.first_node();
@@ -1801,22 +1740,22 @@ class uniq_maker {
           uint8_t *pos = sic.get_data_and_len(n, len, type);
           if (pos != NULL || len == 1) {
             // printf("%d, [%.*s]\n", len, len, pos);
-            nodes_for_sort.push_back((struct sort_data) { pos, len, i, (uint8_t) k});
+            nodes_for_sort.push_back((struct node_data) { pos, len, i, (uint8_t) k});
           }
           n.next();
         }
       }
       gen::gen_printf("Nodes for sort size: %lu\n", nodes_for_sort.size());
     }
-    static uint32_t sort_and_reduce(sort_data_vec& nodes_for_sort, gen::byte_blocks& all_data,
-          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level, char type = DCT_BIN) {
+    static uint32_t sort_and_reduce(node_data_vec& nodes_for_sort, gen::byte_blocks& all_data,
+          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level, char type = MST_BIN) {
       clock_t t = clock();
       if (nodes_for_sort.size() == 0)
         return 0;
       sic.sort_data(nodes_for_sort, trie_level);
       uint32_t freq_count = 0;
       uint32_t tot_freq = 0;
-      std::vector<sort_data>::iterator it = nodes_for_sort.begin();
+      node_data_vec::iterator it = nodes_for_sort.begin();
       uint8_t *prev_val = it->data;
       int prev_val_len = it->len;
       while (it != nodes_for_sort.end()) {
@@ -1954,7 +1893,7 @@ class builder : public builder_fwd {
     uint32_t max_level;
     uint32_t column_count;
     char *names;
-    char *column_encoding;
+    char *column_encodings;
     char *column_types;
     uint16_t *names_positions;
     uint16_t names_len;
@@ -1970,7 +1909,7 @@ class builder : public builder_fwd {
     size_t empty_value_len;
     trie_parts tp;
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
-        const char *_column_types = "tt", const char *_column_encoding = "uu", int _trie_level = 0,
+        const char *_column_types = "tt", const char *_column_encodings = "uu", int _trie_level = 0,
         uint16_t _pk_col_count = 1, bldr_options _opts = dflt_opts,
         const char *_sk_col_positions = "",
         const char *_null_value = " ", size_t _null_value_len = 1,
@@ -1991,14 +1930,14 @@ class builder : public builder_fwd {
       tail_trie_builder = NULL;
       column_count = _column_count;
       val_table = new uint32_t[_column_count];
-      column_encoding = new char[_column_count];
-      memset(column_encoding, 'u', _column_count);
-      *column_encoding = 't'; // first letter is for key
-      memcpy(column_encoding, _column_encoding, gen::min(strlen(_column_encoding), _column_count));
+      column_encodings = new char[_column_count];
+      memset(column_encodings, 'u', _column_count);
+      *column_encodings = 't'; // first letter is for key
+      memcpy(column_encodings, _column_encodings, gen::min(strlen(_column_encodings), _column_count));
       column_types = new char[_column_count];
       memset(column_types, '*', _column_count);
       memcpy(column_types, _column_types, gen::min(strlen(_column_types), _column_count));
-      set_names(_names, _column_types, column_encoding);
+      set_names(_names, _column_types, column_encodings);
       //art_tree_init(&at);
       memtrie.set_print_enabled(gen::is_gen_print_enabled);
       fp = NULL;
@@ -2023,7 +1962,7 @@ class builder : public builder_fwd {
       delete [] names;
       delete [] val_table;
       delete [] names_positions;
-      delete [] column_encoding;
+      delete [] column_encodings;
       delete [] column_types;
       delete [] sk_col_positions;
       if (out_filename != NULL)
@@ -2055,13 +1994,13 @@ class builder : public builder_fwd {
       fp = NULL;
     }
 
-    void set_names(const char *_names, const char *_column_types, const char *_column_encoding) {
+    void set_names(const char *_names, const char *_column_types, const char *_column_encodings) {
       names_len = strlen(_names) + column_count * 2 + 3;
       names = new char[names_len];
       memset(names, '*', column_count);
       memcpy(names, _column_types, gen::min(strlen(_column_types), column_count));
       names[column_count] = ',';
-      memcpy(names + column_count + 1, _column_encoding, column_count);
+      memcpy(names + column_count + 1, _column_encodings, column_count);
       names[column_count * 2 + 1] = ',';
       memcpy(names + column_count * 2 + 2, _names, strlen(_names));
       // std::cout << names << std::endl;
@@ -2099,64 +2038,6 @@ class builder : public builder_fwd {
 
     size_t size() {
       return memtrie.key_count;
-    }
-
-    int copy_new_val(char type, const void *val, uint8_t *out_buf) {
-      int8_t vlen = 0;
-      switch (type) {
-        case DCT_S64_INT: {
-          int64_t *i64 = (int64_t *) val;
-          vlen = gen::get_svint60_len(*i64);
-          gen::copy_svint60(*i64, out_buf, vlen);
-        } break;
-        case DCT_S64_DEC1 ... DCT_S64_DEC9: {
-          double *d64 = (double *) val;
-          int64_t i64 = static_cast<int64_t>((*d64) * gen::pow10(type - DCT_S64_DEC1 + 1));
-          vlen = gen::get_svint60_len(i64);
-          gen::copy_svint60(i64, out_buf, vlen);
-        } break;
-        case DCT_U64_INT: {
-          uint64_t *i64 = (uint64_t *) val;
-          vlen = gen::get_svint61_len(*i64);
-          gen::copy_svint61(*i64, out_buf, vlen);
-        } break;
-        case DCT_U64_DEC1 ... DCT_U64_DEC9: {
-          double *d64 = (double *) val;
-          uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U64_DEC1 + 1));
-          vlen = gen::get_svint61_len(i64);
-          gen::copy_svint61(i64, out_buf, vlen);
-        } break;
-        case DCT_U15_DEC1 ... DCT_U15_DEC2: {
-          double *d64 = (double *) val;
-          uint64_t i64 = static_cast<uint64_t>((*d64) * gen::pow10(type - DCT_U15_DEC1 + 1));
-          vlen = gen::get_svint15_len(i64);
-          gen::copy_svint15(i64, out_buf, vlen);
-        } break;
-      }
-      return vlen;
-    }
-
-    uint8_t *get_v(gen::byte_blocks& vec, uint32_t pos, uint32_t& len, char val_type) {
-      uint8_t *v = vec[pos];
-      size_t vlen;
-      switch (val_type) {
-        case 't': case '*':
-          len = gen::read_vint32(v, &vlen);
-          v += vlen;
-          break;
-        case DCT_S64_INT: case DCT_S64_DEC1 ... DCT_S64_DEC9:
-          len = gen::read_svint60_len(v);
-          break;
-        case DCT_U64_INT: case DCT_U64_DEC1 ... DCT_U64_DEC9:
-          len = gen::read_svint61_len(v);
-          break;
-        case DCT_U15_DEC1 ... DCT_U15_DEC2:
-          len = gen::read_svint15_len(v);
-          break;
-        default:
-          break;
-      }
-      return v;
     }
 
     // uint64_t avg_freq_all_ns;
@@ -2567,8 +2448,8 @@ class builder : public builder_fwd {
       gen::append_uint32(ptrs.size(), ptr_lkup_tbl);
       uint32_t ptr_lkup_tbl_ptr_width = 4;
       output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
-      output_byte(DCT_WORDS, fp, out_vec); // data type
-      output_byte(DCT_WORDS, fp, out_vec); // encoding type
+      output_byte(MST_TEXT, fp, out_vec); // data type
+      output_byte(MSE_WORDS, fp, out_vec); // encoding type
       output_byte(0, fp, out_vec); // flags
       uint32_t hdr_size = 7 * 4 + 4;
       uint32_t ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(line_no, nodes_per_ptr_block_n, ptr_lkup_tbl_ptr_width);
@@ -2607,6 +2488,26 @@ class builder : public builder_fwd {
 
     uint32_t store_col_val() {
       gen::word_matcher wm(*all_vals);
+      leopard::node_iterator ni(memtrie.all_node_sets, 0);
+      leopard::node cur_node = ni.next();
+      while (cur_node != nullptr) {
+        if (cur_node.get_flags() & NODE_SET_LEAP) {
+          cur_node = ni.next();
+          continue;
+        }
+        // uint32_t col_val_pos = cur_node.get_col_val();
+        // uint8_t *v = (*all_vals)[col_val_pos];
+        // int8_t vlen;
+        // uint32_t len = gen::read_vint32(v, &vlen);
+        // wm.add_words(col_val_pos + vlen, len, cur_ns_idx);
+        cur_node = ni.next();
+      }
+      //wm.make_uniq_words();
+      //wm.process_combis();
+      return 0;
+    }
+
+    uint32_t encode_vint_gb(node_data_vec& nodes) {
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -2713,12 +2614,16 @@ class builder : public builder_fwd {
           size_t data_len = 0;
           uint8_t *data_pos = (*all_vals)[n.get_col_val()];
           switch (column_types[cur_col_idx]) {
-            case DCT_TEXT:
-            case DCT_BIN: {
+            case MST_TEXT:
+            case MST_BIN: {
               data_len = gen::read_vint32(data_pos, &len_len);
               data_pos += len_len;
             } break;
-            case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
+            case MST_INT:
+            case MST_INT_DELTA:
+            case MST_DEC:
+            case MST_DEC_DELTA:
+            case MST_DATETIME: {
               data_len = gen::read_svint60_len(data_pos);
             } break;
           }
@@ -2754,7 +2659,7 @@ class builder : public builder_fwd {
     // FILE *col_trie_fp;
     void build_col_val() {
       clock_t t = clock();
-      char encoding_type = column_encoding[cur_col_idx];
+      char encoding_type = column_encodings[cur_col_idx];
       if (encoding_type == 's') {
         store_col_val();
         return;
@@ -2777,14 +2682,14 @@ class builder : public builder_fwd {
       char data_type = column_types[cur_col_idx];
       gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
       gen::byte_blocks *delta_vals = nullptr;
-      if (encoding_type == 'd')
+      if (data_type == MST_INT_DELTA || data_type == MST_DEC_DELTA)
         delta_vals = new gen::byte_blocks();
       bool is_rec_pos_src_leaf_id = false;
       if (pk_col_count == 0 || rec_pos_vec[0] == UINT32_MAX)
         is_rec_pos_src_leaf_id = true;
       rec_pos_vec[0] = UINT32_MAX;
       bool delta_next_block = true;
-      sort_data_vec nodes_for_sort;
+      node_data_vec nodes_for_sort;
       uint32_t pos = 2;
       int64_t prev_val = 0;
       uint32_t node_id = 1;
@@ -2813,20 +2718,24 @@ class builder : public builder_fwd {
             uint32_t data_len = 0;
             char col_data_type = column_types[col_idx];
             switch (col_data_type) {
-              case DCT_TEXT:
-              case DCT_BIN: {
+              case MST_TEXT:
+              case MST_BIN: {
                 data_len = gen::read_vint32(data_pos, &len_len);
                 data_pos += len_len;
                 pos += len_len;
                 pos += data_len;
               } break;
-              case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
+              case MST_INT:
+              case MST_INT_DELTA:
+              case MST_DEC:
+              case MST_DEC_DELTA:
+              case MST_DATETIME: {
                 data_len = gen::read_svint60_len(data_pos);
                 pos += data_len;
               } break;
             }
             if (cur_col_idx == col_idx) {
-              if (encoding_type == 'd') {
+              if (col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
                 int64_t col_val = gen::read_svint60(data_pos);
                 int64_t delta_val = col_val;
                 if (!delta_next_block && ((node_id - (pk_col_count == 0 ? 1 : 0)) % nodes_per_bv_block_n))
@@ -2837,14 +2746,14 @@ class builder : public builder_fwd {
                 data_pos = (*delta_vals)[val_pos];
                 data_len = gen::get_svint60_len(delta_val);
               }
-              if (encoding_type == 't') {
+              if (encoding_type == MSE_TRIE) {
                 col_trie_builder->insert(data_pos, data_len);
                 // printf("Key: [%.*s]\n", (int) data_len, data_pos);
                 // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
                 uint32_t col_val = pos - data_len - len_len;
                 n.set_col_val(col_val);
               } else
-                nodes_for_sort.push_back((struct sort_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
+                nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
               break;
             }
             // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
@@ -2854,7 +2763,7 @@ class builder : public builder_fwd {
           n.next();
         }
       }
-      if (encoding_type == 't') {
+      if (encoding_type == MSE_TRIE) {
         // fclose(col_trie_fp);
         uint32_t col_trie_size = build_col_trie();
         ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
@@ -2916,7 +2825,7 @@ class builder : public builder_fwd {
     void reset_for_next_col() {
       cur_seq_idx = 0;
       cur_col_idx++;
-      if (cur_col_idx < column_count && column_encoding[cur_col_idx] == 't')
+      if (cur_col_idx < column_count && column_encodings[cur_col_idx] == 't')
         init_col_trie_builder();
       // if (all_vals != NULL)
       //   delete all_vals;
@@ -3010,7 +2919,7 @@ class builder : public builder_fwd {
       clock_t t = clock();
       tail_sort_callbacks tail_sort_cb(memtrie.all_node_sets, *memtrie.all_tails, uniq_tails);
       uint32_t tot_freq_count = uniq_maker::make_uniq(memtrie.all_node_sets, *memtrie.all_tails,
-          uniq_tails, uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, 0, 0, DCT_BIN);
+          uniq_tails, uniq_tails_rev, tail_sort_cb, memtrie.max_tail_len, trie_level, 0, 0, MST_BIN);
       uint32_t tail_trie_size = 0;
       if (uniq_tails_rev.size() > 0) {
         if (opts.inner_tries && opts.max_groups == 1 && opts.max_inner_tries >= trie_level + 1 && uniq_tails_rev.size() > 255) {
@@ -3724,7 +3633,7 @@ class builder : public builder_fwd {
       prev_val_size = 0;
       uint64_t prev_val_loc = tp.col_val_loc0;
       for (cur_col_idx = 0; cur_col_idx < column_count; ) {
-        char encoding_type = column_encoding[cur_col_idx];
+        char encoding_type = column_encodings[cur_col_idx];
         char data_type = column_types[cur_col_idx];
         if (pk_col_count > 0 && cur_col_idx < pk_col_count) {
           val_table[cur_col_idx] = 0;
@@ -3992,14 +3901,14 @@ class builder : public builder_fwd {
     #define APPEND_REC_NOKEY 0
     #define APPEND_REC_KEY_MIDDLE 1
     #define APPEND_REC_KEY_LAST 2
-    size_t append_rec_value(char type, void *void_value, const uint8_t *byte_arr, size_t value_len, byte_vec& rec, int val_type) {
+    size_t append_rec_value(char type, char encoding_type, void *void_value, const uint8_t *byte_arr, size_t value_len, byte_vec& rec, int val_type) {
       uint64_t *ptr = (uint64_t *) void_value;
       double *dbl_ptr = (double *) void_value;
       switch (type) {
-        case DCT_TEXT:
-        case DCT_BIN: {
+        case MST_TEXT:
+        case MST_BIN: {
           const uint8_t *value = byte_arr;
-          if (*ptr == INT64_MAX) {
+          if (ptr == 0) {
             value = null_value;
             value_len = null_value_len;
           }
@@ -4014,15 +3923,19 @@ class builder : public builder_fwd {
           if (val_type == APPEND_REC_KEY_MIDDLE)
             rec.push_back(0);
         } break;
-        case DCT_S64_INT ... DCT_DATETIME_ISOT_MS: {
-          if (*ptr == INT64_MAX) {
+        case MST_INT:
+        case MST_INT_DELTA:
+        case MST_DEC:
+        case MST_DEC_DELTA:
+        case MST_DATETIME: {
+          if (*ptr == INT64_MIN) {
             rec.push_back(0); // null
             value_len = 1;
           } else {
             int64_t i64 = (int64_t) *ptr;
-            if (type >= DCT_S64_DEC1 && type <= DCT_S64_DEC9) {
+            if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
               double dbl = *dbl_ptr;
-              i64 = static_cast<int64_t>(dbl * gen::pow10(type - DCT_S64_DEC1 + 1));
+              i64 = static_cast<int64_t>(dbl * gen::pow10(encoding_type - MSE_DEC1 + 1));
             }
             gen::append_svint60(rec, i64);
             value_len = gen::get_svint60_len(i64);
@@ -4042,12 +3955,12 @@ class builder : public builder_fwd {
         if (value_lens != nullptr)
           value_len = value_lens[i];
         if (value_lens == nullptr) {
-          if (type == DCT_TEXT && values[i] != 0 && values[i] != UINT64_MAX)
+          if (type == MST_TEXT && values[i] != 0 && values[i] != UINT64_MAX)
             value_len = strlen((const char *) values[i]);
         }
-        append_rec_value(type, (void *) &values[i], (const uint8_t *) values[i], value_len, rec, APPEND_REC_NOKEY);
+        append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, rec, APPEND_REC_NOKEY);
         if (i < pk_col_count) {
-          append_rec_value(type, (void *) &values[i], (const uint8_t *) values[i], value_len, key_rec,
+          append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, key_rec,
              i < (pk_col_count - 1) ? APPEND_REC_KEY_MIDDLE : APPEND_REC_KEY_LAST);
         }
       }

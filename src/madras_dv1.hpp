@@ -1881,12 +1881,12 @@ class val_ptr_group_map : public ptr_group_map {
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
       *in_size_out_value_len = 8;
-      if (data_type == DCT_S64_INT) {
+      if (data_type == MST_INT_DELTA) {
         *((int64_t *) ret_val) = col_val;
         return;
       }
       double dbl = static_cast<double>(col_val);
-      dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
+      dbl /= gen::pow10(encoding_type - MSE_DEC1 + 1);
       *((double *)ret_val) = dbl;
     }
 
@@ -1901,34 +1901,22 @@ class val_ptr_group_map : public ptr_group_map {
     __fq1 __fq2 void convert_back(uint8_t *val_loc, void *ret_val, size_t& ret_len) {
       ret_len = 8;
       switch (data_type) {
-        case DCT_S64_INT ... DCT_DATETIME_US: {
+        case MST_INT:
+        case MST_INT_DELTA:
+        case MST_DEC:
+        case MST_DEC_DELTA:
+        case MST_DATETIME: {
           if (*val_loc == 0) {
             ret_len = 0;
             return;
           }
           int64_t i64 = gen::read_svint60(val_loc);
-          if (data_type >= DCT_S64_DEC1 && data_type <= DCT_S64_DEC9) {
+          if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
             double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(data_type - DCT_S64_DEC1 + 1);
+            dbl /= gen::pow10(encoding_type - MSE_DEC1 + 1);
             *((double *)ret_val) = dbl;
           } else
             memcpy(ret_val, &i64, sizeof(int64_t));
-        } break;
-        case DCT_U64_INT: {
-          uint64_t u64 = gen::read_svint61(val_loc);
-          *((uint64_t *) ret_val) = u64;
-        } break;
-        case DCT_U64_DEC1 ... DCT_U64_DEC9: {
-          uint64_t u64 = gen::read_svint61(val_loc);
-          double dbl = static_cast<double>(u64);
-          dbl /= gen::pow10(data_type - DCT_U64_DEC1 + 1);
-          *((double *)ret_val) = dbl;
-        } break;
-        case DCT_U15_DEC1 ... DCT_U15_DEC2: {
-          uint64_t u64 = gen::read_svint15(val_loc);
-          double dbl = static_cast<double>(u64);
-          dbl /= gen::pow10(data_type - DCT_U15_DEC1 + 1);
-          *((double *)ret_val) = dbl;
         } break;
       }
     }
@@ -1938,79 +1926,38 @@ class val_ptr_group_map : public ptr_group_map {
         return;
       uint8_t *val_loc;
       uint8_t grp_no = 0;
-      switch (encoding_type) {
-        case 'u':
-          val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-          *in_size_out_value_len = 8;
-          switch (data_type) {
-            case DCT_TEXT: case DCT_BIN: {
-              #ifdef __CUDA_ARCH__
-              uint8_t *val_str_buf = new uint8_t[max_len];
-              #else
-              uint8_t val_str_buf[max_len];
-              #endif
-              gen::byte_str val_str(val_str_buf, max_len);
-              get_val_str(val_str, val_loc - grp_data[grp_no], grp_no, max_len);
-              size_t val_len = val_str.length();
-              *in_size_out_value_len = val_len;
-              memcpy(ret_val, val_str.data(), val_len);
-              #ifdef __CUDA_ARCH__
-              delete [] val_str_buf;
-              #endif
-            } break;
-            default: {
-              if (*val_loc == 0) {
-                *in_size_out_value_len = 0;
-                return;
-              }
-              convert_back(val_loc, ret_val, *in_size_out_value_len);
-            }
-          }
-          break;
-        case 'w': {
-          uint8_t *line_loc = (p_ptr_bit_count == nullptr || *p_ptr_bit_count == UINT32_MAX ?
-                            get_words_loc(node_id, p_ptr_bit_count) : ptr_reader.get_ptrs_loc() + *p_ptr_bit_count);
-          uint8_t val_type = (*line_loc & 0xC0);
-          if (val_type == 0x40 || val_type == 0x80) {
-            (*p_ptr_bit_count)++;
-            *in_size_out_value_len = (val_type == 0x40 ? -1 : 0);
-            return;
-          }
-          if (val_type == 0x00) {
-            (*p_ptr_bit_count)++;
-            *in_size_out_value_len = prev_val.size();
-            memcpy(ret_val, prev_val.data(), prev_val.size());
-            return;
-          }
-          size_t vlen;
-          uint32_t line_byt_len = gen::read_ovint(line_loc, vlen, 2);
-          line_loc += vlen;
-          *p_ptr_bit_count += vlen;
-          int line_len = 0;
-          uint8_t *out_buf = (uint8_t *) ret_val;
-          while (line_byt_len > 0) {
-            // uint32_t trie_leaf_id = cmn::read_vint32(line_loc, &vlen);
-            line_loc += vlen;
-            *p_ptr_bit_count += vlen;
-            line_byt_len -= vlen;
-            vlen--;
-            size_t word_len = 0;
-            // TODO: cast before call
-            // inner_tries[vlen]->reverse_lookup(trie_leaf_id, &word_len, out_buf + line_len);
-            line_len += word_len;
-          }
-          *in_size_out_value_len = line_len;
-          prev_val.clear();
-          gen::append_byte_vec(prev_val, out_buf, line_len);
-        } break;
-        case 't':
-          get_col_trie_val(node_id, in_size_out_value_len, ret_val);
-          if (data_type != DCT_TEXT && data_type != DCT_BIN)
-            convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
-          break;
-        case 'd':
-          get_delta_val(node_id, in_size_out_value_len, ret_val);
-          break;
+      if (encoding_type == 't') {
+        get_col_trie_val(node_id, in_size_out_value_len, ret_val);
+        if (data_type != MST_TEXT && data_type != MST_BIN)
+          convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
+      } else {
+        switch (data_type) {
+          case MST_TEXT: case MST_BIN: {
+            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+            *in_size_out_value_len = 8;
+            #ifdef __CUDA_ARCH__
+            uint8_t *val_str_buf = new uint8_t[max_len];
+            #else
+            uint8_t val_str_buf[max_len];
+            #endif
+            gen::byte_str val_str(val_str_buf, max_len);
+            get_val_str(val_str, val_loc - grp_data[grp_no], grp_no, max_len);
+            size_t val_len = val_str.length();
+            *in_size_out_value_len = val_len;
+            memcpy(ret_val, val_str.data(), val_len);
+            #ifdef __CUDA_ARCH__
+            delete [] val_str_buf;
+            #endif
+          } break;
+          case MST_INT: case MST_DEC: {
+            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+            *in_size_out_value_len = 8;
+            convert_back(val_loc, ret_val, *in_size_out_value_len);
+          } break;
+          case MST_INT_DELTA: case MST_DEC_DELTA:
+            get_delta_val(node_id, in_size_out_value_len, ret_val);
+            break;
+        }
       }
     }
     __fq1 __fq2 void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, size_t max_valset_len) {
@@ -2196,35 +2143,6 @@ class static_trie_map : public static_trie {
 
     __fq1 __fq2 int64_t get_val_int60(uint8_t *val) {
       return gen::read_svint60(val);
-    }
-
-    __fq1 __fq2 double get_val_int60_dbl(uint8_t *val, char type) {
-      int64_t i64 = gen::read_svint60(val);
-      double ret = static_cast<double>(i64);
-      ret /= gen::pow10(type - DCT_S64_DEC1 + 1);
-      return ret;
-    }
-
-    __fq1 __fq2 uint64_t get_val_int61(uint8_t *val) {
-      return gen::read_svint61(val);
-    }
-
-    __fq1 __fq2 double get_val_int61_dbl(uint8_t *val, char type) {
-      uint64_t i64 = gen::read_svint61(val);
-      double ret = static_cast<double>(i64);
-      ret /= gen::pow10(type - DCT_U64_DEC1 + 1);
-      return ret;
-    }
-
-    __fq1 __fq2 uint64_t get_val_int15(uint8_t *val) {
-      return gen::read_svint15(val);
-    }
-
-    __fq1 __fq2 double get_val_int15_dbl(uint8_t *val, char type) {
-      uint64_t i64 = gen::read_svint15(val);
-      double ret = static_cast<double>(i64);
-      ret /= gen::pow10(type - DCT_U15_DEC1 + 1);
-      return ret;
     }
 
     __fq1 __fq2 void map_from_memory(uint8_t *mem) {

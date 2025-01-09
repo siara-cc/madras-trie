@@ -145,33 +145,66 @@ Split tails and val texts
   - Ends with same code
 - Code for (huffman encoded?) literals
 
-- Setting value for NULL/EMPTY
++ run_tests chk_sum and len
++ col_trie tail split not working
++ reverse lookup for col_tries
+x tail - part bin and part text
+x difference between marisa for small datasets
++ Setting value for NULL/EMPTY
++ next not working for leapfrog
++ Run on CUDA cores?
++ Multiple column key/values
++ Multiple column key/value double mismatch df_sales
+
 - Implement Repeat (RLE)
-- Next val for performance
-- Col trie
-- Multiple column key/values
-- Compression levels as parameter
-- INT32/64, float double
-- Reverse lookup
-- GUI for viewing
-- Auto encoding option
-- Sqlite SQL interface
-- testing with boundary conditions 64/512
-- Doxyfile
-- Integrity check
+- Word encoding for Vals and tails and optional index
+- wrong totals for integer/doubles
+- ALP and fast_lanes
+- Simply store option
 - Fix grouping logic
-- Documentation and format definition
-- ALP and fast fast_lanes
-- run_tests chk_sum and len
-- col_trie tail split not working
-- cleanup madras builder
+- Cleanup madras builder
+- Implement 32/64 bit
+
 - implement dessicate
-- implement 32/64 bit
-- cleanup concepts such as grouping
-- tail - part bin and part text
-- next not working for numbers subseq levels (dart)
+* replace for !no_primary_trie
+- Secondary indexes
+- Compression levels as parameter
+- 1 file for each column
+- Next val for performance
+- INT32/64, float double
+- interface for multiple keys on pk and sk
+
+- count errors/warnings on export
+- CSV/JSON export?
+- Auto encoding option
+- GUI for viewing/creating from SQLite / CSV
+- SQL interface
+- JDBC driver
+- ODBC driver
+- Support CTAS on Spark / BigQuery?
+- Testing on Other OS?
+- Emscripten support
+
+- Integrity check
+- Testing with boundary conditions 64/512
+- Setup unit tests
+- Doxyfile
+- Documentation and format definition
 - check release and leaks
-- replace for !no_primary_trie
-- Run on CUDA cores?
-- reverse lookup for col_tries
-- difference between marisa for small datasets
+
+- Pure Rust/Go version?
+- Integrate Unishox
+- GUI crashing on linux
+
+Integer codec with ALP
+- Depth first coding - 2 bit overhead per node
+  - xxbbbbbb yyrrrrrr ... [trie_len] [child flags] [term flags] [trie]
+    - xx = 00, yy = 00 for last, 01 means more repeats
+- Raw storage with fixed integer width and RLE
+  - 
+- SIMDFor64
+- Dictionary coding
+
+- 1 64 32 16 8 4 2 1
+- 
+- 
