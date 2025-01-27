@@ -167,6 +167,7 @@ x difference between marisa for small datasets
 
 - implement dessicate
 * replace for !no_primary_trie
+- primary key value extract
 - Secondary indexes
 - Compression levels as parameter
 - 1 file for each column
@@ -197,14 +198,4 @@ x difference between marisa for small datasets
 - GUI crashing on linux
 
 Integer codec with ALP
-- Depth first coding - 2 bit overhead per node
-  - xxbbbbbb yyrrrrrr ... [trie_len] [child flags] [term flags] [trie]
-    - xx = 00, yy = 00 for last, 01 means more repeats
-- Raw storage with fixed integer width and RLE
-  - 
-- SIMDFor64
-- Dictionary coding
-
-- 1 64 32 16 8 4 2 1
-- 
-- 
+- flavic48

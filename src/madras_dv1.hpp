@@ -1611,17 +1611,19 @@ class static_trie : public inner_trie {
       ctx.cur_idx++;
     }
 
-    __fq1 __fq2 bool find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
+    __fq1 __fq2 size_t find_first(const uint8_t *prefix, int prefix_len, iter_ctx *ctx = nullptr, bool for_next = false) {
       input_ctx in_ctx;
       in_ctx.key = prefix;
       in_ctx.key_len = prefix_len;
+      in_ctx.node_id = 0;
       lookup(in_ctx);
       #ifdef __CUDA_ARCH__
       uint8_t *tail_buf = new uint8_t[max_tail_len];
       #else
       uint8_t tail_buf[max_tail_len];
       #endif
-      ctx.cur_idx = 0;
+      if (ctx != nullptr)
+        ctx->cur_idx = 0;
       gen::byte_str tail(tail_buf, max_tail_len);
       do {
         if (tail_lt[in_ctx.node_id])
@@ -1634,7 +1636,8 @@ class static_trie : public inner_trie {
           in_ctx.node_id = child_lt.select1(term_lt.rank1(in_ctx.node_id)) - 1;
         tail.clear();
       } while (in_ctx.node_id != 0);
-      ctx.cur_idx--;
+      if (ctx != nullptr)
+        ctx->cur_idx--;
         // for (int i = 0; i < ctx.key_len; i++)
         //   printf("%c", ctx.key[i]);
         // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
@@ -2057,7 +2060,8 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 static_trie_map(static_trie_map const&);
     __fq1 __fq2 static_trie_map& operator=(static_trie_map const&);
     val_ptr_group_map *val_map;
-    uint32_t val_count;
+    uint16_t val_count;
+    uint16_t pk_col_count;
     size_t max_val_len;
     uint8_t *names_loc;
     char *names_start;
@@ -2101,6 +2105,9 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 bool get_col_val(uint32_t node_id, int col_val_idx, size_t *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = nullptr) {
+      if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
+        return reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val);
+      }
       val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
       return true;
     }
@@ -2267,13 +2274,16 @@ class static_trie_map : public static_trie {
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
       val_map = nullptr;
+      pk_col_count = 0;
       if (val_count > 0) {
         val_map = new val_ptr_group_map[val_count]();
         for (size_t i = 0; i < val_count; i++) {
           uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
           uint8_t *val_loc = trie_bytes + vl64;
-          if (val_loc == trie_bytes)
+          if (val_loc == trie_bytes) {
+            pk_col_count++;
             continue;
+          }
           val_map[i].init(this, trie_loc, tf_leaf_loc + 3, 4, val_loc, key_count, node_count);
         }
       }

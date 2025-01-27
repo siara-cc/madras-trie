@@ -1,8 +1,8 @@
-./export_sqlite ~/Downloads/daily_weather.db dw 0 0ttt22222222220 dutuuuuuuuuuuud
+./export_sqlite ~/Downloads/daily_weather.db dw 0 ItttffffffffffI uutuuuuuuuuuuuu
 - encoding t for date field not working
 
 ./export_sqlite ~/Downloads/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
-./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 F0090 uuduu
+./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 diifi fuuuu
 
 ./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 0tt00000GGtt tttuuuutdduu
 - key_col 1 not working
@@ -10,13 +10,13 @@
 
 ~/Downloads/amazon_products.db products 0 -w--------- twttuuuuuuu 300 
 ./export_sqlite ~/Downloads/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
-./export_sqlite ~/Downloads/amazon_products.db products 0 tttt90990t0 ttttuuuuuuu
+./export_sqlite ~/Downloads/amazon_products.db products 0 ttttfiffiti tttt9u99uuu
 
 ~/Downloads/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
-./export_sqlite ~/Downloads/allCountries.db countries 0 0ttt77tttttttt000tt dtttdduuuuuuuuuuuut
+./export_sqlite ~/Downloads/allCountries.db countries 0 ItttFFttttttttiiitt uttt77uuuuuuuuuuuut
 ./export_sqlite ~/Downloads/allCountries.db countries 0 ----------------0-- dtttdduuuuuuuuuuuut
 
 ./export_sqlite ~/git2/stackoverflow_db/census.db surnames 2 itIIffffffff utdddduuuuuu 
-./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 itIIffffffff utuu99999999
+./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 itIIFFffffff utuu99999999
 
 ./export_sqlite ~/git2/stackoverflow_db/babynames.db gendered_names 0 ittitif uutuuu1

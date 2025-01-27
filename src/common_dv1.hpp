@@ -101,18 +101,17 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define MSE_DEC9 '9'
 
 // int / float format
-// b1 - header - iwdr-n
-// i - 0=int, 1=float
+// b1 - header
 // w - 0=32, 1=64
 // d - 0=no, 1=delta
 // r - 0=no, 1=repeats
 // - - 0=no, 1=negatives
 // e - 0=no, 1=float exceptions
-// ss - scheme
-//      00 - vintgb
-//      01 - fixed width in iwd (1-8)
-//      10 - PFor
-//      11 - reserved
+// sss - scheme
+//      000 - vintgb
+//      001 - fixed width in iwd (1-8)
+//      010 - PFor
+//      011 to 111 - reserved
 // b2 - count excluding repeats - nnnnnnnn
 // b3 - repeat block of bytes - ppppnnnn
 //      pppp - position from last
