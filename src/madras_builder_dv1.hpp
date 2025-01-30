@@ -17,6 +17,8 @@
 #include "common_dv1.hpp"
 #include "../../leopard-trie/src/leopard.hpp"
 
+#include "../../flavic48/src/flavic48.hpp"
+
 #include "../../ds_common/src/bv.hpp"
 #include "../../ds_common/src/gen.hpp"
 #include "../../ds_common/src/vint.hpp"
@@ -413,6 +415,9 @@ class ptr_groups {
       for (uint32_t k = 0; k < len; k++)
         grp_data_vec.push_back(val[k]);
       // grp_data_vec.push_back(0);
+      uint64_t u64;
+      flavic48::simple_decode(grp_data_vec.data() + ptr, 1, &u64);
+      // printf("Grp: %d, u64: %llu, len: %u, %u\n", grp_no, u64, len, ptr);
       return ptr;
     }
     int append_ptr_bits(uint32_t given_ptr, int bits_to_append) {
@@ -1605,27 +1610,6 @@ class sort_callbacks {
     virtual void set_uniq_pos(uint32_t ns_id, uint8_t node_idx, size_t pos) = 0;
     virtual int compare(const uint8_t *v1, int len1, const uint8_t *v2, int len2, int trie_level) = 0;
     virtual void sort_data(node_data_vec& nodes_for_sort, int trie_level) = 0;
-    uint8_t *get_data(gen::byte_blocks& vec, uint32_t pos, uint32_t& len, char type = '*') {
-      if (pos >= vec.size())
-        std::cout << "WARNING:: accessing beyond vec size !!!!!!!!!!!!!!!!!!!!!!!!!!!!!: " << pos << ", " << vec.size() << std::endl;
-      uint8_t *v = vec[pos];
-      switch (type) {
-        case MST_TEXT:
-        case MST_BIN: {
-          size_t vlen;
-          len = gen::read_vint32(v, &vlen);
-          v += vlen;
-        } break;
-        case MST_INT:
-        case MST_INT_DELTA:
-        case MST_DEC:
-        case MST_DEC_DELTA:
-          len = gen::read_svint60_len(v);
-          len++;
-          break;
-      }
-      return v;
-    }
     virtual ~sort_callbacks() {
     }
 };
@@ -1643,7 +1627,11 @@ class tail_sort_callbacks : public sort_callbacks {
     }
     uint8_t *get_data_and_len(leopard::node& n, uint32_t& len, char type = '*') {
       if (n.get_flags() & NFLAG_TAIL) {
-        return get_data(all_tails, n.get_tail(), len, type);
+        size_t vlen;
+        uint8_t *v = all_tails[n.get_tail()];
+        len = gen::read_vint32(v, &vlen);
+        v += vlen;
+        return v;
       }
       return NULL;
     }
@@ -1682,6 +1670,27 @@ class val_sort_callbacks : public sort_callbacks {
       : all_node_sets (_all_node_sets), all_vals (_all_vals), uniq_vals (_uniq_vals) {
     }
     virtual ~val_sort_callbacks() {
+    }
+    uint8_t *get_data(gen::byte_blocks& vec, uint32_t pos, uint32_t& len, char type = '*') {
+      if (pos >= vec.size())
+        std::cout << "WARNING:: accessing beyond vec size !!!!!!!!!!!!!!!!!!!!!!!!!!!!!: " << pos << ", " << vec.size() << std::endl;
+      uint8_t *v = vec[pos];
+      switch (type) {
+        case MST_TEXT:
+        case MST_BIN: {
+          size_t vlen;
+          len = gen::read_vint32(v, &vlen);
+          v += vlen;
+        } break;
+        case MST_INT:
+        case MST_INT_DELTA:
+        case MST_DEC:
+        case MST_DEC_DELTA:
+          len = *v & 0x07;
+          len += 2;
+          break;
+      }
+      return v;
     }
     uint8_t *get_data_and_len(leopard::node& n, uint32_t& len, char type = '*') {
       len = 0;
@@ -1779,7 +1788,7 @@ class uniq_maker {
               if (b >= 15 && b < 32)
                 uniq_vec[0]->flags |= LPDU_BIN;
             }
-            if (trie_level == 0)
+            if (trie_level == 0) // TODO: no need for vals
               uniq_data.push_back(prev_val, prev_val_len);
             else
               uniq_data.push_back_rev(prev_val, prev_val_len);
@@ -2624,7 +2633,8 @@ class builder : public builder_fwd {
             case MST_DEC:
             case MST_DEC_DELTA:
             case MST_DATETIME: {
-              data_len = gen::read_svint60_len(data_pos);
+              data_len = *data_pos & 0x07;
+              data_len += 2;
             } break;
           }
           if (!col_trie_builder->lookup_memtrie(data_pos, data_len, nsv))
@@ -2730,12 +2740,13 @@ class builder : public builder_fwd {
               case MST_DEC:
               case MST_DEC_DELTA:
               case MST_DATETIME: {
-                data_len = gen::read_svint60_len(data_pos);
+                data_len = *data_pos & 0x07;
+                data_len += 2;
                 pos += data_len;
               } break;
             }
             if (cur_col_idx == col_idx) {
-              if (col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
+              if (false) { //col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
                 int64_t col_val = gen::read_svint60(data_pos);
                 int64_t delta_val = col_val;
                 if (!delta_next_block && ((node_id - (pk_col_count == 0 ? 1 : 0)) % nodes_per_bv_block_n))
@@ -2752,8 +2763,9 @@ class builder : public builder_fwd {
                 // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
                 uint32_t col_val = pos - data_len - len_len;
                 n.set_col_val(col_val);
-              } else
+              } else {
                 nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
+              }
               break;
             }
             // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
@@ -2774,7 +2786,7 @@ class builder : public builder_fwd {
         val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *all_vals, uniq_vals);
         uint32_t tot_freq_count = uniq_maker::sort_and_reduce(nodes_for_sort, *all_vals,
                     uniq_vals, uniq_vals_fwd, val_sort_cb, max_val_len, 0, data_type);
-        if (data_type == 't')
+        if (data_type == MST_TEXT)
           tail_vals.build_text_val_maps(tot_freq_count, max_val_len);
         else
           tail_vals.build_val_maps(tot_freq_count, max_val_len, data_type);
@@ -3928,17 +3940,43 @@ class builder : public builder_fwd {
         case MST_DEC:
         case MST_DEC_DELTA:
         case MST_DATETIME: {
-          if (*ptr == INT64_MIN) {
-            rec.push_back(0); // null
+          if (*ptr == INT64_MIN) { // null
+            if (val_type == APPEND_REC_NOKEY) {
+              rec.push_back(0xF8);
+            }
+            rec.push_back(0);
             value_len = 1;
           } else {
+            uint8_t frac_width = 0;
             int64_t i64 = (int64_t) *ptr;
+            if (encoding_type == MSE_DECV) {
+              double dbl = *dbl_ptr;
+              frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
+              if (frac_width == UINT8_MAX)
+                frac_width = 0xF0;
+            }
             if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
               double dbl = *dbl_ptr;
               i64 = static_cast<int64_t>(dbl * gen::pow10(encoding_type - MSE_DEC1 + 1));
             }
-            gen::append_svint60(rec, i64);
-            value_len = gen::get_svint60_len(i64);
+            if (val_type == APPEND_REC_NOKEY) {
+              uint64_t u64 = flavic48::cvt2_u64(i64);
+              uint8_t v64[10];
+              if (frac_width == 0xF0) {
+                value_len = 9;
+                *((uint64_t *) v64) = u64;
+              } else {
+                uint8_t *v_end = flavic48::simple_encode_single(u64, v64, frac_width);
+                value_len = (v_end - v64);
+                // if (type == 'I')
+                //   printf("u64: %llu, %lu\n", u64, value_len);
+              }
+              for (size_t vi = 0; vi < value_len; vi++)
+                rec.push_back(v64[vi]);
+            } else {
+              gen::append_svint60(rec, i64);
+              value_len = gen::get_svint60_len(i64);
+            }
           }
         } break;
       }
@@ -3951,6 +3989,7 @@ class builder : public builder_fwd {
       byte_vec key_rec;
       for (size_t i = 0; i < column_count; i++) {
         uint8_t type = column_types[i];
+        // printf("col: %lu - ", i);
         size_t value_len = 0;
         if (value_lens != nullptr)
           value_len = value_lens[i];

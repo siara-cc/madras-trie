@@ -29,6 +29,14 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
   return t;
 }
 
+static double round_dbl(const double input, char encoding_type) {
+  double p10 = gen::pow10(encoding_type - MSE_DEC1 + 1);
+  int64_t i64 = static_cast<int64_t>(input * p10);
+  double ret = i64;
+  ret /= p10;
+  return ret;
+}
+
 void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, sqlite3_stmt *stmt, size_t exp_col_idx, char exp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
   int64_t s64;
   double dbl;
@@ -416,7 +424,7 @@ int main(int argc, char* argv[]) {
         } else
           std::cerr << "Int not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
       } else if (exp_col_type == MST_DEC || exp_col_type == MST_DEC_DELTA) {
-        double sql_val = sqlite3_column_double(stmt, sql_col_idx);
+        double sql_val = round_dbl(sqlite3_column_double(stmt, i), encoding_type);
         uint8_t val[16];
         size_t val_len;
         bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);

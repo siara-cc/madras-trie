@@ -90,6 +90,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define MSE_VINTGB 'v'
 #define MSE_SORTABLE 's'
 
+#define MSE_DECV '0'
 #define MSE_DEC1 '1'
 #define MSE_DEC2 '2'
 #define MSE_DEC3 '3'

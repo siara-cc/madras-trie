@@ -23,6 +23,8 @@
 #include "../../ds_common/src/vint.hpp"
 #include "../../ds_common/src/gen.hpp"
 
+#include "../../flavic48/src/flavic48.hpp"
+
 // Function qualifiers
 #ifndef __fq1
 #define __fq1
@@ -1611,7 +1613,7 @@ class static_trie : public inner_trie {
       ctx.cur_idx++;
     }
 
-    __fq1 __fq2 size_t find_first(const uint8_t *prefix, int prefix_len, iter_ctx *ctx = nullptr, bool for_next = false) {
+    __fq1 __fq2 size_t find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
       input_ctx in_ctx;
       in_ctx.key = prefix;
       in_ctx.key_len = prefix_len;
@@ -1622,8 +1624,7 @@ class static_trie : public inner_trie {
       #else
       uint8_t tail_buf[max_tail_len];
       #endif
-      if (ctx != nullptr)
-        ctx->cur_idx = 0;
+      ctx.cur_idx = 0;
       gen::byte_str tail(tail_buf, max_tail_len);
       do {
         if (tail_lt[in_ctx.node_id])
@@ -1636,8 +1637,7 @@ class static_trie : public inner_trie {
           in_ctx.node_id = child_lt.select1(term_lt.rank1(in_ctx.node_id)) - 1;
         tail.clear();
       } while (in_ctx.node_id != 0);
-      if (ctx != nullptr)
-        ctx->cur_idx--;
+      ctx.cur_idx--;
         // for (int i = 0; i < ctx.key_len; i++)
         //   printf("%c", ctx.key[i]);
         // printf("\nlsat tail len: %d\n", ctx.last_tail_len[ctx.cur_idx]);
@@ -1898,6 +1898,7 @@ class val_ptr_group_map : public ptr_group_map {
       if (key_count > 0)
         ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
       uint32_t col_trie_node_id = int_ptr_bv[ptr_pos];
+      // printf("Col trie node_id: %u\n", col_trie_node_id);
       col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, true);
     }
 
@@ -1909,11 +1910,13 @@ class val_ptr_group_map : public ptr_group_map {
         case MST_DEC:
         case MST_DEC_DELTA:
         case MST_DATETIME: {
-          if (*val_loc == 0) {
+          if (*val_loc == 0xF8) {
             ret_len = 0;
             return;
           }
-          int64_t i64 = gen::read_svint60(val_loc);
+          uint64_t u64;
+          flavic48::simple_decode(val_loc, 1, &u64);
+          int64_t i64 = flavic48::cvt2_i64(u64);
           if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(encoding_type - MSE_DEC1 + 1);
@@ -1952,14 +1955,16 @@ class val_ptr_group_map : public ptr_group_map {
             delete [] val_str_buf;
             #endif
           } break;
+          case MST_INT_DELTA: case MST_DEC_DELTA:
           case MST_INT: case MST_DEC: {
             val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+            // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
             *in_size_out_value_len = 8;
             convert_back(val_loc, ret_val, *in_size_out_value_len);
           } break;
-          case MST_INT_DELTA: case MST_DEC_DELTA:
-            get_delta_val(node_id, in_size_out_value_len, ret_val);
-            break;
+          // case MST_INT_DELTA: case MST_DEC_DELTA:
+          //   get_delta_val(node_id, in_size_out_value_len, ret_val);
+          //   break;
         }
       }
     }
@@ -2146,10 +2151,6 @@ class static_trie_map : public static_trie {
 
     __fq1 __fq2 uint16_t get_column_count() {
       return val_count;
-    }
-
-    __fq1 __fq2 int64_t get_val_int60(uint8_t *val) {
-      return gen::read_svint60(val);
     }
 
     __fq1 __fq2 void map_from_memory(uint8_t *mem) {
