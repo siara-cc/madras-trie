@@ -705,7 +705,7 @@ class tail_ptr_map {
         if (*tail == 15)
           return true;
         uint32_t sfx_len = read_len(tail);
-        #ifdef __CUDA_ARCH__
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
         uint8_t *sfx_buf = new uint8_t[sfx_len];
         #else
         uint8_t sfx_buf[sfx_len];
@@ -713,12 +713,12 @@ class tail_ptr_map {
         read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
         if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
           in_ctx.key_pos += sfx_len;
-          #ifdef __CUDA_ARCH__
+          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
           delete [] sfx_buf;
           #endif
           return true;
         }
-        #ifdef __CUDA_ARCH__
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
         delete [] sfx_buf;
         #endif
       } else {
@@ -858,7 +858,7 @@ class ptr_group_map {
         uint8_t *grp_data_idx_start = code_lt_bit_len + (data_type == 'w' ? 0 : 512);
         grp_data = new uint8_t*[group_count]();
         inner_tries = new inner_trie_fwd*[group_count]();
-        if (data_type == 'w')
+        if (data_type == 'w') // todo: fix
           inner_tries = new inner_trie_fwd*[group_count]();
         for (int i = 0; i < group_count; i++) {
           grp_data[i] = (data_type == 'w' ? grp_data_loc : data_loc);
@@ -1417,7 +1417,7 @@ class static_trie : public inner_trie {
               break;
             if (prev_key_pos != in_ctx.key_pos)
               return false;
-          }
+            }
           if (bm_mask & tf->bm_term)
             return false;
           in_ctx.node_id++;
@@ -1528,7 +1528,7 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf) {
       gen::byte_str tail;
-      #ifdef __CUDA_ARCH__
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *tail_bytes = new uint8_t[max_tail_len + 1];
       #else
       uint8_t tail_bytes[max_tail_len + 1];
@@ -1544,8 +1544,12 @@ class static_trie : public inner_trie {
           if (ctx.to_skip_first_leaf) {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
-                if (ctx.cur_idx == 0)
+                if (ctx.cur_idx == 0) {
+                  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+                  delete [] tail_bytes;
+                  #endif
                   return -2;
+                }
                 node_id = pop_from_ctx(ctx, tail);
               }
               node_id++;
@@ -1562,6 +1566,9 @@ class static_trie : public inner_trie {
             update_ctx(ctx, tail, node_id);
             memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
+            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+            delete [] tail_bytes;
+            #endif
             return ctx.key_len;
           }
         }
@@ -1577,7 +1584,7 @@ class static_trie : public inner_trie {
           push_to_ctx(ctx, tail, node_id);
         }
       }
-      #ifdef __CUDA_ARCH__
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       delete [] tail_bytes;
       #endif
       return -2;
@@ -1619,7 +1626,7 @@ class static_trie : public inner_trie {
       in_ctx.key_len = prefix_len;
       in_ctx.node_id = 0;
       lookup(in_ctx);
-      #ifdef __CUDA_ARCH__
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *tail_buf = new uint8_t[max_tail_len];
       #else
       uint8_t tail_buf[max_tail_len];
@@ -1646,7 +1653,7 @@ class static_trie : public inner_trie {
         ctx.last_tail_len[ctx.cur_idx] = 0;
         ctx.to_skip_first_leaf = false;
       }
-      #ifdef __CUDA_ARCH__
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       delete [] tail_buf;
       #endif
       return true;
@@ -1877,7 +1884,9 @@ class val_ptr_group_map : public ptr_group_map {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
           if (val_loc != nullptr) {
-            int64_t delta_val = gen::read_svint60(val_loc);
+            uint64_t u64;
+            uint8_t frac_width = flavic48::simple_decode_single(val_loc, &u64);
+            int64_t delta_val = flavic48::cvt2_i64(u64);
             col_val += delta_val;
           }
         }
@@ -1941,7 +1950,7 @@ class val_ptr_group_map : public ptr_group_map {
           case MST_TEXT: case MST_BIN: {
             val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
             *in_size_out_value_len = 8;
-            #ifdef __CUDA_ARCH__
+            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
             uint8_t *val_str_buf = new uint8_t[max_len];
             #else
             uint8_t val_str_buf[max_len];
@@ -1951,20 +1960,19 @@ class val_ptr_group_map : public ptr_group_map {
             size_t val_len = val_str.length();
             *in_size_out_value_len = val_len;
             memcpy(ret_val, val_str.data(), val_len);
-            #ifdef __CUDA_ARCH__
+            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
             delete [] val_str_buf;
             #endif
           } break;
-          case MST_INT_DELTA: case MST_DEC_DELTA:
           case MST_INT: case MST_DEC: {
             val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
             // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
             *in_size_out_value_len = 8;
             convert_back(val_loc, ret_val, *in_size_out_value_len);
           } break;
-          // case MST_INT_DELTA: case MST_DEC_DELTA:
-          //   get_delta_val(node_id, in_size_out_value_len, ret_val);
-          //   break;
+          case MST_INT_DELTA: case MST_DEC_DELTA:
+            get_delta_val(node_id, in_size_out_value_len, ret_val);
+            break;
         }
       }
     }

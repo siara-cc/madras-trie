@@ -415,8 +415,8 @@ class ptr_groups {
       for (uint32_t k = 0; k < len; k++)
         grp_data_vec.push_back(val[k]);
       // grp_data_vec.push_back(0);
-      uint64_t u64;
-      flavic48::simple_decode(grp_data_vec.data() + ptr, 1, &u64);
+      // uint64_t u64;
+      // flavic48::simple_decode(grp_data_vec.data() + ptr, 1, &u64);
       // printf("Grp: %d, u64: %llu, len: %u, %u\n", grp_no, u64, len, ptr);
       return ptr;
     }
@@ -2746,16 +2746,20 @@ class builder : public builder_fwd {
               } break;
             }
             if (cur_col_idx == col_idx) {
-              if (false) { //col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
-                int64_t col_val = gen::read_svint60(data_pos);
+              if (col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
+                uint64_t u64;
+                uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
+                int64_t col_val = flavic48::cvt2_i64(u64);
                 int64_t delta_val = col_val;
                 if (!delta_next_block && ((node_id - (pk_col_count == 0 ? 1 : 0)) % nodes_per_bv_block_n))
                   delta_val -= prev_val;
                 delta_next_block = false;
                 prev_val = col_val;
-                uint32_t val_pos = delta_vals->append_svint60(delta_val);
-                data_pos = (*delta_vals)[val_pos];
-                data_len = gen::get_svint60_len(delta_val);
+                u64 = flavic48::cvt2_u64(delta_val);
+                uint8_t v64[10];
+                uint8_t *v_end = flavic48::simple_encode_single(u64, v64, frac_width);
+                data_len = (v_end - v64);
+                data_pos = (*delta_vals)[delta_vals->push_back(v64, data_len)];
               }
               if (encoding_type == MSE_TRIE) {
                 col_trie_builder->insert(data_pos, data_len);
