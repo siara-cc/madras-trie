@@ -165,7 +165,7 @@ struct PACKED_STRUCT bldr_options {
   uint8_t trie_leaf_count;
   uint8_t max_groups;
   uint8_t split_tails_method;
-  uint8_t align8_padding1;
+  uint8_t rpt_enable_perc;
   uint8_t align8_padding2;
   uint8_t align8_padding3;
   uint8_t align8_padding4;

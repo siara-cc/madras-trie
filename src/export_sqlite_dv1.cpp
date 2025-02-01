@@ -390,7 +390,7 @@ int main(int argc, char* argv[]) {
           char dt_txt[50];
           strftime(dt_txt, sizeof(dt_txt), dt_formats[encoding_type - MSE_DATE_US], localtime(&original_epoch));
           val_len = strlen(dt_txt);
-          if (encoding_type == MSE_DATETIME_ISO || encoding_type == MSE_DATETIME_ISOT) {
+          if (encoding_type == MSE_DATETIME_ISO_MS || encoding_type == MSE_DATETIME_ISOT_MS) {
             original_epoch = *((int64_t *) val);
             dt_txt[val_len++] = '.';
             dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
