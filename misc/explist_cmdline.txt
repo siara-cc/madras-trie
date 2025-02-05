@@ -2,7 +2,7 @@
 - encoding t for date field not working
 
 ./export_sqlite ~/Downloads/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
-./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 diifi fuuuu
+./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 diifi fuu5u
 
 ./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 0tt00000GGtt tttuuuutdduu
 - key_col 1 not working

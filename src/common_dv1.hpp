@@ -49,7 +49,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 
 #define sel_divisor 512
 
-#define bm_init_mask 0x0000000000000001UL
+#define bm_init_mask 0x0000000000000001ULL
 
 #define BV_LT_TYPE_LEAF 1
 #define BV_LT_TYPE_TERM 2
@@ -160,8 +160,8 @@ struct PACKED_STRUCT bldr_options {
   uint8_t step_bits_idx;
   uint8_t step_bits_rest;
   uint8_t max_inner_tries;
-  uint8_t fwd_cache_multipler;
-  uint8_t rev_cache_multipler;
+  uint8_t fwd_cache_multiplier;
+  uint8_t rev_cache_multiplier;
   uint8_t trie_leaf_count;
   uint8_t max_groups;
   uint8_t split_tails_method;

@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 
   madras_dv1::builder *sb;
   if (what == 0)
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "tt00", "uuuu");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "ttii", "uuuu");
   else if (what == 1) // Process only key
     sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u");
   else if (what == 2) // Insert key as value to compare trie and prefix coding
@@ -217,13 +217,17 @@ int main(int argc, char *argv[]) {
           if (as_int)
             printf("E: %s, A: %" PRId64 "\n", lines[i].first, gen::read_svint60(key_buf));
         }
-        if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
-          printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-          err_count++;
-        }
-        if (what == 0 && memcmp(val, val_buf, out_val_len) != 0) {
-          printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-          err_count++;
+        if (what == 0 || what == 2) {
+          in_ctx.node_id = dict_ctx.node_path[dict_ctx.cur_idx];
+          trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
+          if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
+            printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+            err_count++;
+          }
+          if (what == 0 && memcmp(val, val_buf, out_val_len) != 0) {
+            printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+            err_count++;
+          }
         }
       }
     }
@@ -245,12 +249,12 @@ int main(int argc, char *argv[]) {
     success = trie_reader.get(in_ctx, &out_val_len, val_buf);
     if (success) {
       val_buf[out_val_len] = 0;
-      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
-        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
-        err_count++;
-      }
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0) {
         printf("key: [%.*s], val: [%.*s]\n", (int) out_key_len, in_ctx.key, (int) out_val_len, val_buf);
+        err_count++;
+      }
+      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
+        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
         err_count++;
       }
     } else {
@@ -262,7 +266,7 @@ int main(int argc, char *argv[]) {
       trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
       int64_t out_len = *((int64_t *) val_buf);
       if (out_len != in_ctx.key_len) {
-        std::cout << "First val mismatch - expected: " << in_ctx.key_len << ", found: "
+        std::cout << "nid: " << in_ctx.node_id << ", First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << out_len << std::endl;
         err_count++;
       }
@@ -273,7 +277,7 @@ int main(int argc, char *argv[]) {
       }
       int64_t out_chksum = *((int64_t *) val_buf);
       if (out_chksum != checksum) {
-        std::cout << "Second val mismatch - expected: " << checksum << ", found: "
+        std::cout << "nid: " << in_ctx.node_id << ", Second val mismatch - expected: " << checksum << ", found: "
             << out_chksum << std::endl;
         err_count++;
       }

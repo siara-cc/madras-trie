@@ -26,3 +26,6 @@ tex/*.out
 tex/*.aux
 test*
 /export_sqlite*
+emscripten/*.js
+emscripten/*.wasm
+
