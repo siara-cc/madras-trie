@@ -1619,9 +1619,8 @@ class val_sort_callbacks : public sort_callbacks {
           v += vlen;
         } break;
         case MST_INT:
-        case MST_INT_DELTA:
-        case MST_DEC:
-        case MST_DEC_DELTA:
+        case MST_DECV ... MST_DEC9:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS:
           len = *v & 0x07;
           len += 2;
           break;
@@ -2565,10 +2564,8 @@ class builder : public builder_fwd {
               data_pos += len_len;
             } break;
             case MST_INT:
-            case MST_INT_DELTA:
-            case MST_DEC:
-            case MST_DEC_DELTA:
-            case MST_DATETIME: {
+            case MST_DECV ... MST_DEC9:
+            case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
               data_len = *data_pos & 0x07;
               data_len += 2;
             } break;
@@ -2686,7 +2683,7 @@ class builder : public builder_fwd {
         prev_val_size = val_size;
         return;
       }
-      if (encoding_type == 't') {
+      if (encoding_type == MSE_TRIE) {
         init_col_trie_builder();
         // col_trie_fp = fopen("col_trie.txt", "wb+");
       }
@@ -2694,7 +2691,7 @@ class builder : public builder_fwd {
       char data_type = column_types[cur_col_idx];
       gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
       gen::byte_blocks *delta_vals = nullptr;
-      if (data_type == MST_INT_DELTA || data_type == MST_DEC_DELTA)
+      if (encoding_type == MSE_DICT_DELTA)
         delta_vals = new gen::byte_blocks();
       bool is_rec_pos_src_leaf_id = false;
       if (pk_col_count == 0 || rec_pos_vec[0] == UINT32_MAX)
@@ -2740,17 +2737,15 @@ class builder : public builder_fwd {
                 pos += data_len;
               } break;
               case MST_INT:
-              case MST_INT_DELTA:
-              case MST_DEC:
-              case MST_DEC_DELTA:
-              case MST_DATETIME: {
+              case MST_DECV ... MST_DEC9:
+              case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
                 data_len = *data_pos & 0x07;
                 data_len += 2;
                 pos += data_len;
               } break;
             }
             if (cur_col_idx == col_idx) {
-              if (col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA) {
+              if (encoding_type == MSE_DICT_DELTA) {
                 uint64_t u64;
                 uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
                 int64_t col_val = flavic48::cvt2_i64(u64);
@@ -2770,7 +2765,7 @@ class builder : public builder_fwd {
                 col_trie_builder->insert(data_pos, data_len);
                 // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
                 uint32_t col_val = pos - data_len - len_len;
-                if (col_data_type == MST_INT_DELTA || col_data_type == MST_DEC_DELTA)
+                if (encoding_type == MSE_DICT_DELTA)
                   col_val = data_pos - (*delta_vals)[0];
                 n.set_col_val(col_val);
                 // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
@@ -2788,7 +2783,7 @@ class builder : public builder_fwd {
       }
       if (encoding_type == MSE_TRIE) {
         // fclose(col_trie_fp);
-        uint32_t col_trie_size = build_col_trie((data_type == MST_INT_DELTA || data_type == MST_DEC_DELTA) ? delta_vals : all_vals);
+        uint32_t col_trie_size = build_col_trie(all_vals);
         ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
         ptr_grps->set_max_len(col_trie->max_key_len);
         ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
@@ -3934,10 +3929,8 @@ class builder : public builder_fwd {
             rec.push_back(0);
         } break;
         case MST_INT:
-        case MST_INT_DELTA:
-        case MST_DEC:
-        case MST_DEC_DELTA:
-        case MST_DATETIME: {
+        case MST_DECV ... MST_DEC9:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           if (*ptr == INT64_MIN) { // null
             if (val_type == APPEND_REC_NOKEY) {
               rec.push_back(0xF8);
@@ -3947,15 +3940,15 @@ class builder : public builder_fwd {
           } else {
             uint8_t frac_width = 0;
             int64_t i64 = (int64_t) *ptr;
-            if (encoding_type == MSE_DECV) {
+            if (type == MST_DECV) {
               double dbl = *dbl_ptr;
               frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
               if (frac_width == UINT8_MAX)
                 frac_width = 0xF0;
             }
-            if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
+            if (type >= MST_DEC0 && type <= MST_DEC9) {
               double dbl = *dbl_ptr;
-              i64 = static_cast<int64_t>(dbl * gen::pow10(encoding_type - MSE_DEC1 + 1));
+              i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
             }
             if (val_type == APPEND_REC_NOKEY) {
               uint64_t u64 = flavic48::cvt2_u64(i64);

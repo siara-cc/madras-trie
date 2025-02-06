@@ -102,7 +102,7 @@ Making trie build faster
 
 val interface:
 - export_sqlite <db_file> <table_or_select> <storage_types> <encoding_types> <row_count=0> <offset=0> <key_column_list_0> <key_column_list_1> ... <key_column_list_n>
-- raw inputs, store processed data as column sets with ovint, primary trie holds pointers to columns sets
++ raw inputs, store processed data as vint, primary trie holds pointers to row_data
 
 data layout for LSM
 - store in the order of primary index
@@ -145,46 +145,52 @@ Split tails and val texts
   - Ends with same code
 - Code for (huffman encoded?) literals
 
-+ run_tests chk_sum and len
 + col_trie tail split not working
 + reverse lookup for col_tries
 x tail - part bin and part text
 x difference between marisa for small datasets
+x ODBC driver
 + Setting value for NULL/EMPTY
 + next not working for leapfrog
 + Run on CUDA cores?
 + Multiple column key/values
 + Multiple column key/value double mismatch df_sales
++ primary key value extract
+- run_tests chk_sum and len
+- bv int_bv_reader bit_len > 32 not working?
 
+- Pure Rust/Go version?
+- Integrate Unishox
+- GUI crashing on linux
+
++ Word encoding for tails
++ Emscripten support
 - Implement Repeat (RLE)
-- Word encoding for Vals and tails and optional index
+- Implement 32/64 bit
+- Word encoding for Vals and optional index
+- 1 file for each column
+- SQL interface
+- Support CTAS on Spark / BigQuery?
+
 - wrong totals for integer/doubles
+- INT32/64, float double
 - ALP and fast_lanes
-- Simply store option
 - Fix grouping logic
 - Cleanup madras builder
-- Implement 32/64 bit
 
 - implement dessicate
 * replace for !no_primary_trie
-- primary key value extract
 - Secondary indexes
 - Compression levels as parameter
-- 1 file for each column
-- Next val for performance
-- INT32/64, float double
+- Next val
 - interface for multiple keys on pk and sk
 
 - count errors/warnings on export
 - CSV/JSON export?
 - Auto encoding option
 - GUI for viewing/creating from SQLite / CSV
-- SQL interface
 - JDBC driver
-- ODBC driver
-- Support CTAS on Spark / BigQuery?
 - Testing on Other OS?
-- Emscripten support
 
 - Integrity check
 - Testing with boundary conditions 64/512
@@ -193,9 +199,12 @@ x difference between marisa for small datasets
 - Documentation and format definition
 - check release and leaks
 
-- Pure Rust/Go version?
-- Integrate Unishox
-- GUI crashing on linux
-
 Integer codec with ALP
-- flavic48
+- flavic48 - floating point losless adaptive variable integer 32 and 64 bit
+
+doubles:
+<len 3 bits> - 0 to 7 - 7 means store as it is
+<dec count> - 0 to 31
+<data> 
+
+0xF8 is null for both int and double

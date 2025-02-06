@@ -1908,12 +1908,12 @@ class val_ptr_group_map : public ptr_group_map {
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
       *in_size_out_value_len = 8;
-      if (data_type == MST_INT_DELTA) {
+      if (data_type == MST_INT) {
         *((int64_t *) ret_val) = col_val;
         return;
       }
       double dbl = static_cast<double>(col_val);
-      dbl /= gen::pow10(encoding_type - MSE_DEC1 + 1);
+      dbl /= gen::pow10(data_type - MST_DEC0);
       *((double *)ret_val) = dbl;
     }
 
@@ -1930,10 +1930,8 @@ class val_ptr_group_map : public ptr_group_map {
       ret_len = 8;
       switch (data_type) {
         case MST_INT:
-        case MST_INT_DELTA:
-        case MST_DEC:
-        case MST_DEC_DELTA:
-        case MST_DATETIME: {
+        case MST_DECV ... MST_DEC9:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           if (*val_loc == 0xF8) {
             ret_len = 0;
             return;
@@ -1941,9 +1939,9 @@ class val_ptr_group_map : public ptr_group_map {
           uint64_t u64;
           flavic48::simple_decode(val_loc, 1, &u64);
           int64_t i64 = flavic48::cvt2_i64(u64);
-          if (encoding_type >= MSE_DEC1 && encoding_type <= MSE_DEC9) {
+          if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(encoding_type - MSE_DEC1 + 1);
+            dbl /= gen::pow10(data_type - MST_DEC0);
             *((double *)ret_val) = dbl;
           } else
             memcpy(ret_val, &i64, sizeof(int64_t));
@@ -1979,15 +1977,18 @@ class val_ptr_group_map : public ptr_group_map {
             delete [] val_str_buf;
             #endif
           } break;
-          case MST_INT: case MST_DEC: {
-            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-            // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
-            *in_size_out_value_len = 8;
-            convert_back(val_loc, ret_val, *in_size_out_value_len);
+          case MST_INT:
+          case MST_DECV ... MST_DEC9:
+          case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+            if (encoding_type == MSE_DICT_DELTA) {
+              get_delta_val(node_id, in_size_out_value_len, ret_val);
+            } else {
+              val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+              // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
+              *in_size_out_value_len = 8;
+              convert_back(val_loc, ret_val, *in_size_out_value_len);
+            }
           } break;
-          case MST_INT_DELTA: case MST_DEC_DELTA:
-            get_delta_val(node_id, in_size_out_value_len, ret_val);
-            break;
         }
       }
     }

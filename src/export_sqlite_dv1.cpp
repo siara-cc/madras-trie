@@ -29,8 +29,8 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
   return t;
 }
 
-static double round_dbl(const double input, char encoding_type) {
-  double p10 = gen::pow10(encoding_type - MSE_DEC1 + 1);
+static double round_dbl(const double input, char data_type) {
+  double p10 = gen::pow10(data_type - MST_DEC0);
   int64_t i64 = static_cast<int64_t>(input * p10);
   double ret = i64;
   ret /= p10;
@@ -52,35 +52,36 @@ void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, 
   } else if (exp_col_type == MST_BIN) {
     values[exp_col_idx] = (uint64_t) sqlite3_column_blob(stmt, sql_col_idx);
     value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
-  } else if (exp_col_type == MST_DATETIME) {
+  } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
     struct tm tm = {0};
     const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
-    char dt_txt[dt_format_lens[encoding_type - MSE_DATE_US] + 1];
-    strncpy(dt_txt, (const char *) dt_txt_db, dt_format_lens[encoding_type - MSE_DATE_US]);
-    dt_txt[dt_format_lens[encoding_type - MSE_DATE_US]] = 0;
-    // printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - MSE_DATE_US]);
-    char *result = strptime((const char *) dt_txt, dt_formats[encoding_type - MSE_DATE_US], &tm);
+    char dt_txt[dt_format_lens[exp_col_type - MST_DATE_US] + 1];
+    strncpy(dt_txt, (const char *) dt_txt_db, dt_format_lens[exp_col_type - MST_DATE_US]);
+    dt_txt[dt_format_lens[exp_col_type - MST_DATE_US]] = 0;
+    // printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - MST_DATE_US]);
+    char *result = strptime((const char *) dt_txt, dt_formats[exp_col_type - MST_DATE_US], &tm);
     if (result == nullptr || *result != '\0') {
       printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
       values[exp_col_idx] = INT64_MIN;
     } else {
       uint64_t dt_val = (uint64_t) mktime(&tm);
-      if (encoding_type >= MSE_DATE_US && encoding_type <= MSE_DATE_ISO)
+      if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
         dt_val /= 86400;
-      if (encoding_type == MSE_DATETIME_ISO_MS || encoding_type == MSE_DATETIME_ISOT_MS) {
+      if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
         dt_val *= 1000;
         char *dot_pos = (char *) memchr(dt_txt_db, '.', strnlen((const char *) dt_txt_db, 24));
         if (dot_pos != nullptr)
           dt_val += atoi(dot_pos + 1);
       }
+      // printf("dt_val: %llu\n", dt_val);
       values[exp_col_idx] = dt_val;
     }
     value_lens[exp_col_idx] = 8;
-  } else if (exp_col_type == MST_INT || exp_col_type == MST_INT_DELTA) {
+  } else if (exp_col_type == MST_INT) {
     s64 = sqlite3_column_int64(stmt, sql_col_idx);
     memcpy(values + exp_col_idx, &s64, 8);
     value_lens[exp_col_idx] = 8;
-  } else if (exp_col_type == MST_DEC || exp_col_type == MST_DEC_DELTA) {
+  } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
     values_dbl[exp_col_idx] = sqlite3_column_double(stmt, sql_col_idx);
     value_lens[exp_col_idx] = 8;
   }
@@ -375,7 +376,7 @@ int main(int argc, char* argv[]) {
             }
           }
         }
-      } else if (exp_col_type == MST_DATETIME) {
+      } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
         size_t sql_val_len = sqlite3_column_bytes(stmt, sql_col_idx);
         uint8_t val[16];
@@ -383,14 +384,15 @@ int main(int argc, char* argv[]) {
         bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
         if (is_success) {
           time_t original_epoch = *((int64_t *) val);
-          if (encoding_type >= MSE_DATE_US && encoding_type <= MSE_DATE_ISO)
+          // printf("orig epoch: %llu\n", original_epoch);
+          if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
             original_epoch *= 86400;
-          if (encoding_type == MSE_DATETIME_ISO || encoding_type == MSE_DATETIME_ISOT)
+          if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS)
             original_epoch /= 1000;
           char dt_txt[50];
-          strftime(dt_txt, sizeof(dt_txt), dt_formats[encoding_type - MSE_DATE_US], localtime(&original_epoch));
+          strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], localtime(&original_epoch));
           val_len = strlen(dt_txt);
-          if (encoding_type == MSE_DATETIME_ISO_MS || encoding_type == MSE_DATETIME_ISOT_MS) {
+          if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
             original_epoch = *((int64_t *) val);
             dt_txt[val_len++] = '.';
             dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
@@ -411,7 +413,7 @@ int main(int argc, char* argv[]) {
           }
         } else
           std::cerr << "Date/time not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
-      } else if (exp_col_type == MST_INT || exp_col_type == MST_INT_DELTA) {
+      } else if (exp_col_type == MST_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, sql_col_idx);
         uint8_t val[16];
         size_t val_len = 8;
@@ -423,8 +425,8 @@ int main(int argc, char* argv[]) {
           int_sums[col_val_idx] += i64;
         } else
           std::cerr << "Int not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
-      } else if (exp_col_type == MST_DEC || exp_col_type == MST_DEC_DELTA) {
-        double sql_val = round_dbl(sqlite3_column_double(stmt, i), encoding_type);
+      } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
+        double sql_val = round_dbl(sqlite3_column_double(stmt, i), exp_col_type);
         uint8_t val[16];
         size_t val_len;
         bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
