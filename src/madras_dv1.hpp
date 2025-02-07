@@ -1969,7 +1969,11 @@ class val_ptr_group_map : public ptr_group_map {
             uint8_t val_str_buf[max_len];
             #endif
             gen::byte_str val_str(val_str_buf, max_len);
-            get_val_str(val_str, val_loc - grp_data[grp_no], grp_no, max_len);
+            uint8_t *val_start = grp_data[grp_no];
+            if (*val_start != 0)
+              inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
+            else
+              get_val_str(val_str, val_loc - val_start, grp_no, max_len);
             size_t val_len = val_str.length();
             *in_size_out_value_len = val_len;
             memcpy(ret_val, val_str.data(), val_len);

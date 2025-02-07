@@ -979,38 +979,48 @@ class tail_val_maps {
 
     constexpr static uint32_t idx_ovrhds[] = {384, 3072, 24576, 196608, 1572864, 10782081};
     #define inner_trie_min_size 131072
-    void build_tail_maps(byte_ptr_vec& all_node_sets, uint32_t tot_freq_count, uint32_t _max_len) {
+    void build_tail_val_maps(bool is_tail, byte_ptr_vec& all_node_sets, uniq_info_vec& uniq_info_arr, gen::byte_blocks& uniq_data, uint32_t tot_freq_count, uint32_t _max_len, uint8_t max_repeats) {
 
       clock_t t = clock();
 
-      uniq_info_vec uniq_tails_freq;
+      uniq_info_vec uniq_info_arr_freq;
       uint8_t grp_no;
       uint32_t last_data_len;
-      uint8_t start_bits = 7;
-      uint32_t cumu_freq_idx = make_uniq_freq((uniq_info_vec&) uniq_tails_rev, (uniq_info_vec&) uniq_tails_freq, tot_freq_count, last_data_len, start_bits, grp_no);
+      uint8_t start_bits = is_tail ? 7 : 1;
+      uint32_t cumu_freq_idx = make_uniq_freq(uniq_info_arr, uniq_info_arr_freq, tot_freq_count, last_data_len, start_bits, grp_no);
+      ptr_grps.reset();
       ptr_grps.set_idx_info(start_bits, grp_no, 3); //last_data_len > 65535 ? 3 : 2);
       ptr_grps.set_max_len(_max_len);
 
-      uint32_t freq_idx = cumu_freq_idx;
-      while (freq_idx < uniq_tails_freq.size()) {
-        uniq_info *ti = uniq_tails_freq[freq_idx];
-        last_data_len += ti->len;
-        last_data_len++;
-        freq_idx++;
-      }
+      // uint32_t freq_idx = cumu_freq_idx;
+      // while (freq_idx < uniq_info_arr_freq.size()) {
+      //   uniq_info *ti = uniq_info_arr_freq[freq_idx];
+      //   last_data_len += ti->len;
+      //   last_data_len++;
+      //   freq_idx++;
+      // }
 
-      freq_idx = 0;
+      uint32_t freq_idx = 0;
       bool is_bin = false;
-      if (uniq_tails_rev[0]->flags & LPDU_BIN) {
+      if (uniq_info_arr[0]->flags & LPDU_BIN) {
         gen::gen_printf("Tail content not text.\n");
         is_bin = true;
       }
       if (!is_bin) {
-        uniq_info *prev_ti = uniq_tails_freq[freq_idx];
-        while (freq_idx < uniq_tails_freq.size()) {
-          uniq_info *ti = uniq_tails_freq[freq_idx];
+        uniq_info *prev_ti = uniq_info_arr_freq[freq_idx];
+        while (freq_idx < uniq_info_arr_freq.size()) {
+          uniq_info *ti = uniq_info_arr_freq[freq_idx];
           freq_idx++;
-          int cmp_ret = gen::compare_rev(uniq_tails[prev_ti->pos], prev_ti->len, uniq_tails[ti->pos], ti->len);
+          if (ti->freq_count == 0) // repeats
+            continue;
+          if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY) {
+            if (freq_idx < uniq_info_arr_freq.size())
+              prev_ti = uniq_info_arr_freq[freq_idx];
+            continue;
+          }
+          int cmp_ret = (is_tail ? 
+            gen::compare_rev(uniq_data[prev_ti->pos], prev_ti->len, uniq_data[ti->pos], ti->len)
+            : gen::compare(uniq_data[prev_ti->pos], prev_ti->len, uniq_data[ti->pos], ti->len));
           if (cmp_ret == 0)
             continue;
           uint32_t cmp = abs(cmp_ret);
@@ -1056,8 +1066,8 @@ class tail_val_maps {
       uint32_t sfx_set_count = 0;
       uint32_t sfx_set_tot_cnt = 0;
       uint32_t sfx_set_tot_len = 0;
-      while (freq_idx < uniq_tails_freq.size()) {
-        uniq_info *ti = uniq_tails_freq[freq_idx];
+      while (freq_idx < uniq_info_arr_freq.size()) {
+        uniq_info *ti = uniq_info_arr_freq[freq_idx];
         last_data_len -= ti->len;
         last_data_len--;
         uint32_t it_nxt_limit = ptr_grps.check_next_grp(grp_no, cur_limit, ti->len);
@@ -1066,12 +1076,17 @@ class tail_val_maps {
           break;
         }
         freq_idx++;
+        if (ti->freq_count == 0) { // repeats
+          ti->freq_count = ti->repeat_freq;
+          ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, 0, ti->freq_count, max_repeats, 0, 0});
+          continue;
+        }
         if (is_bin) {
           uint32_t bin_len = ti->len;
           uint32_t len_len = ptr_grps.get_set_len_len(bin_len);
           bin_len += len_len;
           uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_tails[ti->pos], ti->len);
+          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_data[ti->pos], ti->len);
           ti->grp_no = grp_no;
           ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
@@ -1080,16 +1095,20 @@ class tail_val_maps {
           savings_full += ti->len;
           savings_full++;
           savings_count_full++;
-          uniq_info *link_ti = uniq_tails_rev[ti->link_arr_idx];
+          uniq_info *link_ti = uniq_info_arr[ti->link_arr_idx];
           if (link_ti->grp_no == 0) {
             cur_limit = ptr_grps.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
-            ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len + 1, link_ti->freq_count);
-            link_ti->ptr = ptr_grps.append_text(grp_no, uniq_tails[link_ti->pos], link_ti->len, true);
+            ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len + 1 - (is_tail ? 0 : ti->cmp), link_ti->freq_count);
+            link_ti->ptr = ptr_grps.append_text(grp_no, uniq_data[link_ti->pos], link_ti->len - (is_tail ? 0 : ti->cmp), true);
+            link_ti->flags &= ~MDX_SUFFIX_PARTIAL;
           }
           //cur_limit = ptr_grps.next_grp(grp_no, cur_limit, 0);
           ptr_grps.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
-          ti->ptr = link_ti->ptr + link_ti->len - ti->len;
+          if (is_tail)
+            ti->ptr = link_ti->ptr + link_ti->len - ti->len;
+          else
+            ti->ptr = link_ti->ptr + ti->len - (link_ti->flags & MDX_SUFFIX_PARTIAL ? link_ti->cmp : 0);
           ti->grp_no = link_ti->grp_no;
         } else {
           if (ti->flags & MDX_SUFFIX_PARTIAL) {
@@ -1098,9 +1117,10 @@ class tail_val_maps {
             uint32_t len_len = ptr_grps.get_set_len_len(cmp);
             remain_len += len_len;
             uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
+            byte_vec& tail_val_data = ptr_grps.get_data(grp_no);
             if (sfx_set_len + remain_len <= sfx_set_max && cur_limit == new_limit) {
               ti->cmp_min = 0;
-              if (sfx_set_len == 1)
+              if (sfx_set_len == 1 && is_tail)
                 sfx_set_len += cmp;
               sfx_set_len += remain_len;
               sfx_set_count++;
@@ -1109,9 +1129,8 @@ class tail_val_maps {
               savings_count_partial++;
               ptr_grps.update_current_grp(grp_no, remain_len, ti->freq_count);
               remain_len -= len_len;
-              ti->ptr = ptr_grps.append_text(grp_no, uniq_tails[ti->pos], remain_len);
-              byte_vec& tail_data = ptr_grps.get_data(grp_no);
-              ptr_grps.get_set_len_len(cmp, &tail_data);
+              ti->ptr = ptr_grps.append_text(grp_no, uniq_data[ti->pos + (is_tail ? 0 : cmp)], remain_len);
+              ptr_grps.get_set_len_len(cmp, &tail_val_data);
             } else {
               // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
               sfx_set_len = 1;
@@ -1122,9 +1141,10 @@ class tail_val_maps {
               if (ti->len > sfx_set_max)
                 sfx_set_max = ti->len * 2;
               ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = ptr_grps.append_text(grp_no, uniq_tails[ti->pos], ti->len, true);
+              ti->ptr = ptr_grps.append_text(grp_no, uniq_data[ti->pos], ti->len, true);
+              ti->flags &= ~MDX_SUFFIX_PARTIAL;
             }
-              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_tails[ti->tail_pos]);
+              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_data[ti->tail_pos]);
             cur_limit = new_limit;
           } else {
             // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
@@ -1136,24 +1156,29 @@ class tail_val_maps {
             if (ti->len > sfx_set_max)
               sfx_set_max = ti->len * 2;
             cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-            ti->ptr = ptr_grps.append_text(grp_no, uniq_tails[ti->pos], ti->len, true);
+            ptr_grps.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
+            if (ti->flags & LPDU_NULL)
+              ti->ptr = 0;
+            else if (ti->flags & LPDU_EMPTY)
+              ti->ptr = 1;
+            else
+              ti->ptr = ptr_grps.append_text(grp_no, uniq_data[ti->pos], ti->len, true);
           }
           ti->grp_no = grp_no;
         }
       }
-      gen::gen_printf("Tail Savings full: %u, %u\nSavings Partial: %u, %u / Sfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
+      gen::gen_printf("Savings full: %u, %u\nSavings Partial: %u, %u / Sfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
 
-      if (bldr->opts.inner_tries && freq_idx < uniq_tails_freq.size()) {
+      if (bldr->opts.inner_tries && freq_idx < uniq_info_arr_freq.size()) {
         builder_fwd *inner_trie = bldr->new_instance();
-        cur_limit = ptr_grps.next_grp(grp_no, cur_limit, uniq_tails_freq[freq_idx]->len, tot_freq_count, true);
+        cur_limit = ptr_grps.next_grp(grp_no, cur_limit, uniq_info_arr_freq[freq_idx]->len, tot_freq_count, true);
         ptr_grps.inner_trie_start_grp = grp_no;
         uint32_t trie_entry_idx = 0;
         ptr_grps.inner_tries.push_back(inner_trie);
-        while (freq_idx < uniq_tails_freq.size()) {
-          uniq_info *ti = uniq_tails_freq[freq_idx];
+        while (freq_idx < uniq_info_arr_freq.size()) {
+          uniq_info *ti = uniq_info_arr_freq[freq_idx];
           uint8_t rev[ti->len];
-          uint8_t *ti_data = uniq_tails[ti->pos];
+          uint8_t *ti_data = uniq_data[ti->pos];
           for (uint32_t j = 0; j < ti->len; j++)
             rev[j] = ti_data[ti->len - j - 1];
           inner_trie->insert(rev, ti->len, freq_idx);
@@ -1181,7 +1206,7 @@ class tail_val_maps {
             for (size_t i = 0; i <= nsh_children.last_node_idx(); i++) {
               leopard::node child_node = nsh_children[i];
               if (child_node.get_flags() & NFLAG_LEAF) {
-                uniq_info *ti = uniq_tails_freq[cur_node.get_col_val()];
+                uniq_info *ti = uniq_info_arr_freq[cur_node.get_col_val()];
                 sum_freq += ti->freq_count;
               }
             }
@@ -1197,7 +1222,7 @@ class tail_val_maps {
         while (n != nullptr) {
           uint32_t col_val_pos = n.get_col_val();
           if (n.get_flags() & NFLAG_LEAF) {
-            uniq_info *ti = uniq_tails_freq[col_val_pos];
+            uniq_info *ti = uniq_info_arr_freq[col_val_pos];
             ti->ptr = node_id; //leaf_id++;
           }
           n = ni.next();
@@ -1212,12 +1237,12 @@ class tail_val_maps {
 
       if (ptr_grps.get_grp_count() > 2) {
         for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-          uniq_info *ti = uniq_tails_freq[freq_idx];
+          uniq_info *ti = uniq_info_arr_freq[freq_idx];
           ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
         }
       }
 
-      // check_remaining_text(uniq_tails_freq, uniq_tails, true);
+      // check_remaining_text(uniq_info_arr_freq, uniq_data, true);
 
       // int cmpr_blk_size = 65536;
       // size_t total_size = 0;
@@ -1241,216 +1266,10 @@ class tail_val_maps {
       // }
       // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
 
-      ptr_grps.build_freq_codes();
+      ptr_grps.build_freq_codes(!is_tail);
       ptr_grps.show_freq_codes();
 
-      gen::print_time_taken(t, "Time taken for build_tail_maps(): ");
-
-    }
-
-    #define pfx_set_max_dflt 128
-    void build_text_val_maps(uint32_t tot_freq_count, uint32_t _max_len, uint8_t max_repeats) {
-
-      clock_t t = clock();
-
-      uniq_info_vec uniq_vals_freq;
-      uint8_t grp_no;
-      uint32_t last_data_len;
-      uint8_t start_bits = 1;
-      uint32_t cumu_freq_idx = make_uniq_freq((uniq_info_vec&) uniq_vals_fwd, (uniq_info_vec&) uniq_vals_freq, tot_freq_count, last_data_len, start_bits, grp_no);
-      ptr_grps.reset();
-      ptr_grps.set_idx_info(start_bits, grp_no, 3);
-      ptr_grps.set_max_len(_max_len);
-
-      uint32_t freq_idx = 0;
-      bool is_bin = false;
-      if (uniq_vals_fwd[0]->flags & LPDU_BIN) {
-        gen::gen_printf("Given content not text.\n");
-        is_bin = true;
-      }
-      if (!is_bin) {
-        uniq_info *prev_ti = uniq_vals_freq[freq_idx];
-        while (freq_idx < uniq_vals_freq.size()) {
-          uniq_info *ti = uniq_vals_freq[freq_idx];
-          freq_idx++;
-          if (ti->freq_count == 0) // repeats
-            continue;
-          if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY) {
-            if (freq_idx < uniq_vals_freq.size())
-              prev_ti = uniq_vals_freq[freq_idx];
-            continue;
-          }
-          int cmp_ret = gen::compare(uniq_vals[prev_ti->pos], prev_ti->len, uniq_vals[ti->pos], ti->len);
-          if (cmp_ret == 0)
-            continue;
-          uint32_t cmp = abs(cmp_ret);
-          cmp--;
-          if (cmp == ti->len || cmp > 1) { // (freq_idx >= cumu_freq_idx && cmp > 1)) {
-            ti->flags |= (cmp == ti->len ? MDX_PREFIX_FULL : MDX_PREFIX_PARTIAL);
-            ti->cmp = cmp;
-            if (ti->cmp_max < cmp)
-              ti->cmp_max = cmp;
-            if (prev_ti->cmp_min > cmp) {
-              prev_ti->cmp_min = cmp;
-              if (cmp == ti->len && prev_ti->cmp >= cmp)
-                prev_ti->cmp = cmp - 1;
-            }
-            if (cmp == ti->len) {
-              if (prev_ti->cmp_max < cmp)
-                prev_ti->cmp_max = cmp;
-            }
-            prev_ti->flags |= MDX_HAS_PREFIX;
-            ti->link_arr_idx = prev_ti->arr_idx;
-          }
-          if (cmp != ti->len)
-            prev_ti = ti;
-        }
-      }
-
-      freq_idx = 0;
-      grp_no = 1;
-      uint32_t cur_limit = pow(2, start_bits);
-      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
-      uint32_t savings_full = 0;
-      uint32_t savings_count_full = 0;
-      uint32_t savings_partial = 0;
-      uint32_t savings_count_partial = 0;
-      uint32_t pfx_set_len = 0;
-      uint32_t pfx_set_max = pfx_set_max_dflt;
-      uint32_t pfx_set_count = 0;
-      uint32_t pfx_set_tot_cnt = 0;
-      uint32_t pfx_set_tot_len = 0;
-      while (freq_idx < uniq_vals_freq.size()) {
-        uniq_info *ti = uniq_vals_freq[freq_idx];
-        freq_idx++;
-        if (ti->freq_count == 0) { // repeats
-          ti->freq_count = ti->repeat_freq;
-          ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, 0, ti->freq_count, max_repeats, 0, 0});
-          continue;
-        }
-        // if (memcmp("COOPER", uniq_vals[ti->pos], ti->len) == 0)
-        //   int hello = 1;
-        if (is_bin) {
-          uint32_t bin_len = ti->len;
-          uint32_t len_len = ptr_grps.get_set_len_len(bin_len);
-          bin_len += len_len;
-          uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, bin_len, tot_freq_count);
-          ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_vals[ti->pos], ti->len);
-          ti->grp_no = grp_no;
-          ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
-          cur_limit = new_limit;
-          continue;
-        } else if (ti->flags & MDX_PREFIX_FULL) {
-          savings_full += ti->len;
-          savings_full++;
-          savings_count_full++;
-          uniq_info *link_ti = uniq_vals_fwd[ti->link_arr_idx];
-          if (link_ti->grp_no == 0) {
-            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
-            link_ti->grp_no = grp_no;
-            ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len - ti->cmp + 1, link_ti->freq_count); // +1 insufficient for pfx_len?
-            link_ti->ptr = ptr_grps.append_text(grp_no, uniq_vals[link_ti->pos], link_ti->len - ti->cmp, true);
-            link_ti->flags &= ~MDX_PREFIX_PARTIAL;
-          }
-          //cur_limit = ptr_grps.next_grp(grp_no, cur_limit, 0);
-          ptr_grps.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
-          ti->ptr = link_ti->ptr + ti->len - (link_ti->flags & MDX_PREFIX_PARTIAL ? link_ti->cmp : 0);
-          ti->grp_no = link_ti->grp_no;
-        } else {
-          if (ti->flags & MDX_PREFIX_PARTIAL) {
-            uint32_t cmp = ti->cmp;
-            uint32_t remain_len = ti->len - cmp;
-            uint32_t len_len = ptr_grps.get_set_len_len(cmp);
-            remain_len += len_len;
-            uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, remain_len, tot_freq_count);
-            byte_vec& val_data = ptr_grps.get_data(grp_no);
-            if (pfx_set_len + remain_len <= pfx_set_max && cur_limit == new_limit) {
-              ti->cmp_min = 0;
-              // if (pfx_set_len == 1)
-              //   pfx_set_len += cmp;
-              pfx_set_len += remain_len;
-              pfx_set_count++;
-              savings_partial += cmp;
-              savings_partial -= len_len;
-              savings_count_partial++;
-              ptr_grps.update_current_grp(grp_no, remain_len, ti->freq_count);
-              remain_len -= len_len;
-              ti->ptr = ptr_grps.append_text(grp_no, uniq_vals[ti->pos + cmp], remain_len);
-              ptr_grps.get_set_len_len(cmp, &val_data);
-            } else {
-              // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, sfx_set_count, sfx_set_freq, sfx_set_len);
-              pfx_set_len = 1;
-              pfx_set_tot_len += ti->len;
-              pfx_set_count = 1;
-              pfx_set_tot_cnt++;
-              pfx_set_max = pfx_set_max_dflt;
-              if (ti->len > pfx_set_max)
-                pfx_set_max = ti->len * 2;
-              ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
-              ti->ptr = ptr_grps.append_text(grp_no, uniq_vals[ti->pos], ti->len, true);
-              ti->flags &= ~MDX_PREFIX_PARTIAL;
-            }
-              //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp, ti->cmp_min, ti->val_ptr, remain_len, ti->val_len, ti->val_len, uniq_vals[ti->val_pos]);
-            cur_limit = new_limit;
-          } else {
-            // gen::gen_printf("%02u\t%03u\t%03u\t%u\n", grp_no, pfx_set_count, pfx_set_freq, pfx_set_len);
-            pfx_set_len = 1;
-            pfx_set_tot_len += ti->len;
-            pfx_set_count = 1;
-            pfx_set_tot_cnt++;
-            pfx_set_max = pfx_set_max_dflt;
-            if (ti->len > pfx_set_max)
-              pfx_set_max = ti->len * 2;
-            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            ptr_grps.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
-            if (ti->flags & LPDU_NULL)
-              ti->ptr = 0;
-            else if (ti->flags & LPDU_EMPTY)
-              ti->ptr = 1;
-            else
-              ti->ptr = ptr_grps.append_text(grp_no, uniq_vals[ti->pos], ti->len, true);
-          }
-          ti->grp_no = grp_no;
-        }
-      }
-      gen::gen_printf("Val Savings full: %u, %u\nSavings Partial: %u, %u / Pfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, pfx_set_tot_len, pfx_set_tot_cnt);
-
-      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-        uniq_info *ti = uniq_vals_freq[freq_idx];
-        ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
-      }
-
-      check_remaining_text(uniq_vals_freq, uniq_vals, false);
-
-      // clock_t tt = clock();
-
-      // int cmpr_blk_size = 262144;
-      // size_t total_size = 0;
-      // size_t tot_cmpr_size = 0;
-      // uint8_t *cmpr_buf = (uint8_t *) malloc(cmpr_blk_size * 1.2);
-      // for (int g = 1; g <= grp_no; g++) {
-      //   byte_vec& gd = ptr_grps.get_data(g);
-      //   // if (gd.size() > cmpr_blk_size) {
-      //     int cmpr_blk_count = gd.size() / cmpr_blk_size + 1;
-      //     for (int b = 0; b < cmpr_blk_count; b++) {
-      //       size_t input_size = (b == cmpr_blk_count - 1 ? gd.size() % cmpr_blk_size : cmpr_blk_size);
-      //       size_t cmpr_size = gen::compress_block(CMPR_TYPE_ZSTD, gd.data() + (b * cmpr_blk_size), input_size, cmpr_buf);
-      //       total_size += input_size;
-      //       tot_cmpr_size += cmpr_size;
-      //       printf("Grp_no: %d, grp_size: %lu, blk_count: %d, In size: %lu, cmpr size: %lu\n", g, gd.size(), cmpr_blk_count, input_size, cmpr_size);
-      //     }
-      //   // } else {
-      //   //   total_size += gd.size();
-      //   //   tot_cmpr_size += gd.size();
-      //   // }
-      // }
-      // printf("Total Input size: %lu, Total cmpr size: %lu\n", total_size, tot_cmpr_size);
-      // gen::print_time_taken(tt, "Time taken for compress (): ");
-
-      ptr_grps.build_freq_codes(true);
-      ptr_grps.show_freq_codes();
-      gen::print_time_taken(t, "Time taken for build_text_val_maps(): ");
+      gen::print_time_taken(t, "Time taken for build_tail_val_maps(): ");
 
     }
 
@@ -2800,7 +2619,7 @@ class builder : public builder_fwd {
         printf("Rpt count: %lu, max: %d\n", rpt_count, max_repeats);
 
         if (data_type == MST_TEXT)
-          tail_vals.build_text_val_maps(tot_freq_count, max_val_len, max_repeats);
+          tail_vals.build_tail_val_maps(false, memtrie.all_node_sets, uniq_vals_fwd, uniq_vals, tot_freq_count, max_val_len, max_repeats);
         else
           tail_vals.build_val_maps(tot_freq_count, max_val_len, data_type, max_repeats);
 
@@ -2931,7 +2750,7 @@ class builder : public builder_fwd {
           tail_trie_size = build_tail_trie(tot_freq_count);
         } else {
           //opts.inner_tries = false;
-          tail_vals.build_tail_maps(memtrie.all_node_sets, tot_freq_count, memtrie.max_tail_len);
+          tail_vals.build_tail_val_maps(true, memtrie.all_node_sets, uniq_tails_rev, uniq_tails, tot_freq_count, memtrie.max_tail_len, 0);
         }
       }
       uint32_t flag_counts[8];
