@@ -26,14 +26,10 @@
 
 namespace madras_dv1 {
 
-#define MDX_SUFFIX_FULL 0x01
-#define MDX_SUFFIX_PARTIAL 0x02
-#define MDX_SUFFIXES 0x03
-#define MDX_HAS_SUFFIX 0x04
-#define MDX_PREFIX_FULL 0x01
-#define MDX_PREFIX_PARTIAL 0x02
-#define MDX_PREFIXES 0x03
-#define MDX_HAS_PREFIX 0x04
+#define MDX_AFFIX_FULL 0x01
+#define MDX_AFFIX_PARTIAL 0x02
+#define MDX_AFFIXES 0x03
+#define MDX_HAS_AFFIX 0x04
 #define MDX_HAS_CHILD 0x10
 
 typedef std::vector<uint8_t> byte_vec;
@@ -940,7 +936,7 @@ class tail_val_maps {
       while (freq_idx < uniq_freq_vec.size()) {
         uniq_info *ti = uniq_freq_vec[freq_idx];
         freq_idx++;
-        if ((ti->flags & MDX_SUFFIX_FULL) || (ti->flags & MDX_PREFIX_FULL))
+        if (ti->flags & MDX_AFFIX_FULL)
          continue;
         if ((ti->flags & 0x07) == 0) {
           // fprintf(fp, "%u\t%u\t%u\t%u\t[%.*s]\n", (uint32_t) ceil(log10(ti->freq_count/ti->tail_len)), ti->freq_count, grp_no, remain_len, remain_len, uniq_tails.data() + ti->tail_pos);
@@ -992,15 +988,15 @@ class tail_val_maps {
       ptr_grps.set_idx_info(start_bits, grp_no, 3); //last_data_len > 65535 ? 3 : 2);
       ptr_grps.set_max_len(_max_len);
 
-      // uint32_t freq_idx = cumu_freq_idx;
-      // while (freq_idx < uniq_info_arr_freq.size()) {
-      //   uniq_info *ti = uniq_info_arr_freq[freq_idx];
-      //   last_data_len += ti->len;
-      //   last_data_len++;
-      //   freq_idx++;
-      // }
+      uint32_t freq_idx = cumu_freq_idx;
+      while (freq_idx < uniq_info_arr_freq.size()) {
+        uniq_info *ti = uniq_info_arr_freq[freq_idx];
+        last_data_len += ti->len;
+        last_data_len++;
+        freq_idx++;
+      }
 
-      uint32_t freq_idx = 0;
+      freq_idx = 0;
       bool is_bin = false;
       if (uniq_info_arr[0]->flags & LPDU_BIN) {
         gen::gen_printf("Tail content not text.\n");
@@ -1025,13 +1021,13 @@ class tail_val_maps {
             continue;
           uint32_t cmp = abs(cmp_ret);
           cmp--;
-          bool partial_suffix = bldr->opts.partial_sfx_coding;
+          bool partial_affix = bldr->opts.partial_sfx_coding;
           if (cmp < bldr->opts.sfx_min_tail_len)
-            partial_suffix = false;
+            partial_affix = false;
           if (!bldr->opts.idx_partial_sfx_coding && freq_idx < cumu_freq_idx)
-            partial_suffix = false;
-          if (cmp == ti->len || partial_suffix) {
-            ti->flags |= (cmp == ti->len ? MDX_SUFFIX_FULL : MDX_SUFFIX_PARTIAL);
+            partial_affix = false;
+          if (cmp == ti->len || partial_affix) {
+            ti->flags |= (cmp == ti->len ? MDX_AFFIX_FULL : MDX_AFFIX_PARTIAL);
             ti->cmp = cmp;
             if (ti->cmp_max < cmp)
               ti->cmp_max = cmp;
@@ -1044,7 +1040,7 @@ class tail_val_maps {
               if (prev_ti->cmp_max < cmp)
                 prev_ti->cmp_max = cmp;
             }
-            prev_ti->flags |= MDX_HAS_SUFFIX;
+            prev_ti->flags |= MDX_HAS_AFFIX;
             ti->link_arr_idx = prev_ti->arr_idx;
           }
           if (cmp != ti->len)
@@ -1091,7 +1087,7 @@ class tail_val_maps {
           ptr_grps.update_current_grp(grp_no, bin_len, ti->freq_count);
           cur_limit = new_limit;
           continue;
-        } else if (ti->flags & MDX_SUFFIX_FULL) {
+        } else if (ti->flags & MDX_AFFIX_FULL) {
           savings_full += ti->len;
           savings_full++;
           savings_count_full++;
@@ -1101,17 +1097,17 @@ class tail_val_maps {
             link_ti->grp_no = grp_no;
             ptr_grps.update_current_grp(link_ti->grp_no, link_ti->len + 1 - (is_tail ? 0 : ti->cmp), link_ti->freq_count);
             link_ti->ptr = ptr_grps.append_text(grp_no, uniq_data[link_ti->pos], link_ti->len - (is_tail ? 0 : ti->cmp), true);
-            link_ti->flags &= ~MDX_SUFFIX_PARTIAL;
+            link_ti->flags &= ~MDX_AFFIX_PARTIAL;
           }
           //cur_limit = ptr_grps.next_grp(grp_no, cur_limit, 0);
           ptr_grps.update_current_grp(link_ti->grp_no, 0, ti->freq_count);
           if (is_tail)
             ti->ptr = link_ti->ptr + link_ti->len - ti->len;
           else
-            ti->ptr = link_ti->ptr + ti->len - (link_ti->flags & MDX_SUFFIX_PARTIAL ? link_ti->cmp : 0);
+            ti->ptr = link_ti->ptr + ti->len - (link_ti->flags & MDX_AFFIX_PARTIAL ? link_ti->cmp : 0);
           ti->grp_no = link_ti->grp_no;
         } else {
-          if (ti->flags & MDX_SUFFIX_PARTIAL) {
+          if (ti->flags & MDX_AFFIX_PARTIAL) {
             uint32_t cmp = ti->cmp;
             uint32_t remain_len = ti->len - cmp;
             uint32_t len_len = ptr_grps.get_set_len_len(cmp);
@@ -1142,7 +1138,7 @@ class tail_val_maps {
                 sfx_set_max = ti->len * 2;
               ptr_grps.update_current_grp(grp_no, ti->len + 1, ti->freq_count);
               ti->ptr = ptr_grps.append_text(grp_no, uniq_data[ti->pos], ti->len, true);
-              ti->flags &= ~MDX_SUFFIX_PARTIAL;
+              ti->flags &= ~MDX_AFFIX_PARTIAL;
             }
               //printf("%u\t%u\t%u\t%u\t%u\t%u\t%.*s\n", grp_no, ti->cmp_rev, ti->cmp_rev_min, ti->tail_ptr, remain_len, ti->tail_len, ti->tail_len, uniq_data[ti->tail_pos]);
             cur_limit = new_limit;
@@ -1235,11 +1231,9 @@ class tail_val_maps {
         //printf("Inner Trie size:\t%u\n", trie_size);
       }
 
-      if (ptr_grps.get_grp_count() > 2) {
-        for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-          uniq_info *ti = uniq_info_arr_freq[freq_idx];
-          ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
-        }
+      for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
+        uniq_info *ti = uniq_info_arr_freq[freq_idx];
+        ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
       // check_remaining_text(uniq_info_arr_freq, uniq_data, true);
@@ -2836,9 +2830,9 @@ class builder : public builder_fwd {
         if (cur_node.get_flags() & NFLAG_TAIL) {
           uniq_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
           uniq_info *ti = (*uniq_tails_rev)[cur_node.get_tail()];
-          if (ti->flags & MDX_SUFFIX_FULL)
+          if (ti->flags & MDX_AFFIX_FULL)
             sfx_full_count++;
-          if (ti->flags & MDX_SUFFIX_PARTIAL)
+          if (ti->flags & MDX_AFFIX_PARTIAL)
             sfx_partial_count++;
           if (ti->len > 1)
             char_counts[(ti->len > 8) ? 7 : (ti->len - 2)]++;
@@ -3864,7 +3858,7 @@ class builder : public builder_fwd {
 // 0 2-15/18-31 bytes 16 ptrs bytes 1
 
 // 0 0000 - terminator
-// 0 0001 to 0014 - length of suffix and terminator
+// 0 0001 to 0014 - length of affix and terminator
 // 0 0015 - If length more than 14
 
 // 1 xxxx 01xxxxxx - dictionary reference 1024 bytes
