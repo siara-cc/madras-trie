@@ -857,7 +857,7 @@ class ptr_group_map {
 
       uint8_t ptr_lt_ptr_width = data_loc[0];
       bool release_ptr_lt = false;
-      if (encoding_type != MSE_TRIE) {
+      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY) {
         group_count = *grp_data_loc;
         if (*grp_data_loc == 0xA5)
           group_count = 1;
@@ -982,7 +982,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
 
       uint8_t ptr_lt_ptr_width = tail_loc[0];
       inner_trie = nullptr;
-      if (encoding_type == 't') {
+      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         inner_trie = _dict_obj->new_instance(data_loc);
         int_ptr_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
@@ -1282,7 +1282,7 @@ class inner_trie : public inner_trie_fwd {
 
         uint8_t encoding_type = tails_loc[2];
         uint8_t *tail_data_loc = tails_loc + cmn::read_uint32(tails_loc + 12);
-        if (encoding_type == MSE_TRIE || *tail_data_loc == 1) {
+        if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || *tail_data_loc == 1) {
           tail_ptr_flat_map *tail_flat_map = new tail_ptr_flat_map();  // Release where?
           tail_flat_map->init(this, &tail_lt, trie_loc, tails_loc);
           tail_map = tail_flat_map;
@@ -1669,7 +1669,7 @@ class static_trie : public inner_trie {
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       delete [] tail_buf;
       #endif
-      return true;
+      return in_ctx.node_id;
     }
 
     __fq1 __fq2 bvlt_select *get_leaf_lt() {
@@ -1793,6 +1793,7 @@ class val_ptr_group_map : public ptr_group_map {
     uint32_t key_count;
     gen::int_bv_reader int_ptr_bv;
     static_trie *col_trie;
+    static_trie *col_trie_rev;
   public:
     __fq1 __fq2 uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
@@ -1954,7 +1955,7 @@ class val_ptr_group_map : public ptr_group_map {
         return;
       uint8_t *val_loc;
       uint8_t grp_no = 0;
-      if (encoding_type == 't') {
+      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         get_col_trie_val(node_id, in_size_out_value_len, ret_val);
         if (data_type != MST_TEXT && data_type != MST_BIN)
           convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
@@ -2047,19 +2048,36 @@ class val_ptr_group_map : public ptr_group_map {
       init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
       uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 12);
       uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 24);
-      if (group_count == 1 || val_loc[2] == 't')
-        int_ptr_bv.init(ptrs_loc, val_loc[2] == 't' ? val_loc[0] : data_loc[1]);
-      if (val_loc[2] == 't') {
+      if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY)
+        int_ptr_bv.init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
+      col_trie = col_trie_rev = nullptr;
+      if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         col_trie = new static_trie();
         col_trie->load_static_trie(val_loc + cmn::read_uint32(val_loc + 12));
+        if (val_loc[2] == MSE_TRIE_2WAY) {
+          col_trie_rev = new static_trie();
+          uint8_t *col_trie_rev_loc = val_loc + cmn::read_uint32(val_loc + 20);
+          col_trie_rev->load_static_trie(col_trie_rev_loc);
+          if (*col_trie_rev_loc != 0xa5)
+            printf("WARNING COL_TRIE_REV_LOC != a5");
+        }
       }
+    }
+    __fq1 __fq2 static_trie *get_col_trie() {
+      return col_trie;
+    }
+    __fq1 __fq2 static_trie *get_col_trie_rev() {
+      return col_trie_rev;
     }
     __fq1 __fq2 val_ptr_group_map() {
       col_trie = nullptr;
+      col_trie_rev = nullptr;
     }
     __fq1 __fq2 virtual ~val_ptr_group_map() {
       if (col_trie != nullptr)
         delete col_trie;
+      if (col_trie_rev != nullptr)
+        delete col_trie_rev;
     }
 };
 
@@ -2175,6 +2193,14 @@ class static_trie_map : public static_trie {
 
     __fq1 __fq2 uint32_t get_max_val_len(int col_val_idx) {
       return val_map[col_val_idx].max_len;
+    }
+
+    __fq1 __fq2 static_trie *get_col_trie(int col_val_idx) {
+      return val_map[col_val_idx].get_col_trie();
+    }
+
+    __fq1 __fq2 static_trie *get_col_trie_rev(int col_val_idx) {
+      return val_map[col_val_idx].get_col_trie_rev();
     }
 
     __fq1 __fq2 uint16_t get_column_count() {

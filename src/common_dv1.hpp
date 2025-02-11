@@ -90,6 +90,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define MST_DATETIME_ISOT_MS 'h'
 
 #define MSE_TRIE 't'
+#define MSE_TRIE_2WAY 'T'
 #define MSE_TRIE_SINT 's'
 #define MSE_WORDS 'w'
 
