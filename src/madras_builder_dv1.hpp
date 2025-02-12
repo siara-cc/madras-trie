@@ -1001,7 +1001,7 @@ class tail_val_maps {
       bool is_bin = false;
       if (uniq_info_arr[0]->flags & LPDU_BIN) {
         gen::gen_printf("Tail content not text.\n");
-        is_bin = true;
+        // is_bin = true;
       }
       if (!is_bin) {
         uniq_info *prev_ti = uniq_info_arr_freq[freq_idx];
@@ -1010,7 +1010,7 @@ class tail_val_maps {
           freq_idx++;
           if (ti->freq_count == 0) // repeats
             continue;
-          if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY) {
+          if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY || ti->flags & LPDU_BIN) {
             if (freq_idx < uniq_info_arr_freq.size())
               prev_ti = uniq_info_arr_freq[freq_idx];
             continue;
@@ -1150,14 +1150,19 @@ class tail_val_maps {
             sfx_set_count = 1;
             sfx_set_tot_cnt++;
             sfx_set_max = bldr->opts.sfx_set_max_dflt;
+            uint32_t len_len = 1;
+            if (ti->flags & LPDU_BIN)
+              len_len = ptr_grps.get_set_len_len(ti->len);
             if (ti->len > sfx_set_max)
               sfx_set_max = ti->len * 2;
-            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + 1, tot_freq_count);
-            ptr_grps.update_current_grp(grp_no, ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY ? 0 : ti->len + 1, ti->freq_count);
+            cur_limit = ptr_grps.next_grp(grp_no, cur_limit, ti->len + len_len, tot_freq_count); // todo: only if not null or empty
+            ptr_grps.update_current_grp(grp_no, (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY) ? 0 : ti->len + len_len, ti->freq_count);
             if (ti->flags & LPDU_NULL)
               ti->ptr = 0;
             else if (ti->flags & LPDU_EMPTY)
               ti->ptr = 1;
+            else if (ti->flags & LPDU_BIN)
+              ti->ptr = ptr_grps.append_bin15_to_grp_data(grp_no, uniq_data[ti->pos], ti->len);
             else
               ti->ptr = ptr_grps.append_text(grp_no, uniq_data[ti->pos], ti->len, true);
           }
@@ -1535,7 +1540,8 @@ class uniq_maker {
             for (int i = 0; i < prev_val_len; i++) {
               uint8_t b = prev_val[i];
               if (b >= 15 && b < 32)
-                uniq_vec[0]->flags |= LPDU_BIN;
+                ui_ptr->flags |= LPDU_BIN;
+                //uniq_vec[0]->flags |= LPDU_BIN;
             }
             if (trie_level == 0) // TODO: no need for vals
               uniq_data.push_back(prev_val, prev_val_len);
@@ -1568,7 +1574,8 @@ class uniq_maker {
         for (int i = 0; i < prev_val_len; i++) {
           uint8_t b = prev_val[i];
           if (b >= 15 && b < 32)
-            uniq_vec[0]->flags |= LPDU_BIN;
+            ui_ptr->flags |= LPDU_BIN;
+            // uniq_vec[0]->flags |= LPDU_BIN;
         }
         if (trie_level == 0)
           uniq_data.push_back(prev_val, prev_val_len);
