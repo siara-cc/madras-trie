@@ -2054,13 +2054,13 @@ class val_ptr_group_map : public ptr_group_map {
       if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         col_trie = new static_trie();
         col_trie->load_static_trie(val_loc + cmn::read_uint32(val_loc + 12));
-        if (val_loc[2] == MSE_TRIE_2WAY) {
-          col_trie_rev = new static_trie();
-          uint8_t *col_trie_rev_loc = val_loc + cmn::read_uint32(val_loc + 20);
-          col_trie_rev->load_static_trie(col_trie_rev_loc);
-          if (*col_trie_rev_loc != 0xa5)
-            printf("WARNING COL_TRIE_REV_LOC != a5");
-        }
+        // if (val_loc[2] == MSE_TRIE_2WAY) {
+        //   col_trie_rev = new static_trie();
+        //   uint8_t *col_trie_rev_loc = val_loc + cmn::read_uint32(val_loc + 20);
+        //   col_trie_rev->load_static_trie(col_trie_rev_loc);
+        //   if (*col_trie_rev_loc != 0xa5)
+        //     printf("WARNING COL_TRIE_REV_LOC != a5");
+        // }
       }
     }
     __fq1 __fq2 static_trie *get_col_trie() {

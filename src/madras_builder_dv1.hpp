@@ -209,7 +209,7 @@ class builder_fwd {
     }
     virtual leopard::trie *get_memtrie() = 0;
     virtual builder_fwd *new_instance() = 0;
-    virtual bool insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) = 0;
+    virtual leopard::node_set_vars insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) = 0;
     virtual uint32_t build() = 0;
     virtual uint32_t write_trie(const char *filename = NULL) = 0;
 };
@@ -2345,15 +2345,12 @@ class builder : public builder_fwd {
       return u1len + u2len;
     }
 
-    uint32_t build_col_trie(gen::byte_blocks *val_blocks, builder *rev_col_trie_bldr) {
+    uint32_t build_col_trie(gen::byte_blocks *val_blocks) {
       uint32_t col_trie_size = col_trie_builder->build();
+      printf("Col trie size: %u\n", col_trie_size);
       uint32_t max_node_id = 0;
       uint32_t node_id = 0;
       uint32_t leaf_id = 1;
-      if (rev_col_trie_bldr != nullptr) {
-        rev_col_trie_bldr->fp = fp;
-        rev_col_trie_bldr->out_vec = out_vec;
-      }
       leopard::node n;
       leopard::node_set_vars nsv;
       leopard::node_set_handler cur_ns(memtrie.all_node_sets, 1);
@@ -2392,11 +2389,6 @@ class builder : public builder_fwd {
           if (max_node_id < col_trie_node_id)
             max_node_id = col_trie_node_id;
           n.set_col_val(col_trie_node_id);
-          if (rev_col_trie_bldr != nullptr) {
-            uint8_t rev_key[20];
-            size_t rev_key_len = make_rev_key(col_trie_node_id, node_id, rev_key);
-            rev_col_trie_bldr->insert(rev_key, rev_key_len);
-          }
           node_id++;
           n.next();
         }
@@ -2486,6 +2478,13 @@ class builder : public builder_fwd {
       return tot_rpt_count;
     }
 
+    typedef struct {
+      uint8_t *data_pos;
+      uint32_t data_len;
+      uint32_t node_start;
+      uint32_t node_end;
+    } col_trie_node_map;
+
     // FILE *col_trie_fp;
     uint32_t build_col_val() {
       clock_t t = clock();
@@ -2506,6 +2505,8 @@ class builder : public builder_fwd {
       rec_pos_vec[0] = UINT32_MAX;
       // bool delta_next_block = true;
       node_data_vec nodes_for_sort;
+      std::vector<col_trie_node_map> ct_revmap_vec;
+      ct_revmap_vec.push_back(col_trie_node_map());
       uint32_t pos = 2;
       int64_t prev_val = 0;
       uint32_t prev_val_node_id = 0;
@@ -2569,7 +2570,37 @@ class builder : public builder_fwd {
                 data_pos = (*delta_vals)[delta_vals->push_back(v64, data_len)];
               }
               if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-                col_trie_builder->insert(data_pos, data_len);
+                uint32_t nid_shifted = node_id >> opts.sec_idx_nid_shift_bits;
+                // printf("Data: [%.*s]\n", data_len, data_pos);
+                leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
+                if (encoding_type == MSE_TRIE_2WAY) {
+                  leopard::node_set_handler nsh_rev(col_trie_builder->memtrie.all_node_sets, nsv.node_set_pos);
+                  leopard::node n_rev = nsh_rev[nsv.cur_node_idx];
+                  bool to_append = true;
+                  if (n_rev.get_col_val() > 0 && nsv.find_state == LPD_FIND_FOUND) { // || nsv.find_state == LPD_INSERT_LEAF)) {
+                    col_trie_node_map *ct_rev_map = &ct_revmap_vec[n_rev.get_col_val()];
+                    // printf("nsv: %d, %u, %u, %u\n", nsv.find_state, nsv.node_set_pos, nsv.cur_node_idx, nsh_rev.last_node_idx());
+                    // printf("Found: %u, %u, %llu\n", ct_rev_map->node_start, ct_rev_map->node_end, ct_rev_map->data_pos);
+                    if ((ct_rev_map->node_start == nid_shifted - 1 && ct_rev_map->node_end == 0) || ct_rev_map->node_end == nid_shifted - 1) {
+                      // printf("Range: %u to %u\n", ct_rev_map->node_start, nid_shifted);
+                      ct_rev_map->node_end = nid_shifted;
+                      to_append = false;
+                    }
+                  }
+                  if (to_append) {
+                    col_trie_node_map ct_rev_map;
+                    ct_rev_map.data_pos = data_pos;
+                    ct_rev_map.data_len = data_len;
+                    ct_rev_map.node_start = nid_shifted;
+                    ct_rev_map.node_end = 0;
+                    n_rev.set_col_val(ct_revmap_vec.size());
+                    ct_revmap_vec.push_back(ct_rev_map);
+                  }
+                  // if (n_rev.get_flags() & NFLAG_LEAF) {
+                  //   n_rev.set_flags(n_rev.get_flags() & ~NFLAG_LEAF);
+                  //   col_trie_builder->memtrie.key_count--;
+                  // }
+                }
                 // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
                 uint32_t col_val = pos - data_len - len_len;
                 if (encoding_type == MSE_DICT_DELTA)
@@ -2588,16 +2619,26 @@ class builder : public builder_fwd {
           n.next();
         }
       }
-      builder *rev_col_trie_bldr = nullptr;
+      if (encoding_type == MSE_TRIE_2WAY) {
+        printf("Col trie builder key count: %u, %u\n", col_trie_builder->memtrie.key_count, ct_revmap_vec.size());
+        for (size_t i = 1; i < ct_revmap_vec.size(); i++) {
+          col_trie_node_map *ct_rev_map = &ct_revmap_vec[i];
+          uint32_t data_len = ct_rev_map->data_len;
+          uint8_t data_pos[data_len + 24];
+          memcpy(data_pos, ct_rev_map->data_pos, data_len);
+          uint32_t node_start = ct_rev_map->node_start << 1;
+          if (ct_rev_map->node_end > 0) {
+            data_len += gen::copy_rvint32(data_pos + data_len, ct_rev_map->node_end);
+            node_start |= 1;
+          }
+          data_len += gen::copy_rvint32(data_pos + data_len, node_start);
+          col_trie_builder->insert(data_pos, data_len);
+        }
+        printf("Col trie builder key count after: %u\n", col_trie_builder->memtrie.key_count);
+      }
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         // fclose(col_trie_fp);
-        if (encoding_type == MSE_TRIE_2WAY) {
-          bldr_options ctb_opts = dflt_opts;
-          ctb_opts.sort_nodes_on_freq = false;
-          ctb_opts.leap_frog = true;
-          rev_col_trie_bldr = new builder(NULL, "rev_col_trie,key", 1, "*", "*", 0, 1, ctb_opts);
-        }
-        uint32_t col_trie_size = build_col_trie(all_vals, rev_col_trie_bldr);
+        uint32_t col_trie_size = build_col_trie(all_vals);
         ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
         ptr_grps->set_max_len(col_trie->max_key_len);
         ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
@@ -2626,13 +2667,7 @@ class builder : public builder_fwd {
       uint32_t val_size = write_val_ptrs_data(data_type, encoding_type, 1, fp, out_vec); // TODO: fix flags
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         col_trie_builder->write_trie(NULL);
-        if (rev_col_trie_bldr != nullptr) {
-          printf("Building reverse col_trie: \n");
-          size_t rev_col_trie_size = rev_col_trie_bldr->build();
-          val_size += rev_col_trie_size;
-          printf("Reverse col_trie size: %lu\n", rev_col_trie_size);
-          rev_col_trie_bldr->write_trie(NULL);
-        }
+          // val_size += rev_col_trie_size;
       }
 
       if (delta_vals != nullptr)
@@ -2641,13 +2676,15 @@ class builder : public builder_fwd {
 
       return val_size;
 
-   }
+    }
 
     void init_col_trie_builder(char enc_type) {
       if (col_trie_builder != nullptr)
         delete col_trie_builder;
       //opts.split_tails_method = 0;
       bldr_options ctb_opts = dflt_opts;
+      ctb_opts.max_groups = 1;
+      ctb_opts.max_inner_tries = 2;
       ctb_opts.partial_sfx_coding = false;
       ctb_opts.sort_nodes_on_freq = false;
       if (enc_type == MSE_TRIE_2WAY)
@@ -2919,7 +2956,7 @@ class builder : public builder_fwd {
       return tail_vals.get_uniq_vals_fwd()->size();
     }
 
-    bool insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) {
+    leopard::node_set_vars insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) {
       return memtrie.insert(key, key_len, val_pos);
     }
 
