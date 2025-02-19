@@ -451,6 +451,14 @@ int main(int argc, char* argv[]) {
       printf(" %f", dbl_sums[i]);
   }
   printf("\n");
+  // encoding_types = stm.get_column_encodings();
+  // for (int i = 0; i < stm_col_count; i++) {
+  //   char encoding_type = encoding_types[i];
+  //   if (encoding_type == 'T') {
+  //     madras_dv1::static_trie_map stm_ct = stm.get_col_trie_map(i);
+  //     printf("%s\n", stm_ct.get_table_name());
+  //   }
+  // }
   delete [] key;
 
   sqlite3_finalize(stmt_col_names);

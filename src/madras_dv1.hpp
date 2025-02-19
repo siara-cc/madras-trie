@@ -52,8 +52,8 @@ namespace madras_dv1 {
 
 class iter_ctx {
   private:
-    __fq1 __fq2 iter_ctx(iter_ctx const&);
-    __fq1 __fq2 iter_ctx& operator=(iter_ctx const&);
+    // __fq1 __fq2 iter_ctx(iter_ctx const&);
+    // __fq1 __fq2 iter_ctx& operator=(iter_ctx const&);
   public:
     int32_t cur_idx;
     uint16_t key_len;
@@ -186,8 +186,8 @@ class cmn {
 
 class lt_builder {
   private:
-    __fq1 __fq2 lt_builder(lt_builder const&);
-    __fq1 __fq2 lt_builder& operator=(lt_builder const&);
+    // __fq1 __fq2 lt_builder(lt_builder const&);
+    // __fq1 __fq2 lt_builder& operator=(lt_builder const&);
     __fq1 __fq2 static uint8_t read8(uint8_t *ptrs_loc, uint32_t& ptr_bit_count) {
       uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
       int bit_pos = (ptr_bit_count % 64);
@@ -455,8 +455,8 @@ __gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
 
 class leapfrog {
   private:
-    __fq1 __fq2 leapfrog(leapfrog const&);
-    __fq1 __fq2 leapfrog& operator=(leapfrog const&);
+    // __fq1 __fq2 leapfrog(leapfrog const&);
+    // __fq1 __fq2 leapfrog& operator=(leapfrog const&);
   public:
     __fq1 __fq2 leapfrog() {};
     __fq1 __fq2 virtual ~leapfrog() {};
@@ -465,8 +465,8 @@ class leapfrog {
 
 class leapfrog_asc : public leapfrog {
   private:
-    __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
-    __fq1 __fq2 leapfrog_asc& operator=(leapfrog_asc const&);
+    // __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
+    // __fq1 __fq2 leapfrog_asc& operator=(leapfrog_asc const&);
     uint8_t *min_pos_loc;
     min_pos_stats min_stats;
   public:
@@ -484,8 +484,8 @@ class leapfrog_asc : public leapfrog {
 
 class leapfrog_rnd : public leapfrog {
   private:
-    __fq1 __fq2 leapfrog_rnd(leapfrog_rnd const&);
-    __fq1 __fq2 leapfrog_rnd& operator=(leapfrog_rnd const&);
+    // __fq1 __fq2 leapfrog_rnd(leapfrog_rnd const&);
+    // __fq1 __fq2 leapfrog_rnd& operator=(leapfrog_rnd const&);
   public:
     __fq1 __fq2 void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
         int len = trie_loc[node_id++];
@@ -529,8 +529,8 @@ class leapfrog_rnd : public leapfrog {
 
 class bvlt_rank {
   private:
-    __fq1 __fq2 bvlt_rank(bvlt_rank const&);
-    __fq1 __fq2 bvlt_rank& operator=(bvlt_rank const&);
+    // __fq1 __fq2 bvlt_rank(bvlt_rank const&);
+    // __fq1 __fq2 bvlt_rank& operator=(bvlt_rank const&);
   protected:
     uint64_t *bm_loc;
     uint8_t *lt_rank_loc;
@@ -587,8 +587,8 @@ struct input_ctx {
 
 class inner_trie_fwd {
   private:
-    __fq1 __fq2 inner_trie_fwd(inner_trie_fwd const&);
-    __fq1 __fq2 inner_trie_fwd& operator=(inner_trie_fwd const&);
+    // __fq1 __fq2 inner_trie_fwd(inner_trie_fwd const&);
+    // __fq1 __fq2 inner_trie_fwd& operator=(inner_trie_fwd const&);
   public:
     bvlt_rank tail_lt;
     uint8_t trie_level;
@@ -603,8 +603,8 @@ class inner_trie_fwd {
 
 class ptr_bits_reader {
   private:
-    __fq1 __fq2 ptr_bits_reader(ptr_bits_reader const&);
-    __fq1 __fq2 ptr_bits_reader& operator=(ptr_bits_reader const&);
+    // __fq1 __fq2 ptr_bits_reader(ptr_bits_reader const&);
+    // __fq1 __fq2 ptr_bits_reader& operator=(ptr_bits_reader const&);
     uint8_t *ptrs_loc;
     uint8_t *ptr_lt_loc;
     bool release_lt_loc;
@@ -657,8 +657,8 @@ class ptr_bits_reader {
 
 class tail_ptr_map {
   private:
-    __fq1 __fq2 tail_ptr_map(tail_ptr_map const&);
-    __fq1 __fq2 tail_ptr_map& operator=(tail_ptr_map const&);
+    // __fq1 __fq2 tail_ptr_map(tail_ptr_map const&);
+    // __fq1 __fq2 tail_ptr_map& operator=(tail_ptr_map const&);
   public:
     __fq1 __fq2 tail_ptr_map() {
     }
@@ -841,6 +841,7 @@ class ptr_group_map {
       encoding_type = data_loc[2];
       flags = data_loc[3];
       max_len = cmn::read_uint32(data_loc + 4);
+      printf("Max col len: %u\n", max_len);
       uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 8);
 
       uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 12);
@@ -897,8 +898,8 @@ class ptr_group_map {
 
 class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
   private:
-    __fq1 __fq2 tail_ptr_group_map(tail_ptr_group_map const&);
-    __fq1 __fq2 tail_ptr_group_map& operator=(tail_ptr_group_map const&);
+    // __fq1 __fq2 tail_ptr_group_map(tail_ptr_group_map const&);
+    // __fq1 __fq2 tail_ptr_group_map& operator=(tail_ptr_group_map const&);
   public:
     __fq1 __fq2 void scan_ptr_bits_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
@@ -958,8 +959,8 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
 
 class tail_ptr_flat_map : public tail_ptr_map {
   private:
-    __fq1 __fq2 tail_ptr_flat_map(tail_ptr_flat_map const&);
-    __fq1 __fq2 tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
+    // __fq1 __fq2 tail_ptr_flat_map(tail_ptr_flat_map const&);
+    // __fq1 __fq2 tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
   public:
     gen::int_bv_reader int_ptr_bv;
     bvlt_rank *tail_lt;
@@ -1017,8 +1018,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
 
 class GCFC_rev_cache {
   private:
-    __fq1 __fq2 GCFC_rev_cache(GCFC_rev_cache const&);
-    __fq1 __fq2 GCFC_rev_cache& operator=(GCFC_rev_cache const&);
+    // __fq1 __fq2 GCFC_rev_cache(GCFC_rev_cache const&);
+    // __fq1 __fq2 GCFC_rev_cache& operator=(GCFC_rev_cache const&);
     nid_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -1068,8 +1069,8 @@ class GCFC_rev_cache {
 
 class bvlt_select : public bvlt_rank {
   private:
-    __fq1 __fq2 bvlt_select(bvlt_select const&);
-    __fq1 __fq2 bvlt_select& operator=(bvlt_select const&);
+    // __fq1 __fq2 bvlt_select(bvlt_select const&);
+    // __fq1 __fq2 bvlt_select& operator=(bvlt_select const&);
   protected:
     uint8_t *lt_sel_loc1;
     uint32_t bv_bit_count;
@@ -1198,8 +1199,8 @@ struct trie_flags {
 
 class inner_trie : public inner_trie_fwd {
   private:
-    __fq1 __fq2 inner_trie(inner_trie const&);
-    __fq1 __fq2 inner_trie& operator=(inner_trie const&);
+    // __fq1 __fq2 inner_trie(inner_trie const&);
+    // __fq1 __fq2 inner_trie& operator=(inner_trie const&);
   protected:
     uint32_t node_count;
     
@@ -1339,8 +1340,8 @@ class inner_trie : public inner_trie_fwd {
 
 class GCFC_fwd_cache {
   private:
-    __fq1 __fq2 GCFC_fwd_cache(GCFC_fwd_cache const&);
-    __fq1 __fq2 GCFC_fwd_cache& operator=(GCFC_fwd_cache const&);
+    // __fq1 __fq2 GCFC_fwd_cache(GCFC_fwd_cache const&);
+    // __fq1 __fq2 GCFC_fwd_cache& operator=(GCFC_fwd_cache const&);
     fwd_cache *cche0;
     uint32_t max_node_id;
     uint32_t cache_mask;
@@ -1388,8 +1389,8 @@ class static_trie : public inner_trie {
     uint8_t *trie_bytes;
 
   private:
-    __fq1 __fq2 static_trie(static_trie const&);
-    __fq1 __fq2 static_trie& operator=(static_trie const&);
+    // __fq1 __fq2 static_trie(static_trie const&); // todo: restore? can't return beacuse of this
+    // __fq1 __fq2 static_trie& operator=(static_trie const&);
     size_t max_key_len;
     uint16_t max_level;
   protected:
@@ -1786,14 +1787,13 @@ class static_trie : public inner_trie {
 
 class val_ptr_group_map : public ptr_group_map {
   private:
-    __fq1 __fq2 val_ptr_group_map(val_ptr_group_map const&);
-    __fq1 __fq2 val_ptr_group_map& operator=(val_ptr_group_map const&);
+    // __fq1 __fq2 val_ptr_group_map(val_ptr_group_map const&);
+    // __fq1 __fq2 val_ptr_group_map& operator=(val_ptr_group_map const&);
     std::vector<uint8_t> prev_val;
     uint32_t node_count;
     uint32_t key_count;
     gen::int_bv_reader int_ptr_bv;
     static_trie *col_trie;
-    static_trie *col_trie_rev;
   public:
     __fq1 __fq2 uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
@@ -2050,34 +2050,21 @@ class val_ptr_group_map : public ptr_group_map {
       uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 24);
       if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY)
         int_ptr_bv.init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
-      col_trie = col_trie_rev = nullptr;
+      col_trie = nullptr;
       if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         col_trie = new static_trie();
         col_trie->load_static_trie(val_loc + cmn::read_uint32(val_loc + 12));
-        // if (val_loc[2] == MSE_TRIE_2WAY) {
-        //   col_trie_rev = new static_trie();
-        //   uint8_t *col_trie_rev_loc = val_loc + cmn::read_uint32(val_loc + 20);
-        //   col_trie_rev->load_static_trie(col_trie_rev_loc);
-        //   if (*col_trie_rev_loc != 0xa5)
-        //     printf("WARNING COL_TRIE_REV_LOC != a5");
-        // }
       }
     }
     __fq1 __fq2 static_trie *get_col_trie() {
       return col_trie;
     }
-    __fq1 __fq2 static_trie *get_col_trie_rev() {
-      return col_trie_rev;
-    }
     __fq1 __fq2 val_ptr_group_map() {
       col_trie = nullptr;
-      col_trie_rev = nullptr;
     }
     __fq1 __fq2 virtual ~val_ptr_group_map() {
       if (col_trie != nullptr)
         delete col_trie;
-      if (col_trie_rev != nullptr)
-        delete col_trie_rev;
     }
 };
 
@@ -2090,8 +2077,8 @@ class cleanup_interface {
 
 class cleanup : public cleanup_interface {
   private:
-    __fq1 __fq2 cleanup(cleanup const&);
-    __fq1 __fq2 cleanup& operator=(cleanup const&);
+    // __fq1 __fq2 cleanup(cleanup const&);
+    // __fq1 __fq2 cleanup& operator=(cleanup const&);
     uint8_t *bytes;
   public:
     __fq1 __fq2 cleanup() {
@@ -2108,8 +2095,8 @@ class cleanup : public cleanup_interface {
 
 class static_trie_map : public static_trie {
   private:
-    __fq1 __fq2 static_trie_map(static_trie_map const&);
-    __fq1 __fq2 static_trie_map& operator=(static_trie_map const&);
+    // __fq1 __fq2 static_trie_map(static_trie_map const&); // todo: restore? can't return because of this
+    // __fq1 __fq2 static_trie_map& operator=(static_trie_map const&);
     val_ptr_group_map *val_map;
     uint16_t val_count;
     uint16_t pk_col_count;
@@ -2199,8 +2186,11 @@ class static_trie_map : public static_trie {
       return val_map[col_val_idx].get_col_trie();
     }
 
-    __fq1 __fq2 static_trie *get_col_trie_rev(int col_val_idx) {
-      return val_map[col_val_idx].get_col_trie_rev();
+    __fq1 __fq2 static_trie_map get_col_trie_map(int col_val_idx) {
+      static_trie_map stm;
+      uint8_t *tb = get_col_trie(col_val_idx)->get_trie_bytes();
+      stm.load_from_mem(tb, 0);
+      return stm;
     }
 
     __fq1 __fq2 uint16_t get_column_count() {
@@ -2325,6 +2315,7 @@ class static_trie_map : public static_trie {
 
       names_loc = trie_bytes + cmn::read_uint32(trie_bytes + 8);
       uint8_t *val_table_loc = trie_bytes + cmn::read_uint32(trie_bytes + 12);
+      printf("Val table loc: %lu\n", val_table_loc - trie_bytes);
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
@@ -2334,6 +2325,7 @@ class static_trie_map : public static_trie {
         val_map = new val_ptr_group_map[val_count]();
         for (size_t i = 0; i < val_count; i++) {
           uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
+          printf("Val idx: %lu, %llu\n", i, vl64);
           uint8_t *val_loc = trie_bytes + vl64;
           if (val_loc == trie_bytes) {
             pk_col_count++;
