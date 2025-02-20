@@ -841,7 +841,6 @@ class ptr_group_map {
       encoding_type = data_loc[2];
       flags = data_loc[3];
       max_len = cmn::read_uint32(data_loc + 4);
-      printf("Max col len: %u\n", max_len);
       uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 8);
 
       uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 12);
@@ -1950,17 +1949,25 @@ class val_ptr_group_map : public ptr_group_map {
       }
     }
 
-    __fq1 __fq2 void get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       if (ret_val == nullptr || in_size_out_value_len == nullptr)
-        return;
+        return nullptr;
       uint8_t *val_loc;
       uint8_t grp_no = 0;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         get_col_trie_val(node_id, in_size_out_value_len, ret_val);
         if (data_type != MST_TEXT && data_type != MST_BIN)
           convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
+        return (const uint8_t *) ret_val;
       } else {
         switch (data_type) {
+          // case MST_BIN: {
+          //   val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+          //   uint32_t bin_len;
+          //   const uint8_t *bin_str = get_bin_val(val_loc, grp_no, bin_len);
+          //   *in_size_out_value_len = bin_len;
+          //   return bin_str;
+          // } break;
           case MST_TEXT: case MST_BIN: {
             val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
             *in_size_out_value_len = 8;
@@ -1981,6 +1988,7 @@ class val_ptr_group_map : public ptr_group_map {
             #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
             delete [] val_str_buf;
             #endif
+            return (uint8_t *) ret_val;
           } break;
           case MST_INT:
           case MST_DECV ... MST_DEC9:
@@ -1993,10 +2001,17 @@ class val_ptr_group_map : public ptr_group_map {
               *in_size_out_value_len = 8;
               convert_back(val_loc, ret_val, *in_size_out_value_len);
             }
+            return (uint8_t *) ret_val;
           } break;
         }
       }
+      return nullptr;
     }
+    __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint8_t grp_no, uint32_t bin_len) {
+      tail_ptr_flat_map::read_len_bw(val_loc, bin_len);
+      return val_loc + 1;
+    }
+
     __fq1 __fq2 void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, size_t max_valset_len) {
       uint8_t *val = grp_data[grp_no];
       ret.clear();
@@ -2142,12 +2157,14 @@ class static_trie_map : public static_trie {
       return false;
     }
 
-    __fq1 __fq2 bool get_col_val(uint32_t node_id, int col_val_idx, size_t *in_size_out_value_len, void *val, uint32_t *p_ptr_bit_count = nullptr) {
+    __fq1 __fq2 const uint8_t *get_col_val(uint32_t node_id, int col_val_idx,
+          size_t *in_size_out_value_len, void *val = nullptr, uint32_t *p_ptr_bit_count = nullptr) {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
-        return reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val);
+        if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val))
+          return nullptr;
+        return (const uint8_t *) val;
       }
-      val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
-      return true;
+      return val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
     }
 
     __fq1 __fq2 const char *get_table_name() {
@@ -2315,7 +2332,7 @@ class static_trie_map : public static_trie {
 
       names_loc = trie_bytes + cmn::read_uint32(trie_bytes + 8);
       uint8_t *val_table_loc = trie_bytes + cmn::read_uint32(trie_bytes + 12);
-      printf("Val table loc: %lu\n", val_table_loc - trie_bytes);
+      // printf("Val table loc: %lu\n", val_table_loc - trie_bytes);
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
@@ -2325,7 +2342,7 @@ class static_trie_map : public static_trie {
         val_map = new val_ptr_group_map[val_count]();
         for (size_t i = 0; i < val_count; i++) {
           uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
-          printf("Val idx: %lu, %llu\n", i, vl64);
+          // printf("Val idx: %lu, %llu\n", i, vl64);
           uint8_t *val_loc = trie_bytes + vl64;
           if (val_loc == trie_bytes) {
             pk_col_count++;

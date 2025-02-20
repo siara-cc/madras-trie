@@ -342,13 +342,10 @@ int main(int argc, char* argv[]) {
       if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
         uint8_t val_buf[stm.get_max_val_len()];
         size_t val_len = 8;
-        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        if (is_success) {
-          if (val_len != 0 && memcmp(val_buf, madras_dv1::NULL_VALUE, madras_dv1::NULL_VALUE_LEN) != 0) {
-            val_buf[val_len] = 0;
-            std::cout << "Val not null: nid:" << node_id << ", seq:" << ins_seq_id << " col:" << col_val_idx << ": A:" << val_len << "/" << val_buf << std::endl;
-            printf("%d, %d\n", val_buf[0], val_buf[1]);
-          }
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        if (val_len != 0 && memcmp(ret_buf, madras_dv1::NULL_VALUE, madras_dv1::NULL_VALUE_LEN) != 0) {
+          printf("Val not null: nid: %u, seq: %lu, col: %lu, A:[%.*s]\n", node_id, ins_seq_id, col_val_idx, (int) val_len, val_buf);
+          printf("%d, %d\n", val_buf[0], val_buf[1]);
         }
       } else
       if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
@@ -356,87 +353,70 @@ int main(int argc, char* argv[]) {
         size_t sql_val_len = sqlite3_column_bytes(stmt, sql_col_idx);
         size_t val_len = stm.get_max_val_len(col_val_idx) + 1;
         uint8_t val_buf[val_len];
-        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        if (is_success) {
-          if (val_len > 0)
-            val_buf[val_len] = '\0';
-          if (sql_val_len == 0) {
-            sql_val = madras_dv1::EMPTY_VALUE;
-            sql_val_len = 1;
-          }
-          if (val_len != sql_val_len) {
-            std::cout << "Val len mismatch: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
-            std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
-            std::cout << "Found: " << val_buf << std::endl;
-          } else {
-            if (memcmp(sql_val, val_buf, val_len) != 0) {
-              std::cout << "Val not matching: " << node_id << ", seq:" << ins_seq_id << ", " << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
-              std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
-              std::cout << "Found: " << val_buf << std::endl;
-            }
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        if (val_len != sql_val_len) {
+          printf("Val len mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+          printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
+          printf("Found: [%.*s]\n", (int) val_len, ret_buf);
+        } else {
+          if (memcmp(sql_val, ret_buf, val_len) != 0) {
+            printf("Val mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
+            printf("Found: [%.*s]\n", (int) val_len, ret_buf);
           }
         }
       } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
         const uint8_t *sql_val = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
         size_t sql_val_len = sqlite3_column_bytes(stmt, sql_col_idx);
-        uint8_t val[16];
+        uint8_t val_buf[16];
         size_t val_len = 8;
-        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
-        if (is_success) {
-          time_t original_epoch = *((int64_t *) val);
-          // printf("orig epoch: %llu\n", original_epoch);
-          if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
-            original_epoch *= 86400;
-          if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS)
-            original_epoch /= 1000;
-          char dt_txt[50];
-          strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], localtime(&original_epoch));
-          val_len = strlen(dt_txt);
-          if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
-            original_epoch = *((int64_t *) val);
-            dt_txt[val_len++] = '.';
-            dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
-            dt_txt[val_len++] = '0' + ((original_epoch / 10) % 10);
-            dt_txt[val_len++] = '0' + (original_epoch % 10);
-            dt_txt[val_len] = 0;
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        time_t original_epoch = *((int64_t *) ret_buf);
+        // printf("orig epoch: %llu\n", original_epoch);
+        if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
+          original_epoch *= 86400;
+        if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS)
+          original_epoch /= 1000;
+        char dt_txt[50];
+        strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], localtime(&original_epoch));
+        val_len = strlen(dt_txt);
+        if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
+          original_epoch = *((int64_t *) ret_buf);
+          dt_txt[val_len++] = '.';
+          dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
+          dt_txt[val_len++] = '0' + ((original_epoch / 10) % 10);
+          dt_txt[val_len++] = '0' + (original_epoch % 10);
+          dt_txt[val_len] = 0;
+        }
+        if (val_len != sql_val_len) {
+          printf("Val len mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+          printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
+          printf("Found: [%.*s]\n", (int) val_len, dt_txt);
+        } else {
+          if (memcmp(sql_val, dt_txt, val_len) != 0) {
+            printf("Val mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
+            printf("Found: [%.*s]\n", (int) val_len, dt_txt);
           }
-          if (val_len != sql_val_len) {
-            std::cout << "Val len mismatch: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
-            std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
-            std::cout << "Found: " << dt_txt << std::endl;
-          } else {
-            if (memcmp(sql_val, dt_txt, val_len) != 0) {
-              std::cout << "Val not matching: " << node_id << ", seq:" << ins_seq_id << ", " << col_val_idx << " - e" << sql_val_len << ": a" << val_len << std::endl;
-              std::cout << "Expected: " << (sql_val == nullptr ? "nullptr" : (const char *) sql_val) << std::endl;
-              std::cout << "Found: " << dt_txt << std::endl;
-            }
-          }
-        } else
-          std::cerr << "Date/time not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
+        }
       } else if (exp_col_type == MST_INT) {
         int64_t sql_val = sqlite3_column_int64(stmt, sql_col_idx);
-        uint8_t val[16];
+        uint8_t val_buf[16];
         size_t val_len = 8;
-        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
-        if (is_success) {
-          int64_t i64 = *((int64_t *) val);
-          if (i64 != sql_val)
-            std::cerr << "Int not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << i64 << std::endl;
-          int_sums[col_val_idx] += i64;
-        } else
-          std::cerr << "Int not found: nid:" << node_id << ", seq:" << ins_seq_id << ", E:" << sql_val << std::endl;
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        int64_t i64 = *((int64_t *) val_buf);
+        if (i64 != sql_val)
+          std::cerr << "Int not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << i64 << std::endl;
+        int_sums[col_val_idx] += i64;
       } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
         double sql_val = round_dbl(sqlite3_column_double(stmt, i), exp_col_type);
-        uint8_t val[16];
+        uint8_t val_buf[16];
         size_t val_len;
-        bool is_success = stm.get_col_val(node_id, col_val_idx, &val_len, val); // , &ptr_count[col_val_idx]);
-        if (is_success) {
-          double dbl_val = *((double *) val);
-          if (dbl_val != sql_val)
-            std::cerr << "Dbl not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << dbl_val << std::endl;
-          dbl_sums[col_val_idx] += dbl_val;
-        } else
-          std::cerr << "Dbl not found: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " = e" << sql_val << std::endl;
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
+        double dbl_val = *((double *) val_buf);
+        if (dbl_val != sql_val)
+          std::cerr << "Dbl not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << dbl_val << std::endl;
+        dbl_sums[col_val_idx] += dbl_val;
       }
       col_val_idx++;
     }

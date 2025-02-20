@@ -2347,7 +2347,7 @@ class builder : public builder_fwd {
     }
 
     typedef struct {
-      uint32_t next_entry;
+      uint32_t link;
       uint32_t node_start;
       uint32_t node_end;
     } col_trie_node_map;
@@ -2399,19 +2399,30 @@ class builder : public builder_fwd {
           // printf("CT NSH: %u, node idx: %d, size: %lu\n", nsv.node_set_pos, nsv.cur_node_idx, col_trie->all_node_sets.size());
           leopard::node ct_node = ct_nsh[nsv.cur_node_idx];
           if (encoding_type == MSE_TRIE_2WAY && (ct_node.get_flags() & NFLAG_MARK) == 0) {
-            col_trie_node_map *ct_nm = &ct_revmap_vec[ct_node.get_col_val()];
+            uint32_t link = ct_node.get_col_val();
+            col_trie_node_map *ct_nm = &ct_revmap_vec[link];
+            col_trie_node_map *prev_ct_nm;
+            uint32_t prev_link = ct_nm->link;
+            ct_nm->link = 0;
+            while (prev_link != 0) {
+              ct_nm = &ct_revmap_vec[prev_link];
+              uint32_t temp_link = ct_nm->link;
+              ct_nm->link = link;
+              link = prev_link;
+              prev_link = temp_link;
+            }
             node_map_count++;
             std::vector<uint8_t> rev_nids;
-            // printf("\ncol_val: %u, Next entry 1: %u\n", ct_node.get_col_val(), ct_nm->next_entry);
+            // printf("\ncol_val: %u, Next entry 1: %u\n", ct_node.get_col_val(), ct_nm->link);
             while (1) {
               uint32_t node_start = ct_nm->node_start << 1;
               gen::append_svint61(rev_nids, node_start | (ct_nm->node_end != UINT32_MAX ? 1 : 0));
               if (ct_nm->node_end != UINT32_MAX)
                 gen::append_svint61(rev_nids, ct_nm->node_end);
-              if (ct_nm->next_entry == 0)
+              if (ct_nm->link == 0)
                 break;
-              // printf("Next entry: %u\n", ct_nm->next_entry);
-              ct_nm = &ct_revmap_vec[ct_nm->next_entry];
+              // printf("Next entry: %u\n", ct_nm->link);
+              ct_nm = &ct_revmap_vec[ct_nm->link];
               node_map_count++;
             }
             ct_node.set_col_val(col_trie_vals.push_back_with_vlen(rev_nids.data(), rev_nids.size()));
@@ -2619,6 +2630,7 @@ class builder : public builder_fwd {
             if (encoding_type == MSE_TRIE_2WAY) {
               leopard::node_set_handler nsh_rev(col_trie_builder->memtrie.all_node_sets, nsv.node_set_pos);
               leopard::node n_rev = nsh_rev[nsv.cur_node_idx];
+              uint32_t link = 0;
               bool to_append = true;
               // printf("nsv: %d, %u, %u, %u\n", nsv.find_state, nsv.node_set_pos, nsv.cur_node_idx, nsh_rev.last_node_idx());
               if (n_rev.get_col_val() > 0 && nsv.find_state == LPD_FIND_FOUND) { // || nsv.find_state == LPD_INSERT_LEAF)) {
@@ -2629,24 +2641,18 @@ class builder : public builder_fwd {
                   ct_rev_map->node_end = nid_shifted;
                   to_append = false;
                 } else {
-                  while (ct_rev_map->next_entry != 0)
-                    ct_rev_map = &ct_revmap_vec[ct_rev_map->next_entry];
-                  ct_rev_map->next_entry = ct_revmap_vec.size();
+                  link = n_rev.get_col_val();
+                  n_rev.set_col_val(ct_revmap_vec.size());
                 }
               } else
                 n_rev.set_col_val(ct_revmap_vec.size());
               if (to_append) {
                 col_trie_node_map ct_rev_map;
-                ct_rev_map.next_entry = 0;
+                ct_rev_map.link = link;
                 ct_rev_map.node_start = nid_shifted;
                 ct_rev_map.node_end = UINT32_MAX;
                 ct_revmap_vec.push_back(ct_rev_map);
               }
-              // printf("NRev col_val: %u\n", n_rev.get_col_val());
-              // if (n_rev.get_flags() & NFLAG_LEAF) {
-              //   n_rev.set_flags(n_rev.get_flags() & ~NFLAG_LEAF);
-              //   col_trie_builder->memtrie.key_count--;
-              // }
             }
             // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
             uint32_t col_val = pos - data_len - len_len;
@@ -2686,7 +2692,7 @@ class builder : public builder_fwd {
           tail_vals.build_tail_val_maps(false, memtrie.all_node_sets, uniq_vals_fwd, uniq_vals, tot_freq_count, max_val_len, max_repeats);
         else
           tail_vals.build_val_maps(tot_freq_count, max_val_len, data_type, max_repeats);
-
+        
         ptr_groups *ptr_grps = tail_vals.get_val_grp_ptrs();
         ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
             uniq_vals_fwd, false, pk_col_count, opts.dessicate, encoding_type);
@@ -2721,6 +2727,8 @@ class builder : public builder_fwd {
       ctb_opts.sort_nodes_on_freq = false;
       if (enc_type == MSE_TRIE_2WAY) {
         ctb_opts.leap_frog = true;
+        ctb_opts.inner_tries = 0;
+        ctb_opts.max_inner_tries = 0;
         col_trie_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
       } else
         col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, 1, ctb_opts);

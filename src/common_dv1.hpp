@@ -160,25 +160,25 @@ struct PACKED_STRUCT bldr_options {
   uint8_t sec_idx_nid_shift_bits;
   uint8_t split_tails_method;
   uint8_t rpt_enable_perc;
-  uint8_t align8_padding3;
+  uint8_t opts_count;
   uint8_t align8_padding4;
   uint16_t sfx_set_max_dflt;
 }; // 24 bytes
 
 const static bldr_options preset_opts[] = {
-  //  it,    fc,   rc,     lf,  dsct, sortn,   llt,    sc, scidx, mt, si, sr,  it, cm, cm, lc, mg, ns, st, p, p, p, sfx
-  {false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 0, 0, 64},
-  { true,  true,  true, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 0, 0, 64},
-  { true,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 0, 0, 64}
+  //  it,    fc,   rc,     lf,  dsct, sortn,   llt,    sc, scidx, mt, si, sr,  it, cm, cm, lc, mg, ns, st,re,oc, p, sfx
+  {false,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 1, 0, 64},
+  { true,  true,  true, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 1, 0, 64},
+  { true,  true,  true,  true, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0,  0, 0, 1, 0, 64}
 };
 
 const static bldr_options dflt_opts =
-  { true,  true,  true, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  1,  1, 16,  0,  0, 0, 0, 0, 64};
+  { true,  true,  true, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  1,  1, 16,  0,  0, 0, 1, 0, 64};
 
 const static bldr_options word_tries_dflt_opts =
-  {false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 0, 0, 64};
+  {false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 1, 0, 64};
 const static bldr_options inner_tries_dflt_opts =
-  { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0, 0, 0, 0, 0, 64};
+  { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0, 0, 0, 1, 0, 64};
 
 #if defined(_MSC_VER)
 #pragma pack(pop)
