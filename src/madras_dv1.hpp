@@ -1961,14 +1961,14 @@ class val_ptr_group_map : public ptr_group_map {
         return (const uint8_t *) ret_val;
       } else {
         switch (data_type) {
-          // case MST_BIN: {
-          //   val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-          //   uint32_t bin_len;
-          //   const uint8_t *bin_str = get_bin_val(val_loc, grp_no, bin_len);
-          //   *in_size_out_value_len = bin_len;
-          //   return bin_str;
-          // } break;
-          case MST_TEXT: case MST_BIN: {
+          case MST_BIN: {
+            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
+            uint32_t bin_len;
+            const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
+            *in_size_out_value_len = bin_len;
+            return bin_str;
+          } break;
+          case MST_TEXT: {
             val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
             *in_size_out_value_len = 8;
             #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
@@ -2007,7 +2007,7 @@ class val_ptr_group_map : public ptr_group_map {
       }
       return nullptr;
     }
-    __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint8_t grp_no, uint32_t bin_len) {
+    __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint32_t& bin_len) {
       tail_ptr_flat_map::read_len_bw(val_loc, bin_len);
       return val_loc + 1;
     }

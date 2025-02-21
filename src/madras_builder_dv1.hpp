@@ -1658,6 +1658,7 @@ class builder : public builder_fwd {
     int cur_col_idx;
     int cur_seq_idx;
     bool is_ns_sorted;
+    bool is_processing_cols;
     std::vector<uint32_t> rec_pos_vec;
     int max_val_len;
     uint32_t max_level;
@@ -1689,6 +1690,7 @@ class builder : public builder_fwd {
           builder_fwd (_pk_col_count), wm (uniq_vals) {
       opts = new bldr_options[_opts->opts_count];
       memcpy(opts, _opts, sizeof(bldr_options) * _opts->opts_count);
+      is_processing_cols = false;
       tail_vals.init();
       sk_col_positions = new char[strlen(_sk_col_positions) + 1];
       strcpy(sk_col_positions, _sk_col_positions);
@@ -2727,18 +2729,21 @@ class builder : public builder_fwd {
       if (col_trie_builder != nullptr)
         delete col_trie_builder;
       //get_opts()->split_tails_method = 0;
-      bldr_options ctb_opts = dflt_opts;
-      ctb_opts.max_groups = 1;
-      ctb_opts.max_inner_tries = 2;
-      ctb_opts.partial_sfx_coding = false;
-      ctb_opts.sort_nodes_on_freq = false;
+      bldr_options ctb_opts[2];
+      ctb_opts[0] = dflt_opts;
+      ctb_opts[1] = dflt_opts;
+      ctb_opts[0].max_groups = 1;
+      ctb_opts[0].max_inner_tries = 2;
+      ctb_opts[0].partial_sfx_coding = false;
+      ctb_opts[0].sort_nodes_on_freq = false;
       if (enc_type == MSE_TRIE_2WAY) {
-        ctb_opts.leap_frog = true;
-        ctb_opts.inner_tries = 0;
-        ctb_opts.max_inner_tries = 0;
-        col_trie_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, &ctb_opts);
+        ctb_opts[0].opts_count = 2;
+        ctb_opts[0].leap_frog = true;
+        ctb_opts[1].inner_tries = 0;
+        ctb_opts[1].max_inner_tries = 0;
+        col_trie_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
       } else
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, 1, &ctb_opts);
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, 1, ctb_opts);
       col_trie_builder->fp = fp;
       col_trie_builder->out_vec = out_vec;
       col_trie = &col_trie_builder->memtrie;
@@ -3553,6 +3558,7 @@ class builder : public builder_fwd {
 
     uint32_t write_all(bool to_close = true, const char *filename = NULL, size_t file_offset = 0) {
       write_trie(filename);
+      is_processing_cols = true;
       prev_val_size = 0;
       uint64_t prev_val_loc = tp.col_val_loc0;
       for (cur_col_idx = 0; cur_col_idx < column_count; ) {
@@ -3821,6 +3827,10 @@ class builder : public builder_fwd {
     }
 
     bldr_options *get_opts() {
+      if (opts->opts_count < 2)
+        return opts;
+      if (is_processing_cols)
+        return opts + 1;
       return opts;
     }
 

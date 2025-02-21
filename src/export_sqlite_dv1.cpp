@@ -242,7 +242,7 @@ int main(int argc, char* argv[]) {
   bldr_opts.sort_nodes_on_freq = false;
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
       col_types.c_str(), col_encodings.c_str(), 0, pk_col_count,
-      bldr_opts);
+      &bldr_opts);
   mb.set_print_enabled();
   mb.open_file();
 
