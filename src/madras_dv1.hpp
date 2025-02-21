@@ -1277,7 +1277,7 @@ class inner_trie : public inner_trie_fwd {
         uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 116));
         uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 120));
 
-        bldr_options *opts = (bldr_options *) (trie_bytes + cmn::read_uint32(trie_bytes + 20));
+        bldr_options *opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
         uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
 
         uint8_t encoding_type = tails_loc[2];
@@ -1383,15 +1383,15 @@ class static_trie : public inner_trie {
     GCFC_fwd_cache fwd_cache;
     trie_flags *trie_flags_loc;
     leapfrog *leaper;
-    uint16_t max_tail_len;
     uint32_t key_count;
     uint8_t *trie_bytes;
+    uint16_t max_tail_len;
+    uint16_t max_level;
 
   private:
     // __fq1 __fq2 static_trie(static_trie const&); // todo: restore? can't return beacuse of this
     // __fq1 __fq2 static_trie& operator=(static_trie const&);
     size_t max_key_len;
-    uint16_t max_level;
   protected:
     bldr_options *opts;
   public:
@@ -1702,7 +1702,7 @@ class static_trie : public inner_trie {
         trie_bytes = _trie_bytes;
 
       load_inner_trie(trie_bytes);
-      opts = (bldr_options *) (trie_bytes + cmn::read_uint32(trie_bytes + 20));
+      opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
       key_count = cmn::read_uint32(trie_bytes + 28);
       if (key_count > 0) {
         max_tail_len = cmn::read_uint16(trie_bytes + 40) + 1;
