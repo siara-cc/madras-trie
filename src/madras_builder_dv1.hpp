@@ -2388,6 +2388,7 @@ class builder : public builder_fwd {
           }
           size_t len_len = 0;
           size_t data_len = 0; 
+          uint8_t num_data[16];
           uint8_t *data_pos = (*val_blocks)[n.get_col_val()];
           switch (column_types[cur_col_idx]) {
             case MST_TEXT:
@@ -2400,6 +2401,22 @@ class builder : public builder_fwd {
             case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
               data_len = *data_pos & 0x07;
               data_len += 2;
+              if (encoding_type != MSE_DICT_DELTA) {
+                uint64_t u64;
+                flavic48::simple_decode(data_pos, 1, &u64);
+                int64_t i64 = flavic48::cvt2_i64(u64);
+                // printf("%lld\n", i64);
+                if (*data_pos == 0xF8 && data_pos[1] == 0) {
+                  data_len = 1;
+                  data_pos = num_data;
+                  *num_data = 0;
+                } else {
+                  data_len = gen::get_svint60_len(i64);
+                  data_pos = num_data;
+                  gen::copy_svint60(i64, num_data, data_len);
+                }
+                // data_len = gen::read_svint60_len(data_pos);
+              }
             } break;
           }
           if (!col_trie_builder->lookup_memtrie(data_pos, data_len, nsv))
@@ -2423,11 +2440,15 @@ class builder : public builder_fwd {
             node_map_count++;
             std::vector<uint8_t> rev_nids;
             // printf("\ncol_val: %u, Next entry 1: %u\n", ct_node.get_col_val(), ct_nm->link);
+            uint32_t prev_node_id = 0;
             while (1) {
-              uint32_t node_start = ct_nm->node_start << 1;
+              uint32_t node_start = (ct_nm->node_start - prev_node_id - 1) << 1;
+              prev_node_id = ct_nm->node_start;
               gen::append_svint61(rev_nids, node_start | (ct_nm->node_end != UINT32_MAX ? 1 : 0));
-              if (ct_nm->node_end != UINT32_MAX)
-                gen::append_svint61(rev_nids, ct_nm->node_end);
+              if (ct_nm->node_end != UINT32_MAX) {
+                gen::append_svint61(rev_nids, ct_nm->node_end - prev_node_id - 1);
+                prev_node_id = ct_nm->node_end;
+              }
               if (ct_nm->link == 0)
                 break;
               // printf("Next entry: %u\n", ct_nm->link);
@@ -2548,7 +2569,7 @@ class builder : public builder_fwd {
       char data_type = column_types[cur_col_idx];
       gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
       gen::byte_blocks *new_vals = nullptr;
-      if (encoding_type == MSE_DICT_DELTA || encoding_type == MSE_TRIE_2WAY)
+      // if (encoding_type == MSE_DICT_DELTA || encoding_type == MSE_TRIE_2WAY)
         new_vals = new gen::byte_blocks();
       bool is_rec_pos_src_leaf_id = false;
       if (pk_col_count == 0 || rec_pos_vec[0] == UINT32_MAX)
@@ -2556,6 +2577,7 @@ class builder : public builder_fwd {
       rec_pos_vec[0] = UINT32_MAX;
       // bool delta_next_block = true;
       node_data_vec nodes_for_sort;
+      uint8_t num_data[16];
       uint8_t *data_pos = nullptr;
       size_t len_len = 0;
       uint32_t data_len = 0;
@@ -2595,7 +2617,10 @@ class builder : public builder_fwd {
               data_pos = (*all_vals)[pos];
               len_len = 0;
               data_len = 0;
-              char col_data_type = column_types[col_idx];
+              uint32_t col_val = pos;
+              n.set_col_val(col_val);
+              // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
+                char col_data_type = column_types[col_idx];
               switch (col_data_type) {
                 case MST_TEXT:
                 case MST_BIN: {
@@ -2610,6 +2635,26 @@ class builder : public builder_fwd {
                   data_len = *data_pos & 0x07;
                   data_len += 2;
                   pos += data_len;
+                  if (encoding_type != MSE_DICT_DELTA) {
+                    uint64_t u64;
+                    flavic48::simple_decode(data_pos, 1, &u64);
+                    int64_t i64 = flavic48::cvt2_i64(u64);
+                    if (*data_pos == 0xF8 && data_pos[1] == 0) {
+                      data_len = 1;
+                      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                        *num_data = 0;
+                      else
+                        data_pos = (*new_vals)[new_vals->push_back(0x00)];
+                    } else {
+                      data_len = gen::get_svint60_len(i64);
+                      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                        gen::copy_svint60(i64, num_data, data_len);
+                      else
+                        data_pos = (*new_vals)[new_vals->append_svint60(i64)];
+                    }
+                    if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                      data_pos = num_data;
+                  }
                 } break;
               }
               if (cur_col_idx == col_idx)
@@ -2626,11 +2671,8 @@ class builder : public builder_fwd {
             prev_val = col_val;
             prev_val_node_id = node_id;
             // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
-            u64 = flavic48::cvt2_u64(delta_val);
-            uint8_t v64[10];
-            uint8_t *v_end = flavic48::simple_encode_single(u64, v64, frac_width);
-            data_len = (v_end - v64);
-            data_pos = (*new_vals)[new_vals->push_back(v64, data_len)];
+            data_len = gen::get_svint60_len(delta_val);
+            data_pos = (*new_vals)[new_vals->append_svint60(delta_val)];
           }
           if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
             uint32_t nid_shifted = (node_id - 1) >> get_opts()->sec_idx_nid_shift_bits;
@@ -2645,7 +2687,9 @@ class builder : public builder_fwd {
               if (n_rev.get_col_val() > 0 && nsv.find_state == LPD_FIND_FOUND) { // || nsv.find_state == LPD_INSERT_LEAF)) {
                 col_trie_node_map *ct_rev_map = &ct_revmap_vec[n_rev.get_col_val()];
                 // printf("Found: %u, %u, %u\n", ct_rev_map->node_start, ct_rev_map->node_end, nid_shifted);
-                if ((ct_rev_map->node_start == (nid_shifted - 1) && ct_rev_map->node_end == UINT32_MAX) || ct_rev_map->node_end == (nid_shifted - 1)) {
+                if (ct_rev_map->node_start == nid_shifted)
+                  to_append = false;
+                else if ((ct_rev_map->node_start == (nid_shifted - 1) && ct_rev_map->node_end == UINT32_MAX) || ct_rev_map->node_end == (nid_shifted - 1)) {
                   // printf("Range: %u to %u\n", ct_rev_map->node_start, nid_shifted);
                   ct_rev_map->node_end = nid_shifted;
                   to_append = false;
@@ -2664,10 +2708,10 @@ class builder : public builder_fwd {
               }
             }
             // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
-            uint32_t col_val = pos - data_len - len_len;
-            if (encoding_type == MSE_DICT_DELTA)
-              col_val = data_pos - (*new_vals)[0];
-            n.set_col_val(col_val);
+            if (encoding_type == MSE_DICT_DELTA) {
+              uint32_t col_val = data_pos - (*new_vals)[0];
+              n.set_col_val(col_val);
+            }
             // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
           } else {
             nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});

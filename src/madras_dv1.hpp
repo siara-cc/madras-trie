@@ -1898,9 +1898,7 @@ class val_ptr_group_map : public ptr_group_map {
         if (bm_mask & bm_leaf) {
           val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
           if (val_loc != nullptr) {
-            uint64_t u64;
-            uint8_t frac_width = flavic48::simple_decode_single(val_loc, &u64);
-            int64_t delta_val = flavic48::cvt2_i64(u64);
+            int64_t delta_val = gen::read_svint60(val_loc);
             // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
             col_val += delta_val;
           }
@@ -1932,13 +1930,11 @@ class val_ptr_group_map : public ptr_group_map {
         case MST_INT:
         case MST_DECV ... MST_DEC9:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          if (*val_loc == 0xF8) {
+          if (*val_loc == 0x00) {
             ret_len = 0;
             return;
           }
-          uint64_t u64;
-          flavic48::simple_decode(val_loc, 1, &u64);
-          int64_t i64 = flavic48::cvt2_i64(u64);
+          int64_t i64 = gen::read_svint60(val_loc);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(data_type - MST_DEC0);

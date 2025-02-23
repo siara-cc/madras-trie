@@ -343,8 +343,8 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[stm.get_max_val_len()];
         size_t val_len = 8;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        if (val_len != 0 && memcmp(ret_buf, madras_dv1::NULL_VALUE, madras_dv1::NULL_VALUE_LEN) != 0) {
-          printf("Val not null: nid: %u, seq: %lu, col: %lu, A:[%.*s]\n", node_id, ins_seq_id, col_val_idx, (int) val_len, val_buf);
+        if (val_len != 0) { // todo: } && memcmp(ret_buf, madras_dv1::NULL_VALUE, madras_dv1::NULL_VALUE_LEN) != 0) {
+          printf("Val not null: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf);
           printf("%d, %d\n", val_buf[0], val_buf[1]);
         }
       } else
