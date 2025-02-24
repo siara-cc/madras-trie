@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <cstring>
 #include <algorithm>
@@ -159,18 +160,21 @@ void output_align8(size_t nopad_size, FILE *fp, std::vector<uint8_t> *out_vec) {
 
 typedef int (*cmp_fn) (const uint8_t *v1, int len1, const uint8_t *v2, int len2);
 
-struct uniq_info {
+struct uniq_info_base {
   uint32_t pos;
   uint32_t len;
   uint32_t arr_idx;
   uint32_t freq_count;
-  uint32_t link_arr_idx;
   union {
     uint32_t ptr;
     uint32_t repeat_freq;
   };
   uint8_t grp_no;
   uint8_t flags;
+};
+
+struct uniq_info : public uniq_info_base {
+  uint32_t link_arr_idx;
   uint32_t cmp;
   uint32_t cmp_min;
   uint32_t cmp_max;
@@ -183,7 +187,7 @@ struct uniq_info {
     link_arr_idx = 0xFFFFFFFF;
   }
 };
-typedef std::vector<uniq_info *> uniq_info_vec;
+typedef std::vector<uniq_info_base *> uniq_info_vec;
 
 struct freq_grp {
   uint32_t grp_no;
@@ -469,15 +473,15 @@ class ptr_groups {
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
       ptr_lkup_tbl_ptr_width = width;
     }
-    typedef uniq_info *(*get_info_fn) (leopard::node *cur_node, std::vector<uniq_info *>& info_vec);
-    static uniq_info *get_tails_info_fn(leopard::node *cur_node, std::vector<uniq_info *>& info_vec) {
+    typedef uniq_info_base *(*get_info_fn) (leopard::node *cur_node, uniq_info_vec& info_vec);
+    static uniq_info_base *get_tails_info_fn(leopard::node *cur_node, uniq_info_vec& info_vec) {
       return (uniq_info *) info_vec[cur_node->get_tail()];
     }
-    static uniq_info *get_vals_info_fn(leopard::node *cur_node, std::vector<uniq_info *>& info_vec) {
+    static uniq_info_base *get_vals_info_fn(leopard::node *cur_node, uniq_info_vec& info_vec) {
       return (uniq_info *) info_vec[cur_node->get_col_val()];
     }
     void build(uint32_t node_count, byte_ptr_vec& all_node_sets, get_info_fn get_info_func,
-          std::vector<uniq_info *>& info_vec, bool is_tail, uint16_t _pk_col_count, bool dessicat,
+          uniq_info_vec& info_vec, bool is_tail, uint16_t _pk_col_count, bool dessicat,
           char encoding_type = 'u', int col_trie_size = 0) {
       pk_col_count = _pk_col_count;
       dessicate = dessicat;
@@ -584,7 +588,7 @@ class ptr_groups {
     void write_ptrs(FILE *fp, byte_vec *out_vec) {
       output_bytes(ptrs.data(), ptrs.size(), fp, out_vec);
     }
-    void build_val_ptrs(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, std::vector<uniq_info *>& info_vec) {
+    void build_val_ptrs(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, uniq_info_vec& info_vec) {
       ptrs.clear();
       last_byte_bits = 64;
       gen::append_uint64(0, ptrs);
@@ -592,7 +596,7 @@ class ptr_groups {
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
         if ((cur_node.get_flags() & NFLAG_LEAF) != 0) {
-          uniq_info *vi = get_info_func(&cur_node, info_vec);
+          uniq_info_base *vi = get_info_func(&cur_node, info_vec);
           freq_grp *fg = get_freq_grp(vi->grp_no);
           // if (cur_node->node_id < 500)
           //   std::cout << "node_id: " << cur_node->node_id << "grp no: " << (int) vi->grp_no << ", bitlen: " << fg->grp_log2 << ", ptr: " << vi->ptr << std::endl;
@@ -606,7 +610,7 @@ class ptr_groups {
       append_ptr_bits(0x00, 8); // read beyond protection
     }
     void build_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
-          std::vector<uniq_info *>& info_vec) {
+          uniq_info_vec& info_vec) {
       uint32_t node_id = 0;
       uint32_t bit_count = 0;
       uint32_t bit_count4 = 0;
@@ -645,7 +649,7 @@ class ptr_groups {
           memset(bit_counts, '\0', u16_arr_count * 2 + 2);
         }
         if (cur_node_flags & (is_tail ? NFLAG_TAIL : NFLAG_LEAF)) {
-          uniq_info *vi = get_info_func(&cur_node, info_vec);
+          uniq_info_base *vi = get_info_func(&cur_node, info_vec);
           freq_grp& fg = freq_grp_vec[vi->grp_no];
           bit_count4 += fg.grp_log2;
         }
@@ -823,14 +827,14 @@ class tail_val_maps {
     uint32_t make_uniq_freq(uniq_info_vec& uniq_arr_vec, uniq_info_vec& uniq_freq_vec, uint32_t tot_freq_count, uint32_t& last_data_len, uint8_t& start_bits, uint8_t& grp_no) {
       clock_t t = clock();
       uniq_freq_vec = uniq_arr_vec;
-      std::sort(uniq_freq_vec.begin(), uniq_freq_vec.end(), [](const struct uniq_info *lhs, const struct uniq_info *rhs) -> bool {
+      std::sort(uniq_freq_vec.begin(), uniq_freq_vec.end(), [](const struct uniq_info_base *lhs, const struct uniq_info_base *rhs) -> bool {
         return lhs->freq_count > rhs->freq_count;
       });
 
       uint32_t sum_freq = 0;
       if (start_bits < 7) {
         for (size_t i = 0; i < uniq_freq_vec.size(); i++) {
-          uniq_info *vi = uniq_freq_vec[i];
+          uniq_info_base *vi = uniq_freq_vec[i];
           if (i >= pow(2, start_bits)) {
             double bit_width = log2(tot_freq_count / sum_freq);
             if (bit_width < 1.1) {
@@ -854,7 +858,7 @@ class tail_val_maps {
       uint32_t cutoff_bits = start_bits;
       uint32_t nxt_idx_limit = pow(2, cutoff_bits);
       for (size_t i = 0; i < uniq_freq_vec.size(); i++) {
-        uniq_info *vi = uniq_freq_vec[i];
+        uniq_info_base *vi = uniq_freq_vec[i];
         last_data_len += vi->len;
         last_data_len++;
         sum_freq += vi->freq_count;
@@ -887,7 +891,7 @@ class tail_val_maps {
         uint32_t next_bits = start_bits;
         nxt_idx_limit = pow(2, next_bits);
         for (cumu_freq_idx = 0; cumu_freq_idx < uniq_freq_vec.size(); cumu_freq_idx++) {
-          uniq_info *vi = uniq_freq_vec[cumu_freq_idx];
+          uniq_info_base *vi = uniq_freq_vec[cumu_freq_idx];
           if (freq_idx == nxt_idx_limit) {
             next_bits += bldr->get_opts()->step_bits_idx;
             if (next_bits >= cutoff_bits) {
@@ -912,10 +916,10 @@ class tail_val_maps {
       // grp_no = 0;
       // uint32_t cumu_freq_idx = 0;
       //printf("%.1f\t%d\t%u\t%u\n", ceil(log2(freq_idx)), freq_idx, ftot, tail_len_tot);
-      std::sort(uniq_freq_vec.begin(), uniq_freq_vec.begin() + cumu_freq_idx, [](const struct uniq_info *lhs, const struct uniq_info *rhs) -> bool {
+      std::sort(uniq_freq_vec.begin(), uniq_freq_vec.begin() + cumu_freq_idx, [](const struct uniq_info_base *lhs, const struct uniq_info_base *rhs) -> bool {
         return (lhs->grp_no == rhs->grp_no) ? (lhs->arr_idx > rhs->arr_idx) : (lhs->grp_no < rhs->grp_no);
       });
-      std::sort(uniq_freq_vec.begin() + cumu_freq_idx, uniq_freq_vec.end(), [](const struct uniq_info *lhs, const struct uniq_info *rhs) -> bool {
+      std::sort(uniq_freq_vec.begin() + cumu_freq_idx, uniq_freq_vec.end(), [](const struct uniq_info_base *lhs, const struct uniq_info_base *rhs) -> bool {
         uint32_t lhs_freq = lhs->freq_count / (lhs->len == 0 ? 1 : lhs->len);
         uint32_t rhs_freq = rhs->freq_count / (rhs->len == 0 ? 1 : rhs->len);
         lhs_freq = ceil(log10(lhs_freq));
@@ -940,7 +944,7 @@ class tail_val_maps {
       uint32_t freq_idx = 0;
       clock_t tt = clock();
       while (freq_idx < uniq_freq_vec.size()) {
-        uniq_info *ti = uniq_freq_vec[freq_idx];
+        uniq_info *ti = (uniq_info *) uniq_freq_vec[freq_idx];
         freq_idx++;
         if (ti->flags & MDX_AFFIX_FULL)
          continue;
@@ -996,7 +1000,7 @@ class tail_val_maps {
 
       uint32_t freq_idx = cumu_freq_idx;
       while (freq_idx < uniq_info_arr_freq.size()) {
-        uniq_info *ti = uniq_info_arr_freq[freq_idx];
+        uniq_info_base *ti = uniq_info_arr_freq[freq_idx];
         last_data_len += ti->len;
         last_data_len++;
         freq_idx++;
@@ -1009,15 +1013,15 @@ class tail_val_maps {
         // is_bin = true;
       }
       if (!is_bin) {
-        uniq_info *prev_ti = uniq_info_arr_freq[freq_idx];
+        uniq_info *prev_ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
         while (freq_idx < uniq_info_arr_freq.size()) {
-          uniq_info *ti = uniq_info_arr_freq[freq_idx];
+          uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
           freq_idx++;
           if (ti->freq_count == 0) // repeats
             continue;
           if (ti->flags & LPDU_NULL || ti->flags & LPDU_EMPTY || ti->flags & LPDU_BIN) {
             if (freq_idx < uniq_info_arr_freq.size())
-              prev_ti = uniq_info_arr_freq[freq_idx];
+              prev_ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
             continue;
           }
           int cmp_ret = (is_tail ? 
@@ -1069,7 +1073,7 @@ class tail_val_maps {
       uint32_t sfx_set_tot_cnt = 0;
       uint32_t sfx_set_tot_len = 0;
       while (freq_idx < uniq_info_arr_freq.size()) {
-        uniq_info *ti = uniq_info_arr_freq[freq_idx];
+        uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
         last_data_len -= ti->len;
         last_data_len--;
         uint32_t it_nxt_limit = ptr_grps.check_next_grp(grp_no, cur_limit, ti->len);
@@ -1097,7 +1101,7 @@ class tail_val_maps {
           savings_full += ti->len;
           savings_full++;
           savings_count_full++;
-          uniq_info *link_ti = uniq_info_arr[ti->link_arr_idx];
+          uniq_info *link_ti = (uniq_info *) uniq_info_arr[ti->link_arr_idx];
           if (link_ti->grp_no == 0) {
             cur_limit = ptr_grps.next_grp(grp_no, cur_limit, link_ti->len + 1, tot_freq_count);
             link_ti->grp_no = grp_no;
@@ -1183,7 +1187,7 @@ class tail_val_maps {
         uint32_t trie_entry_idx = 0;
         ptr_grps.inner_tries.push_back(inner_trie);
         while (freq_idx < uniq_info_arr_freq.size()) {
-          uniq_info *ti = uniq_info_arr_freq[freq_idx];
+          uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
           uint8_t rev[ti->len];
           uint8_t *ti_data = uniq_data[ti->pos];
           for (uint32_t j = 0; j < ti->len; j++)
@@ -1213,7 +1217,7 @@ class tail_val_maps {
             for (size_t i = 0; i <= nsh_children.last_node_idx(); i++) {
               leopard::node child_node = nsh_children[i];
               if (child_node.get_flags() & NFLAG_LEAF) {
-                uniq_info *ti = uniq_info_arr_freq[cur_node.get_col_val()];
+                uniq_info_base *ti = uniq_info_arr_freq[cur_node.get_col_val()];
                 sum_freq += ti->freq_count;
               }
             }
@@ -1229,7 +1233,7 @@ class tail_val_maps {
         while (n != nullptr) {
           uint32_t col_val_pos = n.get_col_val();
           if (n.get_flags() & NFLAG_LEAF) {
-            uniq_info *ti = uniq_info_arr_freq[col_val_pos];
+            uniq_info_base *ti = uniq_info_arr_freq[col_val_pos];
             ti->ptr = node_id; //leaf_id++;
           }
           n = ni.next();
@@ -1243,7 +1247,7 @@ class tail_val_maps {
       }
 
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-        uniq_info *ti = uniq_info_arr_freq[freq_idx];
+        uniq_info_base *ti = uniq_info_arr_freq[freq_idx];
         ti->ptr = ptr_grps.append_ptr2_idx_map(ti->grp_no, ti->ptr);
       }
 
@@ -1295,7 +1299,7 @@ class tail_val_maps {
       ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
       ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       while (freq_idx < uniq_vals_freq.size()) {
-        uniq_info *vi = uniq_vals_freq[freq_idx];
+        uniq_info_base *vi = uniq_vals_freq[freq_idx];
         freq_idx++;
         if (vi->freq_count == 0) { // repeats
           vi->freq_count = vi->repeat_freq;
@@ -1315,7 +1319,7 @@ class tail_val_maps {
       }
       // wm.process_combis();
       for (freq_idx = 0; freq_idx < cumu_freq_idx; freq_idx++) {
-        uniq_info *vi = uniq_vals_freq[freq_idx];
+        uniq_info_base *vi = uniq_vals_freq[freq_idx];
         vi->ptr = ptr_grps.append_ptr2_idx_map(vi->grp_no, vi->ptr);
       }
       ptr_grps.build_freq_codes(true);
@@ -1361,8 +1365,6 @@ class tail_val_maps {
     }
 
 };
-
-typedef std::vector<uniq_info *> uniq_info_vec;
 
 class sort_callbacks {
   public:
@@ -2074,13 +2076,13 @@ class builder : public builder_fwd {
       if ((cur_node->get_flags() & NFLAG_TAIL) == 0)
         return cur_node->get_byte();
       if (get_opts()->inner_tries && tail_trie_builder != nullptr) {
-        uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
+        uniq_info_base *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
         return ti->ptr & 0xFF;
       }
       uint8_t node_val;
       uint32_t ptr = 0;
       ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
-        uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
+        uniq_info_base *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
         uint8_t grp_no = ti->grp_no;
         // if (grp_no == 0 || ti->tail_ptr == 0)
         //   gen::gen_printf("ERROR: not marked: [%.*s]\n", ti->tail_len, uniq_tails.data() + ti->tail_pos);
@@ -2102,7 +2104,7 @@ class builder : public builder_fwd {
         return;
       uint32_t ptr = 0;
       ptr_groups *ptr_grps = tail_vals.get_tail_grp_ptrs();
-      uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
+      uniq_info_base *ti = (*tail_vals.get_uniq_tails_rev())[cur_node->get_tail()];
       uint8_t grp_no = ti->grp_no;
       // if (grp_no == 0 || ti->tail_ptr == 0)
       //   gen::gen_printf("ERROR: not marked: [%.*s]\n", ti->tail_len, uniq_tails.data() + ti->tail_pos);
@@ -2115,13 +2117,62 @@ class builder : public builder_fwd {
     }
 
     typedef struct {
-      uint32_t ptr_pos;
-      uint32_t limit;
-      uint32_t cmp;
-    } ptr_seq;
+      uint8_t *word_pos;
+      uint32_t word_len;
+      uint32_t word_ptr_pos;
+    } word_refs;
 
-    uint32_t build_words() {
-      gen::byte_blocks *words = wm.get_words();
+    struct uniq_words_info {
+      uint32_t pos;
+      uint32_t len;
+      uint32_t arr_idx;
+      uint32_t freq_count;
+      uint32_t ptr;
+      uint8_t grp_no;
+      uint8_t flags;
+    };
+    typedef std::vector<uniq_words_info *> uniq_words_info_vec;
+    
+    uint32_t build_words(std::vector<word_refs>& words_for_sort, std::vector<uint32_t>& word_ptrs,
+                  uniq_words_info_vec& uniq_words_vec, gen::byte_blocks& uniq_words) {
+
+      clock_t t = clock();
+/*
+      std::sort(words_for_sort.begin(), words_for_sort.end(), [](const struct word_refs& lhs, const struct word_refs& rhs) -> bool {
+        return gen::compare(lhs.word_pos, lhs.word_len, rhs.word_pos, rhs.word_len) < 0;
+      });
+
+      uint32_t tot_freq = 0;
+      uint32_t freq_count = 0;
+      node_data_vec::iterator it = words_for_sort.begin();
+      uint8_t *prev_val = it->word_pos;
+      int prev_val_len = it->word_len;
+      while (it != words_for_sort.end()) {
+        int cmp = sic.compare(it->word_pos, it->word_len, prev_val, prev_val_len, trie_level);
+        if (cmp != 0) {
+          uniq_words_info *uw_ptr = new uniq_words_info(0, prev_val_len, uniq_words_vec.size(), 0);
+          uw_ptr->freq_count = freq_count;
+          uniq_words_vec.push_back(uw_ptr);
+          tot_freq += freq_count;
+          uniq_words.push_back(prev_val, prev_val_len);
+          uw_ptr->pos = uniq_words.size() - prev_val_len;
+          freq_count = 0;
+          prev_val = it->word_pos;
+          prev_val_len = it->word_len;
+        }
+        freq_count++; // += it->freq;
+        word_ptrs[it->word_ptr_pos] = uniq_words_vec.size();
+        it++;
+      }
+      uniq_words_info *uw_ptr = new uniq_words_info(0, prev_val_len, uniq_words_vec.size(), 0);
+      uw_ptr->freq_count = freq_count;
+      uniq_words_vec.push_back(uw_ptr);
+      uniq_words.push_back(prev_val, prev_val_len);
+      uw_ptr->pos = uniq_words.size() - prev_val_len;
+      t = gen::print_time_taken(t, "Time taken for make_uniq_words: ");
+      return tot_freq;
+
+
       std::vector<uint32_t> *word_positions = wm.get_word_positions();
       gen::combi_freq_vec word_freq_vec;
       gen::combi_freq_ptr_vec word_freq_ptr_vec;
@@ -2259,6 +2310,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Ptrs size: %lu\n", ptrs.size());
       gen::gen_printf("Lookup table size: %u\n", ptr_lookup_tbl_sz);
       return grp_data_size + ptrs.size() + ptr_lookup_tbl_sz + hdr_size;
+*/
     }
 
     uint32_t encode_vint_gb(node_data_vec& nodes) {
@@ -2313,7 +2365,7 @@ class builder : public builder_fwd {
           nsv.cmp = 0;
           if (flags & NFLAG_TAIL) {
             size_t vlen;
-            uniq_info *ti = get_ti(&n);
+            uniq_info_base *ti = get_ti(&n);
             uint8_t *tail = uniq_tails[ti->pos];
             tail_len = ti->len;
             nsv.cmp = gen::compare(tail, tail_len, key + nsv.key_pos, key_len - nsv.key_pos);
@@ -2501,7 +2553,7 @@ class builder : public builder_fwd {
         uniq_vals_fwd->push_back(rpt_ui);
       }
       max_repeats = 0;
-      uniq_info *prev_ui = nullptr;
+      uniq_info_base *prev_ui = nullptr;
       uint32_t node_id = 0;
       leopard::node_iterator ni(memtrie.all_node_sets, 0);
       leopard::node cur_node = ni.next();
@@ -2521,7 +2573,7 @@ class builder : public builder_fwd {
           rpt_count = 0;
           continue;
         }
-        uniq_info *ui = get_vi(&cur_node);
+        uniq_info_base *ui = get_vi(&cur_node);
         if ((node_id % nodes_per_bv_block_n) != 0) {
           if (ui == prev_ui) {
             rpt_count++;
@@ -2557,6 +2609,57 @@ class builder : public builder_fwd {
       return tot_rpt_count;
     }
 
+    void add_words(uint32_t node_id, uint8_t *words, uint32_t words_len, std::vector<word_refs>& words_for_sort,
+            std::vector<uint32_t>& word_ptrs, uint8_t *prev_val, uint32_t prev_val_len) {
+      // first 2 bits of word_count_pos:
+      // 00 - count of words
+      // 01 - repeat prev val
+      // 19 - repeat prev seq
+      // 11 - tbd
+      if ((node_id % nodes_per_bv_block) != 0 && words_len == prev_val_len &&
+              std::memcmp(words, prev_val, prev_val_len) == 0) {
+        if (word_ptrs[word_ptrs.size() - 1] == 0)
+          word_ptrs.push_back(0x40000001);
+        else
+          word_ptrs[word_ptrs.size() - 1]++;
+        return;
+      }
+      uint32_t last_word_len = 0;
+      bool is_prev_non_word = false;
+      size_t vint_len = gen::get_vlen_of_uint32(words_len);
+      size_t word_count_pos = word_ptrs.size();
+      word_ptrs.push_back(0); // initially 0
+      size_t word_count = 0;
+      uint32_t ref_id = 0;
+      for (size_t i = 0; i < words_len; i++) {
+        uint8_t c = words[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
+          if (last_word_len > 4 && is_prev_non_word) {
+            if (words_len - i < 5) {
+              last_word_len += (words_len - i);
+              break;
+            }
+            ref_id = word_ptrs.size();
+            word_ptrs.push_back(0);
+            words_for_sort.push_back((word_refs) {words + i - last_word_len, last_word_len, ref_id});
+            word_count++;
+            last_word_len = 0;
+          }
+          is_prev_non_word = false;
+        } else {
+          is_prev_non_word = true;
+        }
+        last_word_len++;
+      }
+      if (last_word_len > 0) {
+        ref_id = word_ptrs.size();
+        word_ptrs.push_back(0);
+        words_for_sort.push_back((word_refs) {words + words_len - last_word_len, last_word_len, ref_id});
+        word_count++;
+      }
+      word_ptrs[word_count_pos] = word_count;
+    }
+
     // FILE *col_trie_fp;
     uint32_t build_col_val(size_t file_offset = 0) {
       clock_t t = clock();
@@ -2568,6 +2671,8 @@ class builder : public builder_fwd {
       gen::gen_printf("\nCol: %s, ", names + names_positions[cur_col_idx + 2]);
       char data_type = column_types[cur_col_idx];
       gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
+      std::vector<uint32_t> word_ptrs;
+      std::vector<word_refs> words_for_sort;
       gen::byte_blocks *new_vals = nullptr;
       // if (encoding_type == MSE_DICT_DELTA || encoding_type == MSE_TRIE_2WAY)
         new_vals = new gen::byte_blocks();
@@ -2584,7 +2689,9 @@ class builder : public builder_fwd {
       std::vector<col_trie_node_map> ct_revmap_vec;
       ct_revmap_vec.push_back(col_trie_node_map());
       uint32_t pos = 2;
-      int64_t prev_val = 0;
+      uint8_t *prev_val = nullptr;
+      uint32_t prev_val_len = 0;
+      int64_t prev_ival = 0;
       uint32_t prev_val_node_id = 0;
       uint32_t node_id = 1;
       uint32_t leaf_id = 1;
@@ -2667,12 +2774,17 @@ class builder : public builder_fwd {
             int64_t col_val = flavic48::cvt2_i64(u64);
             int64_t delta_val = col_val;
             if (((node_id - (pk_col_count > 0 ? 0 : 1)) / nodes_per_bv_block_n) == ((prev_val_node_id - (pk_col_count > 0 ? 0 : 1)) / nodes_per_bv_block_n))
-              delta_val -= prev_val;
-            prev_val = col_val;
+              delta_val -= prev_ival;
+            prev_ival = col_val;
             prev_val_node_id = node_id;
             // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
             data_len = gen::get_svint60_len(delta_val);
             data_pos = (*new_vals)[new_vals->append_svint60(delta_val)];
+          }
+          if (encoding_type == MSE_WORDS) {
+            add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len);
+            prev_val = data_pos;
+            prev_val_len = data_len;
           }
           if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
             uint32_t nid_shifted = (node_id - 1) >> get_opts()->sec_idx_nid_shift_bits;
@@ -2833,7 +2945,7 @@ class builder : public builder_fwd {
       tt_opts.max_inner_tries = get_opts()->max_inner_tries;
       tail_trie_builder = new builder(NULL, "tail_trie,key", 1, "t", "u", trie_level + 1, 1, &tt_opts);
       for (size_t i = 0; i < uniq_tails_rev.size(); i++) {
-        uniq_info *ti = uniq_tails_rev[i];
+        uniq_info_base *ti = uniq_tails_rev[i];
         uint8_t rev[ti->len];
         uint8_t *ti_data = uniq_tails[ti->pos];
         for (uint32_t j = 0; j < ti->len; j++)
@@ -2849,7 +2961,7 @@ class builder : public builder_fwd {
           for (size_t i = 0; i <= nsh_children.last_node_idx(); i++) {
             leopard::node child_node = nsh_children[i];
             if (child_node.get_flags() & NFLAG_LEAF) {
-              uniq_info *ti = uniq_tails_rev[cur_node.get_col_val()];
+              uniq_info_base *ti = uniq_tails_rev[cur_node.get_col_val()];
               sum_freq += ti->freq_count;
             }
           }
@@ -2866,7 +2978,7 @@ class builder : public builder_fwd {
       cur_node = ni_tt.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_LEAF) {
-          uniq_info *ti = uniq_tails_rev[cur_node.get_col_val()];
+          uniq_info_base *ti = uniq_tails_rev[cur_node.get_col_val()];
           ti->ptr = node_id;
         }
         node_id++;
@@ -2878,7 +2990,7 @@ class builder : public builder_fwd {
       cur_node = ni.next();
       while (cur_node != nullptr) {
         if (cur_node.get_flags() & NFLAG_TAIL) {
-          uniq_info *ti = uniq_tails_rev[cur_node.get_tail()];
+          uniq_info_base *ti = uniq_tails_rev[cur_node.get_tail()];
           int_bv.append(ti->ptr >> 8);
         }
         cur_node = ni.next();
@@ -2982,7 +3094,7 @@ class builder : public builder_fwd {
         }
         if (cur_node.get_flags() & NFLAG_TAIL) {
           uniq_info_vec *uniq_tails_rev = tail_vals.get_uniq_tails_rev();
-          uniq_info *ti = (*uniq_tails_rev)[cur_node.get_tail()];
+          uniq_info_base *ti = (*uniq_tails_rev)[cur_node.get_tail()];
           if (ti->flags & MDX_AFFIX_FULL)
             sfx_full_count++;
           if (ti->flags & MDX_AFFIX_PARTIAL)
@@ -3179,7 +3291,7 @@ class builder : public builder_fwd {
       size_t parent_tail_len = tail_from0.length();
       for (int i = 0; i <= ns.hdr()->last_node_idx; i++) {
         if (n.get_flags() & NFLAG_TAIL) {
-          uniq_info *ti = (*tail_vals.get_uniq_tails_rev())[n.get_tail()];
+          uniq_info_base *ti = (*tail_vals.get_uniq_tails_rev())[n.get_tail()];
           uint8_t *ti_tail = (*tail_vals.get_uniq_tails())[ti->pos];
           if (trie_level == 0)
             tail_from0.append(ti_tail, ti->len);
@@ -3845,18 +3957,18 @@ class builder : public builder_fwd {
       output_align8(sel_lt_sz, fp, out_vec);
     }
 
-    uniq_info *get_ti(leopard::node *n) {
+    uniq_info_base *get_ti(leopard::node *n) {
       tail_val_maps *tm = &tail_vals;
       uniq_info_vec *uniq_tails_rev = tm->get_uniq_tails_rev();
       return (*uniq_tails_rev)[n->get_tail()];
     }
 
     uint32_t get_tail_ptr(leopard::node *cur_node) {
-      uniq_info *ti = get_ti(cur_node);
+      uniq_info_base *ti = get_ti(cur_node);
       return ti->ptr;
     }
 
-    uniq_info *get_vi(leopard::node *n) {
+    uniq_info_base *get_vi(leopard::node *n) {
       tail_val_maps *tm = &tail_vals;
       uniq_info_vec *uniq_vals_fwd = tm->get_uniq_vals_fwd();
       return (*uniq_vals_fwd)[n->get_col_val()];
