@@ -1535,27 +1535,17 @@ class uniq_maker {
           ui_ptr->freq_count = freq_count;
           uniq_vec.push_back(ui_ptr);
           tot_freq += freq_count;
-          if (prev_val == NULL) {
-            uniq_data.push_back(' ');
-            printf("NULL Pos: %lu, freq: %u\n", uniq_data.size() - 1, freq_count);
-            ui_ptr->flags |= LPDU_NULL;
-          } else if (prev_val_len == 0) {
-            uniq_data.push_back(' ');
-            printf("Empty Pos: %lu, freq: %u\n", uniq_data.size() - 1, freq_count);
-            ui_ptr->flags |= LPDU_EMPTY;
-          } else {
-            for (int i = 0; i < prev_val_len; i++) {
-              uint8_t b = prev_val[i];
-              if (b >= 15 && b < 32)
-                ui_ptr->flags |= LPDU_BIN;
-                //uniq_vec[0]->flags |= LPDU_BIN;
-            }
-            if (trie_level == 0) // TODO: no need for vals
-              uniq_data.push_back(prev_val, prev_val_len);
-            else
-              uniq_data.push_back_rev(prev_val, prev_val_len);
-            ui_ptr->pos = uniq_data.size() - prev_val_len;
+          for (int i = 0; i < prev_val_len; i++) {
+            uint8_t b = prev_val[i];
+            if (b >= 15 && b < 32)
+              ui_ptr->flags |= LPDU_BIN;
+              //uniq_vec[0]->flags |= LPDU_BIN;
           }
+          if (trie_level == 0) // TODO: no need for vals
+            uniq_data.push_back(prev_val, prev_val_len);
+          else
+            uniq_data.push_back_rev(prev_val, prev_val_len);
+          ui_ptr->pos = uniq_data.size() - prev_val_len;
           if (max_len < prev_val_len)
             max_len = prev_val_len;
           freq_count = 0;
@@ -1569,27 +1559,17 @@ class uniq_maker {
       uniq_info *ui_ptr = new uniq_info(0, prev_val_len, uniq_vec.size(), 0);
       ui_ptr->freq_count = freq_count;
       uniq_vec.push_back(ui_ptr);
-      if (prev_val == NULL) {
-        uniq_data.push_back(' ');
-        printf("NULL Pos: %lu, freq: %u\n", uniq_data.size() - 1, freq_count);
-        ui_ptr->flags |= LPDU_NULL;
-      } else if (prev_val_len == 0) {
-        uniq_data.push_back(' ');
-        printf("Empty Pos: %lu, freq: %u\n", uniq_data.size() - 1, freq_count);
-        ui_ptr->flags |= LPDU_EMPTY;
-      } else {
-        for (int i = 0; i < prev_val_len; i++) {
-          uint8_t b = prev_val[i];
-          if (b >= 15 && b < 32)
-            ui_ptr->flags |= LPDU_BIN;
-            // uniq_vec[0]->flags |= LPDU_BIN;
-        }
-        if (trie_level == 0)
-          uniq_data.push_back(prev_val, prev_val_len);
-        else
-          uniq_data.push_back_rev(prev_val, prev_val_len);
-        ui_ptr->pos = uniq_data.size() - prev_val_len;
+      for (int i = 0; i < prev_val_len; i++) {
+        uint8_t b = prev_val[i];
+        if (b >= 15 && b < 32)
+          ui_ptr->flags |= LPDU_BIN;
+          // uniq_vec[0]->flags |= LPDU_BIN;
       }
+      if (trie_level == 0)
+        uniq_data.push_back(prev_val, prev_val_len);
+      else
+        uniq_data.push_back_rev(prev_val, prev_val_len);
+      ui_ptr->pos = uniq_data.size() - prev_val_len;
       if (max_len < prev_val_len)
         max_len = prev_val_len;
       t = gen::print_time_taken(t, "Time taken for make_uniq: ");
@@ -1685,8 +1665,8 @@ class builder : public builder_fwd {
         const char *_column_types = "tt", const char *_column_encodings = "uu", int _trie_level = 0,
         uint16_t _pk_col_count = 1, const bldr_options *_opts = &dflt_opts,
         const char *_sk_col_positions = "",
-        const char *_null_value = " ", size_t _null_value_len = 1,
-        const char *_empty_value = "!", size_t _empty_value_len = 1)
+        const uint8_t *_null_value = NULL_VALUE, size_t _null_value_len = NULL_VALUE_LEN,
+        const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN)
         : memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
           tail_vals (this, uniq_tails, uniq_tails_rev, uniq_vals, uniq_vals_fwd),
           builder_fwd (_pk_col_count), wm (uniq_vals) {
@@ -3747,6 +3727,8 @@ class builder : public builder_fwd {
     }
 
     void write_null_empty() {
+      printf("Null value len: %lu\n", null_value_len);
+      printf("Null value: %.*s\n", (int) null_value_len, null_value);
       output_byte(null_value_len, fp, out_vec);
       output_bytes(null_value, 15, fp, out_vec);
       output_byte(empty_value_len, fp, out_vec);
@@ -4000,7 +3982,7 @@ class builder : public builder_fwd {
         case MST_TEXT:
         case MST_BIN: {
           const uint8_t *value = byte_arr;
-          if (ptr == 0) {
+          if (*ptr == 0) {
             value = null_value;
             value_len = null_value_len;
           }

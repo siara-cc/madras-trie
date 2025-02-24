@@ -1931,7 +1931,8 @@ class val_ptr_group_map : public ptr_group_map {
         case MST_DECV ... MST_DEC9:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           if (*val_loc == 0x00) {
-            ret_len = 0;
+            uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(ret_len);
+            memcpy(ret_val, null_val, ret_len);
             return;
           }
           int64_t i64 = gen::read_svint60(val_loc);
