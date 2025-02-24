@@ -2165,7 +2165,7 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 const char *get_table_name() {
-      return names_start + cmn::read_uint16(names_loc);
+      return names_start + cmn::read_uint16(names_loc + 2);
     }
 
     __fq1 __fq2 const char *get_column_name(int i) {
