@@ -3666,7 +3666,7 @@ class builder : public builder_fwd {
       output_byte(0xA5, fp, out_vec); // magic byte
       output_byte(0x01, fp, out_vec); // version 1.0
       output_byte(pk_col_count, fp, out_vec);
-      output_byte(0, fp, out_vec); // reserved
+      output_byte(trie_level, fp, out_vec);
 
       int val_count = column_count;
       output_u32(val_count, fp, out_vec);

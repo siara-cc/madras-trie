@@ -1229,12 +1229,12 @@ class inner_trie : public inner_trie_fwd {
       } while (node_id != 0);
       return true;
     }
-    __fq1 __fq2 inner_trie(uint8_t _trie_level = 0) {
-      trie_level = _trie_level;
+    __fq1 __fq2 inner_trie() {
     }
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
-      inner_trie *it = new inner_trie(trie_level + 1);
+      inner_trie *it = new inner_trie();
+      it->trie_level = mem[3];
       it->load_inner_trie(mem);
       return it;
     }
@@ -1627,6 +1627,7 @@ class static_trie : public inner_trie {
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       static_trie *it = new static_trie();
+      it->trie_level = mem[3];
       it->load_static_trie(mem);
       return it;
     }
@@ -2183,6 +2184,7 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       static_trie_map *it = new static_trie_map();
+      it->trie_level = mem[3];
       it->load_from_mem(mem, 0);
       return it;
     }
