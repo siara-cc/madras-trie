@@ -46,6 +46,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 // ptr_lt_blk_width = 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
 // Ensure ptr_lt_blk_width is multiple of 4 so it works on CUDA cores
 #define ptr_lt_blk_width 64
+#define ptr_lt_blk_width_words 94
 
 // #define sel_divisor 256
 
@@ -178,7 +179,7 @@ const static bldr_options dflt_opts =
   { true,  true,  true, false, false,  true,  true,  true, false,  4,  3,  3,   1,  2,  1,  1, 16,  0,  0, 0, 1, 0, 64};
 
 const static bldr_options word_tries_dflt_opts =
-  {false,  true, false, false, false, false, false,  true, false,  4,  3,  3,   0,  2,  2,  1, 16,  0, 0, 0, 1, 0, 64};
+  {false,  true, false, false, false, false,  true,  true, false,  4,  3,  3,   1,  2,  2,  1, 16,  0, 0, 0, 1, 0, 64};
 const static bldr_options inner_tries_dflt_opts =
   { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0, 0, 0, 1, 0, 64};
 
