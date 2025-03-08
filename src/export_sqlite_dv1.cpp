@@ -277,7 +277,7 @@ int main(int argc, char* argv[]) {
 
   std::cout << std::endl;
 
-  mb.write_all();
+  mb.build_and_write_all();
 
   t = print_time_taken(t, "Time taken for build: ");
 

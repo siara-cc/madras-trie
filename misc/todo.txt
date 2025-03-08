@@ -49,6 +49,7 @@ x ptr_bit_count not working explite all cases
 + col not matching so_users AboutMe 900
 + endless loops (in read_suffix) so_users DisplayName 10000
 + partial_sfx_coding not working daily_weather date 1 (grp_count = 1 flat)
++ get_table_name() incorrect
 - stack over flow in reverse_lookup
 - common-crawl lookup fail
 
@@ -73,6 +74,7 @@ x 6 byte cache struct
 - ptr bit count in fwd cache
 - differentiating using term flag, leaf flag for ptr reduction?
 - improve leapfrog using SIMD (not working for freq sorted)
+- option to disable idx map
 
 # sort nodes on freq for madras bench
 x separate leaf flags
@@ -156,7 +158,7 @@ x ODBC driver
 + Multiple column key/values
 + Multiple column key/value double mismatch df_sales
 + primary key value extract
-- run_tests chk_sum and len
++ run_tests chk_sum and len
 - bv int_bv_reader bit_len > 32 not working?
 
 - Pure Rust/Go version?
@@ -197,6 +199,7 @@ x ODBC driver
 - Setup unit tests
 - Doxyfile
 - Documentation and format definition
+- Standardise limits and format
 - check release and leaks
 
 Integer codec with ALP

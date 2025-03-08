@@ -134,7 +134,11 @@ int main(int argc, char *argv[]) {
 
   std::string out_file = argv[1];
   out_file += ".mdx";
-  sb->write_all(true, out_file.c_str());
+  if (what == 2) {
+    sb->build_kv();
+    sb->write_kv(true, out_file.c_str());
+  } else
+    sb->build_and_write_all(true, out_file.c_str());
   printf("\nBuild Keys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for build: ");
   std::cout << "Sorted? : " << is_sorted << std::endl;
