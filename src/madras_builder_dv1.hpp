@@ -217,6 +217,7 @@ class builder_fwd {
     virtual leopard::node_set_vars insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) = 0;
     virtual uint32_t build() = 0;
     virtual uint32_t write_trie(const char *filename = NULL) = 0;
+    virtual uint32_t build_kv(bool to_build_trie = true) = 0;
     virtual void write_kv(bool to_close = true, const char *filename = NULL) = 0;
     virtual bldr_options *get_opts() = 0;
 };
@@ -361,14 +362,16 @@ class ptr_groups {
       if (grp_no >= bldr->get_opts()->max_groups) // reeval curlimit?
         return cur_limit;
       bool next_grp = force_next_grp;
-      if (grp_no <= idx_limit) {
-        if (next_idx == cur_limit) {
-          next_grp = true;
-          next_idx = 0;
+      if (!next_grp) {
+        if (grp_no <= idx_limit) {
+          if (next_idx == cur_limit) {
+            next_grp = true;
+            next_idx = 0;
+          }
+        } else {
+          if ((freq_grp_vec[grp_no].grp_size + len) > cur_limit)
+            next_grp = true;
         }
-      } else {
-        if ((freq_grp_vec[grp_no].grp_size + len) > cur_limit)
-          next_grp = true;
       }
       if (next_grp) {
         if (grp_no < idx_limit)
@@ -2187,7 +2190,7 @@ class builder : public builder_fwd {
       });
 
       byte_vec rev_nids;
-      rev_col_vals->push_back(0); // dummy
+      rev_col_vals->push_back("\xFF\xFF", 2);
       uint32_t prev_node_id = 0;
       uint32_t prev_node_start_id = 0;
       uint32_t node_start = 0;
@@ -2210,7 +2213,9 @@ class builder : public builder_fwd {
           prev_val = it->word_pos;
           prev_val_len = it->word_len;
               add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
+              // printf("Rev nids size: %lu\n", rev_nids.size());
               ui_ptr->ptr = rev_col_vals->push_back_with_vlen(rev_nids.data(), rev_nids.size());
+              // printf("Rev nids ptr\t%u\t%lu\n", ui_ptr->ptr, rev_nids.size());
               rev_nids.clear();
               prev_node_id = 0;
               prev_node_start_id = 0;
@@ -2243,6 +2248,7 @@ class builder : public builder_fwd {
       tot_freq += freq_count;
       ui_ptr->pos = uniq_words.push_back(prev_val, prev_val_len);
       ui_ptr->ptr = rev_col_vals->push_back_with_vlen(rev_nids.data(), rev_nids.size());
+      // printf("Rev nids size: %lu\n", rev_nids.size());
 
       printf("\nTotal words: %lu, uniq words: %lu, rpt_count: %u, max rpts: %u, max word count: %u, word_ptr_size: %lu\n",
         words_for_sort.size(), uniq_words_vec.size(), rpt_freq, max_rpts, max_word_count, word_ptrs.size());
@@ -2289,9 +2295,9 @@ class builder : public builder_fwd {
         wtb_opts[1].inner_tries = 0;
         wtb_opts[1].max_inner_tries = 0;
 
-      // builder *cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
-      // cur_word_trie->set_all_vals(rev_col_vals);
-      builder *cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
+      builder *cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
+      cur_word_trie->set_all_vals(rev_col_vals);
+      // builder *cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
       ptr_grps.inner_tries.push_back(cur_word_trie);
       ptr_grps.inner_trie_start_grp = grp_no;
       ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0}, true);
@@ -2300,9 +2306,9 @@ class builder : public builder_fwd {
         freq_idx++;
         uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, 1, tot_freq, false, true);
         if (new_limit != cur_limit) {
-          // cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
-          // cur_word_trie->set_all_vals(rev_col_vals);
-          cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
+          cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
+          cur_word_trie->set_all_vals(rev_col_vals);
+          // cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
           ptr_grps.inner_tries.push_back(cur_word_trie);
           cur_limit = new_limit;
         }
@@ -2320,23 +2326,28 @@ class builder : public builder_fwd {
       uint32_t sum_trie_sizes = 0;
       for (size_t it_idx = 0; it_idx < ptr_grps.inner_tries.size(); it_idx++) {
         builder_fwd *inner_trie = ptr_grps.inner_tries[it_idx];
+        is_processing_cols = false;
         uint32_t trie_size = inner_trie->build();
+        printf("Trie size: %u\n", trie_size);
         // ptr_groups *it_ptr_grps = inner_trie->get_grp_ptrs();
         // it_ptr_grps->build();
         leopard::node_iterator ni(inner_trie->get_memtrie()->all_node_sets, 0);
         leopard::node n = ni.next();
         int leaf_id = 0;
         uint32_t node_id = 0;
+        // printf("Inner trie %lu\n", it_idx);
         while (n != nullptr) {
           uint32_t col_val_pos = n.get_col_val();
           if (n.get_flags() & NFLAG_LEAF) {
             uniq_info_base *ti = uniq_words_freq[col_val_pos];
+            // printf("Ptr: %u\n", ti->ptr);
             n.set_col_val(ti->ptr);
             ti->ptr = leaf_id++;
           }
           n = ni.next();
           node_id++;
         }
+        trie_size += inner_trie->build_kv(false);
         freq_grp *fg = ptr_grps.get_freq_grp(it_idx + ptr_grps.inner_trie_start_grp);
         fg->grp_size = trie_size;
         // fg->grp_limit = node_id;
@@ -2552,14 +2563,6 @@ class builder : public builder_fwd {
         return false;
       } while (n != NULL);
       return false;
-    }
-
-    size_t make_rev_key(uint32_t u1, uint32_t u2, uint8_t *rev_key) {
-      size_t u1len = gen::get_svint60_len(u1);
-      gen::copy_svint60(u1, rev_key, u1len);
-      size_t u2len = gen::get_svint60_len(u2);
-      gen::copy_svint60(u2, rev_key + u1len, u2len);
-      return u1len + u2len;
     }
 
     typedef struct {
@@ -2848,6 +2851,7 @@ class builder : public builder_fwd {
             size_t vlen;
             pos = n.get_col_val();
             data_len = gen::read_vint32((*all_vals)[pos], &vlen);
+            // printf("Pos:\t%u\tData len:\t%u\n", pos, data_len);
             data_pos = (*all_vals)[pos + vlen];
           } else {
             size_t vlen;
@@ -2991,7 +2995,6 @@ class builder : public builder_fwd {
       ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
       uint32_t val_size = ptr_grps->get_total_size();
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-        val_size -= col_trie_size;
         val_size += col_trie_builder->build_kv(false);
       }
 
@@ -3848,9 +3851,10 @@ class builder : public builder_fwd {
     }
 
     uint32_t build_kv(bool to_build_trie = true) {
+      is_processing_cols = false;
       uint32_t kv_size = 0;
       if (to_build_trie)
-        build();
+        kv_size = build();
       is_processing_cols = true;
       prev_val_size = 0;
       uint64_t prev_val_loc = tp.col_val_loc0;
@@ -3868,8 +3872,10 @@ class builder : public builder_fwd {
         prev_val_size = val_size;
         break;
       }
+      if (!to_build_trie)
+        prev_val_loc -= tp.col_val_loc0;
       kv_size += prev_val_loc;
-      gen::gen_printf("Total size: %u\n", kv_size);
+      gen::gen_printf("%s size: %u\n", (to_build_trie ? "Total" : "Val"), kv_size);
       return kv_size;
     }
 
