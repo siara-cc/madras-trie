@@ -614,8 +614,7 @@ class ptr_groups {
       for (size_t i = 0; i < inner_tries.size(); i++) {
         inner_tries[i]->fp = fp;
         // inner_tries[i]->write_trie(NULL);
-        inner_tries[i]->write_kv();
-        // inner_tries[i]->write_all(false, nullptr);
+        inner_tries[i]->write_kv(false, nullptr);
       }
     }
     void write_ptr_lookup_tbl(FILE *fp, byte_vec *out_vec) {
@@ -1551,7 +1550,7 @@ class val_sort_callbacks : public sort_callbacks {
 class uniq_maker {
   public:
     static uint32_t make_uniq(byte_ptr_vec& all_node_sets, gen::byte_blocks& all_data, gen::byte_blocks& uniq_data,
-          uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level = 0, size_t col_idx = 0, size_t column_count = 0, char type = MST_BIN) {
+          uniq_info_vec& uniq_vec, sort_callbacks& sic, uint32_t& max_len, int trie_level = 0, size_t col_idx = 0, size_t column_count = 0, char type = MST_BIN) {
       node_data_vec nodes_for_sort;
       add_to_node_data_vec(nodes_for_sort, all_node_sets, sic, all_data, type);
       return sort_and_reduce(nodes_for_sort, all_data, uniq_data, uniq_vec, sic, max_len, trie_level, type);
@@ -1574,7 +1573,7 @@ class uniq_maker {
       gen::gen_printf("Nodes for sort size: %lu\n", nodes_for_sort.size());
     }
     static uint32_t sort_and_reduce(node_data_vec& nodes_for_sort, gen::byte_blocks& all_data,
-          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, int& max_len, int trie_level, char type = MST_BIN) {
+          gen::byte_blocks& uniq_data, uniq_info_vec& uniq_vec, sort_callbacks& sic, uint32_t& max_len, int trie_level, char type = MST_BIN) {
       clock_t t = clock();
       if (nodes_for_sort.size() == 0)
         return 0;
@@ -2319,8 +2318,6 @@ class builder : public builder_fwd {
         ptr_grps.update_current_grp(grp_no, 1, vi->freq_count);
       }
 
-      ptr_grps.set_max_len(max_word_len);
-
       ptr_grps.set_grp_nos(len_grp_no, rpt_grp_no, 0);
 
       uint32_t sum_trie_sizes = 0;
@@ -2438,8 +2435,6 @@ class builder : public builder_fwd {
       //   }
       //   return;
       // }
-      if (max_val_len < words_len)
-        max_val_len = words_len;
       total_word_entries++;
       uint32_t last_word_len = 0;
       bool is_prev_non_word = false;
@@ -2817,6 +2812,7 @@ class builder : public builder_fwd {
       rec_pos_vec[0] = UINT32_MAX;
       // bool delta_next_block = true;
       node_data_vec nodes_for_sort;
+      uint32_t max_len = 0;
       uint32_t rpt_freq = 0;
       uint32_t max_rpt_count = 0;
       uint32_t max_word_count = 0;
@@ -2910,6 +2906,8 @@ class builder : public builder_fwd {
           }
           switch (encoding_type) {
             case MSE_WORDS: {
+              if (max_len < data_len)
+                max_len = data_len;
               add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len,
                           max_word_count, total_word_entries, rpt_freq, max_rpt_count);
               prev_val = data_pos;
@@ -2917,6 +2915,8 @@ class builder : public builder_fwd {
             } break;
             case MSE_TRIE:
             case MSE_TRIE_2WAY: {
+              if (max_len < data_len)
+                max_len = data_len;
               uint32_t nid_shifted = (node_id - 1) >> get_opts()->sec_idx_nid_shift_bits;
               // printf("Data: [%.*s]\n", data_len, data_pos);
               leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
@@ -2957,7 +2957,7 @@ class builder : public builder_fwd {
           uniq_info_vec uniq_words_vec;
           build_words(words_for_sort, word_ptrs, uniq_words_vec, uniq_words, max_word_count, total_word_entries, rpt_freq, max_rpt_count, new_vals);
           ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
-          ptr_grps->set_max_len(max_val_len);
+          ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
         } break;
@@ -2973,24 +2973,28 @@ class builder : public builder_fwd {
         default: {
           val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *all_vals, uniq_vals);
           uint32_t tot_freq_count = uniq_maker::sort_and_reduce(nodes_for_sort, *all_vals,
-                      uniq_vals, uniq_vals_fwd, val_sort_cb, max_val_len, 0, data_type);
+                      uniq_vals, uniq_vals_fwd, val_sort_cb, max_len, 0, data_type);
 
           uint8_t max_repeats;
           size_t rpt_count = process_repeats(false, max_repeats);
           // if (get_opts()->rpt_enable_perc < (rpt_count * 100 / node_count))
           //   process_repeats(true, max_repeats);
-          // printf("Max col len: %u, Rpt count: %lu, max: %d\n", max_val_len, rpt_count, max_repeats);
+          // printf("Max col len: %u, Rpt count: %lu, max: %d\n", max_len, rpt_count, max_repeats);
 
           if (data_type == MST_TEXT)
-            val_maps.build_tail_val_maps(false, memtrie.all_node_sets, uniq_vals_fwd, uniq_vals, tot_freq_count, max_val_len, max_repeats);
+            val_maps.build_tail_val_maps(false, memtrie.all_node_sets, uniq_vals_fwd, uniq_vals, tot_freq_count, max_len, max_repeats);
           else
-            val_maps.build_val_maps(tot_freq_count, max_val_len, data_type, max_repeats);
+            val_maps.build_val_maps(tot_freq_count, max_len, data_type, max_repeats);
           
           ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
+          ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
         }
       }
+
+      if (max_val_len < max_len)
+        max_val_len = max_len;
 
       ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
       uint32_t val_size = ptr_grps->get_total_size();
@@ -3011,6 +3015,7 @@ class builder : public builder_fwd {
     }
 
     void write_col_val() {
+      printf("trie level: %d, col idx: %d\n", trie_level, cur_col_idx);
       char data_type = column_types[cur_col_idx];
       char encoding_type = column_encodings[cur_col_idx];
       write_val_ptrs_data(data_type, encoding_type, 1, fp, out_vec); // TODO: fix flags
@@ -3037,7 +3042,7 @@ class builder : public builder_fwd {
         ctb_opts[1].max_inner_tries = 0;
         col_trie_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
       } else
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "*", 0, 1, ctb_opts);
+        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "u", 0, 1, ctb_opts);
       col_trie_builder->fp = fp;
       col_trie_builder->out_vec = out_vec;
       col_trie = &col_trie_builder->memtrie;
@@ -3068,7 +3073,7 @@ class builder : public builder_fwd {
       if (get_opts()->max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
       }
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "*", trie_level + 1, 1, &inner_trie_opts);
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "u", trie_level + 1, 1, &inner_trie_opts);
       ret->fp = fp;
       ret->out_vec = out_vec;
       return ret;
@@ -3882,8 +3887,10 @@ class builder : public builder_fwd {
     void write_kv(bool to_close = true, const char *filename = NULL) {
       is_processing_cols = false;
       write_trie(filename);
-      is_processing_cols = true;
-      write_col_val();
+      if (column_count > 1) {
+        is_processing_cols = true;
+        write_col_val();
+      }
       //write_final_val_table(to_close, 0);
     }
 
