@@ -522,10 +522,10 @@ class ptr_groups {
         ptr_lkup_tbl_ptr_width = 4;
         if (!dessicate)
           build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type);
-        if (!is_tail && encoding_type != MSE_WORDS)
+        if (!is_tail && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
           build_val_ptrs(all_node_sets, get_info_func, info_vec);
       }
-      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS)
+      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
         build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
       ptr_lookup_tbl_loc = 7 * 4 + 20;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || freq_grp_vec.size() <= 2)
@@ -536,7 +536,7 @@ class ptr_groups {
         else { // TODO: PTR LT gets created unnecessarily for last level of tail tries
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block,
             ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1)
-                                        * (encoding_type == MSE_WORDS ? 3 : 2));
+                                        * (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY ? 3 : 2));
         }
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + gen::size_align8(ptr_lookup_tbl_sz);
@@ -667,14 +667,14 @@ class ptr_groups {
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
         if (node_id && (node_id % nodes_per_ptr_block_n) == 0) {
-          if (bit_count4 > (encoding_type == MSE_WORDS ? 16777215 : 65535))
+          if (bit_count4 > (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY ? 16777215 : 65535))
             std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_count4 << std::endl;
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
           for (int j = 0; j < u16_arr_count; j++) {
-            if (encoding_type == MSE_WORDS)
+            if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
               gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
             else
               gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
@@ -689,7 +689,7 @@ class ptr_groups {
           memset(bit_counts, '\0', u16_arr_count * 4 + 4);
         }
         if (cur_node_flags & (is_tail ? NFLAG_TAIL : NFLAG_LEAF)) {
-          if (encoding_type == MSE_WORDS) {
+          if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
             bit_count4 += cur_node.get_col_val();
             //printf("gcv: %u, bc4: %u\n", cur_node.get_col_val(), bit_count4);
           } else {
@@ -702,7 +702,7 @@ class ptr_groups {
         cur_node = ni.next();
       }
       for (int j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS)
+        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
           gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
         else
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
@@ -713,7 +713,7 @@ class ptr_groups {
       else
         gen::append_uint24(bit_count, ptr_lookup_tbl);
       for (int j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS)
+        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
           gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
         else
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
@@ -2282,21 +2282,8 @@ class builder : public builder_fwd {
       uint32_t max_word_len = 0;
       uint32_t cur_limit = pow(2, start_bits);
 
-      bldr_options wtb_opts[2];
-      wtb_opts[0] = dflt_opts;
-      wtb_opts[1] = dflt_opts;
-      wtb_opts[0].max_groups = 1;
-      wtb_opts[0].max_inner_tries = 2;
-      wtb_opts[0].partial_sfx_coding = false;
-      wtb_opts[0].sort_nodes_on_freq = false;
-        wtb_opts[0].opts_count = 2;
-        wtb_opts[0].leap_frog = true;
-        wtb_opts[1].inner_tries = 0;
-        wtb_opts[1].max_inner_tries = 0;
-
-      builder *cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
-      cur_word_trie->set_all_vals(rev_col_vals);
-      // builder *cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
+      char encoding_type = column_encodings[cur_col_idx];
+      builder *cur_word_trie = create_word_trie_builder(encoding_type, rev_col_vals);
       ptr_grps.inner_tries.push_back(cur_word_trie);
       ptr_grps.inner_trie_start_grp = grp_no;
       ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0}, true);
@@ -2305,9 +2292,7 @@ class builder : public builder_fwd {
         freq_idx++;
         uint32_t new_limit = ptr_grps.next_grp(grp_no, cur_limit, 1, tot_freq, false, true);
         if (new_limit != cur_limit) {
-          cur_word_trie = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
-          cur_word_trie->set_all_vals(rev_col_vals);
-          // cur_word_trie = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, &word_tries_dflt_opts);
+          cur_word_trie = create_word_trie_builder(encoding_type, rev_col_vals);
           ptr_grps.inner_tries.push_back(cur_word_trie);
           cur_limit = new_limit;
         }
@@ -2338,7 +2323,8 @@ class builder : public builder_fwd {
           if (n.get_flags() & NFLAG_LEAF) {
             uniq_info_base *ti = uniq_words_freq[col_val_pos];
             // printf("Ptr: %u\n", ti->ptr);
-            n.set_col_val(ti->ptr);
+            if (encoding_type == MSE_WORDS_2WAY)
+              n.set_col_val(ti->ptr);
             ti->ptr = leaf_id++;
           }
           n = ni.next();
@@ -2905,7 +2891,8 @@ class builder : public builder_fwd {
             }
           }
           switch (encoding_type) {
-            case MSE_WORDS: {
+            case MSE_WORDS:
+            case MSE_WORDS_2WAY: {
               if (max_len < data_len)
                 max_len = data_len;
               add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len,
@@ -2952,7 +2939,8 @@ class builder : public builder_fwd {
       }
       uint32_t col_trie_size = 0;
       switch (encoding_type) {
-        case MSE_WORDS: {
+        case MSE_WORDS:
+        case MSE_WORDS_2WAY: {
           gen::byte_blocks uniq_words;
           uniq_info_vec uniq_words_vec;
           build_words(words_for_sort, word_ptrs, uniq_words_vec, uniq_words, max_word_count, total_word_entries, rpt_freq, max_rpt_count, new_vals);
@@ -3046,6 +3034,27 @@ class builder : public builder_fwd {
       col_trie_builder->fp = fp;
       col_trie_builder->out_vec = out_vec;
       col_trie = &col_trie_builder->memtrie;
+    }
+
+    builder *create_word_trie_builder(char enc_type, gen::byte_blocks *rev_col_vals) {
+      bldr_options wtb_opts[2];
+      wtb_opts[0] = dflt_opts;
+      wtb_opts[1] = dflt_opts;
+      wtb_opts[0].max_groups = 1;
+      wtb_opts[0].max_inner_tries = 2;
+      wtb_opts[0].partial_sfx_coding = false;
+      wtb_opts[0].sort_nodes_on_freq = false;
+      wtb_opts[0].opts_count = 2;
+      wtb_opts[0].leap_frog = true;
+      wtb_opts[1].inner_tries = 0;
+      wtb_opts[1].max_inner_tries = 0;
+      builder *ret;
+      if (enc_type == MSE_WORDS_2WAY) {
+        ret = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
+        ret->set_all_vals(rev_col_vals);
+      } else
+        ret = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, wtb_opts);
+      return ret;
     }
 
     void reset_for_next_col() {
@@ -3292,7 +3301,7 @@ class builder : public builder_fwd {
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
       uint32_t val_fp_offset = 0;
-      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS) {
+      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
         gen::gen_printf("Stats - ");
         val_maps.get_grp_ptrs()->write_ptrs_data(data_type, flags, false, fp, out_vec);
         val_fp_offset += val_maps.get_grp_ptrs()->get_total_size();

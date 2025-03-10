@@ -289,7 +289,7 @@ int main(int argc, char* argv[]) {
   uint16_t stm_col_count = stm.get_column_count();
   printf("Col Count: %u, Cols:", stm_col_count);
   for (int i = 0; i < stm_col_count; i++)
-    printf(" %s", stm.get_column_name(i));
+    printf(", %s (%u)", stm.get_column_name(i), stm.get_max_val_len(i));
   printf("\n");
 
   if (dont_verify) {

@@ -1991,7 +1991,7 @@ class val_ptr_group_map : public ptr_group_map {
         if (data_type != MST_TEXT && data_type != MST_BIN)
           convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
         return (const uint8_t *) ret_val;
-      } else if (encoding_type == MSE_WORDS) {
+      } else if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
         return get_word_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
       } else {
         switch (data_type) {

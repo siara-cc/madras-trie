@@ -96,6 +96,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define MSE_TRIE_2WAY 'T'
 #define MSE_TRIE_SINT 's'
 #define MSE_WORDS 'w'
+#define MSE_WORDS_2WAY 'W'
 
 #define MSE_DICT 'u'
 #define MSE_DICT_DELTA 'd'
