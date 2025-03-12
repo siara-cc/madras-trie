@@ -216,6 +216,7 @@ class builder_fwd {
     virtual builder_fwd *new_instance() = 0;
     virtual leopard::node_set_vars insert(const uint8_t *key, int key_len, uint32_t val_pos = UINT32_MAX) = 0;
     virtual uint32_t build() = 0;
+    virtual void set_all_vals(gen::byte_blocks *_all_vals, bool to_delete_prev = true) = 0;
     virtual uint32_t write_trie(const char *filename = NULL) = 0;
     virtual uint32_t build_kv(bool to_build_trie = true) = 0;
     virtual void write_kv(bool to_close = true, const char *filename = NULL) = 0;
@@ -725,8 +726,8 @@ class ptr_groups {
       output_byte(data_type, fp, out_vec);
       output_byte(enc_type, fp, out_vec);
       output_byte(flags, fp, out_vec);
-      output_byte(len_grp_no, fp, out_vec);
-      output_byte(rpt_grp_no, fp, out_vec);
+      output_byte(len_grp_no - 1, fp, out_vec);
+      output_byte(rpt_grp_no - 1, fp, out_vec);
       output_byte(rpt_seq_grp_no, fp, out_vec);
       output_byte(sug_col_width, fp, out_vec);
       output_byte(sug_col_height, fp, out_vec);
@@ -830,7 +831,7 @@ class ptr_groups {
           fg->grp_log2 = ceil(log2(fg->grp_limit));
         } else if (inner_trie_start_grp > 0 && i >= inner_trie_start_grp) {
           if (fg->count < fg->grp_limit)
-            fg->grp_log2 = ceil(log2(fg->count));
+            fg->grp_log2 = ceil(log2(fg->count == 1 ? 2 : fg->count));
           else
             fg->grp_log2 = ceil(log2(fg->grp_limit));
         } else {
@@ -1851,8 +1852,8 @@ class builder : public builder_fwd {
       strcpy(out_filename, out_file);
     }
 
-    void set_all_vals(gen::byte_blocks *_all_vals) {
-      if (all_vals != nullptr)
+    void set_all_vals(gen::byte_blocks *_all_vals, bool to_delete_prev = true) {
+      if (all_vals != nullptr && to_delete_prev)
         delete all_vals;
       all_vals = _all_vals;
     }
@@ -2189,6 +2190,7 @@ class builder : public builder_fwd {
       });
 
       byte_vec rev_nids;
+      rev_col_vals->reset();
       rev_col_vals->push_back("\xFF\xFF", 2);
       uint32_t prev_node_id = 0;
       uint32_t prev_node_start_id = 0;
@@ -2331,6 +2333,7 @@ class builder : public builder_fwd {
           node_id++;
         }
         trie_size += inner_trie->build_kv(false);
+        inner_trie->set_all_vals(nullptr, false);
         freq_grp *fg = ptr_grps.get_freq_grp(it_idx + ptr_grps.inner_trie_start_grp);
         fg->grp_size = trie_size;
         // fg->grp_limit = node_id;
@@ -2345,7 +2348,10 @@ class builder : public builder_fwd {
       freq_grp *cur_fg;
       leopard::node_iterator ni(memtrie.all_node_sets, pk_col_count == 0 ? 1 : 0);
       leopard::node n = ni.next();
-      uint32_t node_id = 0;
+      while (n != nullptr && (n.get_flags() & NFLAG_LEAF) == 0) {
+        n = ni.next();
+        n.set_col_val(0);
+      }
       uint32_t ptr_bit_count = 0;
       uint32_t word_count = 0;
       for (size_t i = 0; i < word_ptrs.size(); i++) {
@@ -2371,10 +2377,21 @@ class builder : public builder_fwd {
           }
         }
         if (word_count & 0x40000000L) {
+          uint32_t word_rpt_count = word_count & 0x3FFFFFFFL;
           cur_fg = ptr_grps.get_freq_grp(rpt_grp_no);
           ptr_grps.append_ptr_bits(cur_fg->code, cur_fg->code_len);
-          ptr_grps.append_ptr_bits(word_count & 0x3FFFFFFFL, cur_fg->grp_log2 - cur_fg->code_len);
+          ptr_grps.append_ptr_bits(word_rpt_count, cur_fg->grp_log2 - cur_fg->code_len);
           ptr_bit_count += cur_fg->grp_log2;
+          while (word_rpt_count--) {
+            if (n.get_flags() & NFLAG_LEAF) { // should be always true
+              n.set_col_val(0);
+              n = ni.next();
+            }
+            while ((n.get_flags() & NFLAG_LEAF) == 0) {
+              n.set_col_val(0);
+              n = ni.next();
+            }
+          }
           word_count = 0;
           continue;
         }
@@ -2964,7 +2981,7 @@ class builder : public builder_fwd {
                       uniq_vals, uniq_vals_fwd, val_sort_cb, max_len, 0, data_type);
 
           uint8_t max_repeats;
-          size_t rpt_count = process_repeats(false, max_repeats);
+          // size_t rpt_count = process_repeats(false, max_repeats);
           // if (get_opts()->rpt_enable_perc < (rpt_count * 100 / node_count))
           //   process_repeats(true, max_repeats);
           // printf("Max col len: %u, Rpt count: %lu, max: %d\n", max_len, rpt_count, max_repeats);
