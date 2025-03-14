@@ -1532,7 +1532,7 @@ class static_trie : public inner_trie {
       return node_id;
     }
 
-    __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf) {
+    __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf = nullptr) {
       gen::byte_str tail;
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *tail_bytes = new uint8_t[max_tail_len + 1];
@@ -1570,7 +1570,8 @@ class static_trie : public inner_trie {
             else
               tail.append(trie_loc[node_id]);
             update_ctx(ctx, tail, node_id);
-            memcpy(key_buf, ctx.key, ctx.key_len);
+            if (key_buf != nullptr)
+              memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
             #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
             delete [] tail_bytes;
@@ -1647,17 +1648,18 @@ class static_trie : public inner_trie {
       #endif
       ctx.cur_idx = 0;
       gen::byte_str tail(tail_buf, max_tail_len);
+      uint32_t node_id = in_ctx.node_id;
       do {
-        if (tail_lt[in_ctx.node_id])
-          tail_map->get_tail_str(in_ctx.node_id, tail);
+        if (tail_lt[node_id])
+          tail_map->get_tail_str(node_id, tail);
         else
-          tail.append(trie_loc[in_ctx.node_id]);
-        insert_into_ctx(ctx, tail, in_ctx.node_id);
+          tail.append(trie_loc[node_id]);
+        insert_into_ctx(ctx, tail, node_id);
         // printf("[%.*s]\n", (int) tail.length(), tail.data());
         // if (!rev_cache.try_find(in_ctx.node_id, tail))
-          in_ctx.node_id = child_lt.select1(term_lt.rank1(in_ctx.node_id)) - 1;
+          node_id = child_lt.select1(term_lt.rank1(node_id)) - 1;
         tail.clear();
-      } while (in_ctx.node_id != 0);
+      } while (node_id != 0);
       ctx.cur_idx--;
         // for (int i = 0; i < ctx.key_len; i++)
         //   printf("%c", ctx.key[i]);
@@ -1793,7 +1795,7 @@ class val_ptr_group_map : public ptr_group_map {
     uint32_t node_count;
     uint32_t key_count;
     gen::int_bv_reader int_ptr_bv;
-    static_trie *col_trie;
+    inner_trie_fwd *col_trie;
   public:
     __fq1 __fq2 uint32_t scan_ptr_bits_words(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
@@ -1871,7 +1873,7 @@ class val_ptr_group_map : public ptr_group_map {
         ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
       uint32_t col_trie_node_id = int_ptr_bv[ptr_pos];
       // printf("Col trie node_id: %u\n", col_trie_node_id);
-      col_trie->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, true);
+      ((static_trie *) col_trie)->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, true);
     }
 
     __fq1 __fq2 uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
@@ -1998,7 +2000,7 @@ class val_ptr_group_map : public ptr_group_map {
     }
 
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
-      if (ret_val == nullptr || in_size_out_value_len == nullptr)
+      if (in_size_out_value_len == nullptr)
         return nullptr;
       uint8_t *val_loc;
       uint8_t grp_no = 0;
@@ -2117,13 +2119,13 @@ class val_ptr_group_map : public ptr_group_map {
         int_ptr_bv.init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
       col_trie = nullptr;
       if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
-        col_trie = new static_trie();
-        col_trie->load_static_trie(data_loc);
+        col_trie = _dict_obj->new_instance(data_loc);
       }
     }
     __fq1 __fq2 static_trie *get_col_trie() {
-      return col_trie;
+      return (static_trie *) col_trie;
     }
+
     __fq1 __fq2 val_ptr_group_map() {
       col_trie = nullptr;
     }
@@ -2156,6 +2158,29 @@ class cleanup : public cleanup_interface {
     __fq1 __fq2 void init(uint8_t *_bytes) {
       bytes = _bytes;
     }
+};
+
+#define MDX_REV_ST_INIT 0
+#define MDX_REV_ST_NEXT 1
+#define MDX_REV_ST_END 2
+struct rev_nodes_ctx : public input_ctx, public iter_ctx {
+  const uint8_t *rev_node_list;
+  size_t rev_nl_len;
+  uint32_t rev_nl_pos;
+  uint32_t prev_node_id;
+  uint8_t rev_state;
+  rev_nodes_ctx() {
+    reset();
+  }
+  void init() {
+    reset();
+  }
+  void reset() {
+    rev_node_list = nullptr;
+    prev_node_id = 0;
+    node_id = 0;
+    rev_state = MDX_REV_ST_INIT;
+  }
 };
 
 class static_trie_map : public static_trie {
@@ -2261,15 +2286,92 @@ class static_trie_map : public static_trie {
       return val_map[col_val_idx].get_col_trie();
     }
 
-    __fq1 __fq2 static_trie_map get_col_trie_map(int col_val_idx) {
-      static_trie_map stm;
-      uint8_t *tb = get_col_trie(col_val_idx)->get_trie_bytes();
-      stm.load_from_mem(tb, 0);
-      return stm;
+    __fq1 __fq2 static_trie_map *get_col_trie_map(int col_val_idx) {
+      return (static_trie_map *) val_map[col_val_idx].get_col_trie();
     }
 
     __fq1 __fq2 uint16_t get_column_count() {
       return val_count;
+    }
+
+    bool read_rev_node_list(uint32_t ct_node_id, static_trie_map *rev_trie, rev_nodes_ctx& rev_ctx) {
+      rev_ctx.rev_node_list = rev_trie->get_col_val(ct_node_id, 1, &rev_ctx.rev_nl_len);
+      printf("rev_nl_len: %u\n", rev_ctx.rev_nl_len);
+      if (rev_ctx.rev_node_list == nullptr || rev_ctx.rev_nl_len == 0) {
+        rev_ctx.rev_state = MDX_REV_ST_END;
+        return false;
+      }
+      rev_ctx.rev_nl_pos = 0;
+      rev_ctx.node_id = gen::read_svint61(rev_ctx.rev_node_list) >> 1;
+      printf("rev_node id: %u\n", rev_ctx.node_id);
+      rev_ctx.prev_node_id = 0;
+      return true;
+    }
+
+    bool get_next_rev_node_id(rev_nodes_ctx& rev_ctx) {
+      uint32_t nid_start = gen::read_svint61(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos);
+      size_t nid_len = gen::read_svint61_len(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos);
+      uint32_t nid_end = nid_start >> 1;
+      if (nid_start & 1) {
+        nid_end = gen::read_svint61(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos + nid_len);
+        nid_len += gen::read_svint61_len(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos + nid_len);
+      }
+      nid_start = (nid_start >> 1) + rev_ctx.prev_node_id + 1;
+      nid_end += nid_start;
+      nid_end++;
+      if (rev_ctx.prev_node_id >= nid_end) {
+        rev_ctx.rev_nl_pos += nid_len;
+        rev_ctx.prev_node_id = nid_start;
+        if (rev_ctx.rev_nl_pos >= rev_ctx.rev_nl_len) {
+          rev_ctx.node_id = UINT32_MAX;
+          return false;
+        }
+        nid_start = gen::read_svint61(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos);
+        rev_ctx.node_id = (nid_start >> 1) + rev_ctx.prev_node_id + 1;
+      } else {
+        rev_ctx.node_id++;
+      }
+      return true;
+    }
+
+    __fq1 __fq2 bool rev_trie_next(static_trie_map *rev_trie, rev_nodes_ctx& rev_ctx) {
+      if (rev_ctx.rev_state == MDX_REV_ST_INIT) {
+        rev_ctx.rev_state = MDX_REV_ST_NEXT;
+        input_ctx *in_ctx = &rev_ctx;
+        ((iter_ctx *) &rev_ctx)->init(rev_trie->get_max_key_len(), rev_trie->get_max_level());
+        uint32_t ct_node_id = rev_trie->find_first(in_ctx->key, in_ctx->key_len, rev_ctx, true);
+        printf("ct node id: %u\n", ct_node_id);
+        if (ct_node_id == 0) {
+          rev_ctx.rev_state = MDX_REV_ST_END;
+          return false;
+        }
+        int res = rev_trie->next(rev_ctx);
+        printf("res: %d\n", res);
+        if (res == -2) {
+          rev_ctx.rev_state = MDX_REV_ST_END;
+          return false;
+        }
+        ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
+        printf("ct node id: %u\n", ct_node_id);
+        if (rev_trie->get_column_count() == 1)
+          return true;
+        if (!read_rev_node_list(ct_node_id, rev_trie, rev_ctx))
+          return false;
+        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        return true;
+      } else {
+        if (rev_trie->get_column_count() == 2) {
+          if (get_next_rev_node_id(rev_ctx))
+            return true;
+        }
+        int res = rev_trie->next(rev_ctx);
+        if (res == -2) {
+          rev_ctx.rev_state = MDX_REV_ST_END;
+          return false;
+        }
+        return true;
+      }
+      return false;
     }
 
     __fq1 __fq2 void map_from_memory(uint8_t *mem) {
