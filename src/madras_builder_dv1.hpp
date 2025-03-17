@@ -2169,10 +2169,19 @@ class builder : public builder_fwd {
     } word_refs;
 
     void add_rev_node_id(byte_vec& rev_nids, uint32_t node_start, uint32_t node_end, uint32_t prev_node_start_id) {
-      if (node_end != UINT32_MAX)
+      if (node_start == 0)
+        return;
+      if (node_end != UINT32_MAX) {
         node_end -= node_start;
+        node_end--;
+      }
+      if (node_start == prev_node_start_id) {
+        // printf("multiple words same node id: %u\n", node_start);
+        return;
+      }
       node_start -= prev_node_start_id;
-      gen::append_svint61(rev_nids, node_start | (node_end != UINT32_MAX ? 1 : 0));
+      node_start--;
+      gen::append_svint61(rev_nids, (node_start << 1) | (node_end != UINT32_MAX ? 1 : 0));
       if (node_end != UINT32_MAX)
          gen::append_svint61(rev_nids, node_end);
     }
@@ -2921,7 +2930,7 @@ class builder : public builder_fwd {
             case MSE_TRIE_2WAY: {
               if (max_len < data_len)
                 max_len = data_len;
-              uint32_t nid_shifted = (node_id - 1) >> get_opts()->sec_idx_nid_shift_bits;
+              uint32_t nid_shifted = node_id >> get_opts()->sec_idx_nid_shift_bits;
               // printf("Data: [%.*s]\n", data_len, data_pos);
               leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
               if (encoding_type == MSE_TRIE_2WAY) {

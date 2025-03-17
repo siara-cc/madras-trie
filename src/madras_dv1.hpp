@@ -170,6 +170,9 @@ class cmn {
       return 0;
       #endif
     }
+    __fq1 __fq2 static size_t min(size_t v1, size_t v2) {
+      return v1 < v2 ? v1 : v2;
+    }
     __fq1 __fq2 static uint32_t read_vint32(const uint8_t *ptr, size_t *vlen = NULL) {
       uint32_t ret = 0;
       size_t len = 5; // read max 5 bytes
@@ -784,11 +787,6 @@ class ptr_group_map {
 
     uint8_t *trie_loc;
     uint64_t *ptr_bm_loc;
-    uint8_t multiplier;
-    uint8_t group_count;
-    uint8_t rpt_grp_no;
-    int8_t grp_idx_limit;
-    uint8_t inner_trie_start_grp;
 
     uint32_t *idx_map_arr = nullptr;
     uint8_t *idx2_ptrs_map_loc;
@@ -801,6 +799,11 @@ class ptr_group_map {
     uint8_t data_type;
     uint8_t encoding_type;
     uint8_t flags;
+    uint8_t inner_trie_start_grp;
+    uint8_t multiplier;
+    uint8_t group_count;
+    uint8_t rpt_grp_no;
+    int8_t grp_idx_limit;
     uint32_t max_len;
     inner_trie_fwd *dict_obj;
     inner_trie_fwd **inner_tries;
@@ -1978,11 +1981,11 @@ class val_ptr_group_map : public ptr_group_map {
     }
 
     __fq1 __fq2 void convert_back(uint8_t *val_loc, void *ret_val, size_t& ret_len) {
-      ret_len = 8;
       switch (data_type) {
         case MST_INT:
         case MST_DECV ... MST_DEC9:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+          ret_len = 8;
           if (*val_loc == 0x00) {
             uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(ret_len);
             memcpy(ret_val, null_val, ret_len);
@@ -2169,16 +2172,23 @@ struct rev_nodes_ctx : public input_ctx, public iter_ctx {
   uint32_t rev_nl_pos;
   uint32_t prev_node_id;
   uint8_t rev_state;
+  uint8_t trie_no;
   rev_nodes_ctx() {
     reset();
   }
   void init() {
     reset();
   }
+  void init(static_trie *trie) {
+    if (is_allocated)
+      this->close();
+    ((iter_ctx *) this)->init((uint16_t) trie->get_max_key_len(), (uint16_t) trie->get_max_level());
+  }
   void reset() {
     rev_node_list = nullptr;
     prev_node_id = 0;
     node_id = 0;
+    trie_no = 0;
     rev_state = MDX_REV_ST_INIT;
   }
 };
@@ -2245,6 +2255,7 @@ class static_trie_map : public static_trie {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
         if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val))
           return nullptr;
+        val_map[col_val_idx].convert_back((uint8_t *) val, val, *in_size_out_value_len);
         return (const uint8_t *) val;
       }
       return val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
@@ -2290,13 +2301,26 @@ class static_trie_map : public static_trie {
       return (static_trie_map *) val_map[col_val_idx].get_col_trie();
     }
 
+    __fq1 __fq2 static_trie_map **get_trie_groups(int col_val_idx) {
+      inner_trie_fwd **inner_tries = val_map[col_val_idx].inner_tries;
+      return (static_trie_map **) inner_tries;
+    }
+
+    __fq1 __fq2 size_t get_trie_start_group(int col_val_idx) {
+      return val_map[col_val_idx].inner_trie_start_grp;
+    }
+
+    __fq1 __fq2 size_t get_group_count(int col_val_idx) {
+      return val_map[col_val_idx].group_count;
+    }
+
     __fq1 __fq2 uint16_t get_column_count() {
       return val_count;
     }
 
-    bool read_rev_node_list(uint32_t ct_node_id, static_trie_map *rev_trie, rev_nodes_ctx& rev_ctx) {
-      rev_ctx.rev_node_list = rev_trie->get_col_val(ct_node_id, 1, &rev_ctx.rev_nl_len);
-      printf("rev_nl_len: %u\n", rev_ctx.rev_nl_len);
+    bool read_rev_node_list(uint32_t ct_node_id, rev_nodes_ctx& rev_ctx) {
+      rev_ctx.rev_node_list = get_col_val(ct_node_id, 1, &rev_ctx.rev_nl_len);
+      printf("rev_nl_len: %lu\n", rev_ctx.rev_nl_len);
       if (rev_ctx.rev_node_list == nullptr || rev_ctx.rev_nl_len == 0) {
         rev_ctx.rev_state = MDX_REV_ST_END;
         return false;
@@ -2313,7 +2337,7 @@ class static_trie_map : public static_trie {
       size_t nid_len = gen::read_svint61_len(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos);
       uint32_t nid_end = 0;
       bool has_end = (nid_start & 1);
-      nid_start = (nid_start >> 1) + rev_ctx.prev_node_id + 1;
+      nid_start = (nid_start >> 1) + rev_ctx.prev_node_id;
       if (has_end) {
         nid_end = gen::read_svint61(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos + nid_len);
         nid_end += nid_start;
@@ -2323,56 +2347,64 @@ class static_trie_map : public static_trie {
         nid_end = nid_start;
       printf("nid_start: %u, nid_end: %u, prev_nid: %u, nid: %u\n", nid_start, nid_end, rev_ctx.prev_node_id, rev_ctx.node_id);
       rev_ctx.node_id++;
-      if (rev_ctx.node_id >= nid_end) {
+      if (rev_ctx.node_id > nid_end) {
         rev_ctx.rev_nl_pos += nid_len;
-        rev_ctx.prev_node_id = nid_start;
-        printf("rev_nl_len: %u, pos: %u\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
+        rev_ctx.prev_node_id = nid_start + 1;
+        if (has_end)
+          rev_ctx.prev_node_id = nid_end + 1;
+        printf("rev_nl_len: %lu, pos: %u\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
         if (rev_ctx.rev_nl_pos >= rev_ctx.rev_nl_len) {
           rev_ctx.node_id = UINT32_MAX;
           return false;
         }
         nid_start = gen::read_svint61(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos);
-        rev_ctx.node_id = (nid_start >> 1) + rev_ctx.prev_node_id + 1;
+        rev_ctx.node_id = (nid_start >> 1) + rev_ctx.prev_node_id;
       }
       return true;
     }
 
-    __fq1 __fq2 bool rev_trie_next(static_trie_map *rev_trie, rev_nodes_ctx& rev_ctx) {
+    __fq1 __fq2 bool rev_trie_next(rev_nodes_ctx& rev_ctx) {
       if (rev_ctx.rev_state == MDX_REV_ST_END)
         return false;
       if (rev_ctx.rev_state == MDX_REV_ST_INIT) {
+        rev_ctx.init(this);
         rev_ctx.rev_state = MDX_REV_ST_NEXT;
         input_ctx *in_ctx = &rev_ctx;
-        ((iter_ctx *) &rev_ctx)->init(rev_trie->get_max_key_len(), rev_trie->get_max_level());
         printf("key: %u, [%.*s]\n", in_ctx->key_len, (int) in_ctx->key_len, in_ctx->key);
-        uint32_t ct_node_id = rev_trie->find_first(in_ctx->key, in_ctx->key_len, rev_ctx, true);
+        uint32_t ct_node_id = find_first(in_ctx->key, in_ctx->key_len, rev_ctx, true);
         printf("ct node id: %u\n", ct_node_id);
         if (ct_node_id == 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
-        int res = rev_trie->next(rev_ctx);
+        int res = next(rev_ctx);
         printf("res: %d\n", res);
         if (res == -2) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
+        iter_ctx *it_ctx = &rev_ctx;
+        printf("found first: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
+        if (cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
+          rev_ctx.rev_state = MDX_REV_ST_END;
+          return false;
+        }
         ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
         printf("ct node id: %u\n", ct_node_id);
-        if (rev_trie->get_column_count() == 1)
+        if (get_column_count() == 1)
           return true;
-        if (!read_rev_node_list(ct_node_id, rev_trie, rev_ctx))
+        if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
         printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
         return true;
       } else {
         printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
-        if (rev_trie->get_column_count() == 2) {
+        if (get_column_count() == 2) {
           if (get_next_rev_node_id(rev_ctx))
             return true;
         }
         printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
-        int res = rev_trie->next(rev_ctx);
+        int res = next(rev_ctx);
         if (res == -2) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
@@ -2380,12 +2412,13 @@ class static_trie_map : public static_trie {
         printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
         input_ctx *in_ctx = &rev_ctx;
         iter_ctx *it_ctx = &rev_ctx;
-        if (memcmp(in_ctx->key, it_ctx->key, in_ctx->key_len) != 0) {
+        printf("found next: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
+        if (cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
         uint32_t ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
-        if (!read_rev_node_list(ct_node_id, rev_trie, rev_ctx))
+        if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
         printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
         return true;

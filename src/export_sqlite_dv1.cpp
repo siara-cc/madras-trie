@@ -200,6 +200,14 @@ int main(int argc, char* argv[]) {
       }
       continue;
     }
+    if (encoding_types[i] != 'u') {
+      if (is_pk_col) {
+        std::cerr << "Encoding type should be u for primary columns\n" << std::endl;
+        sqlite3_finalize(stmt_col_names);
+        sqlite3_close(db);
+        return 1;
+      }
+    }
     if (!is_pk_col)
       col_positions.push_back(i);
   }
