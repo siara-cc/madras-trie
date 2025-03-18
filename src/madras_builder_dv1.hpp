@@ -2180,7 +2180,8 @@ class builder : public builder_fwd {
         return;
       }
       node_start -= prev_node_start_id;
-      node_start--;
+      if (prev_node_start_id > 0)
+        node_start--;
       gen::append_svint61(rev_nids, (node_start << 1) | (node_end != UINT32_MAX ? 1 : 0));
       if (node_end != UINT32_MAX)
          gen::append_svint61(rev_nids, node_end);
@@ -2478,7 +2479,7 @@ class builder : public builder_fwd {
       if (last_word_len > 0) {
         ref_id = word_ptrs.size();
         word_ptrs.push_back(0);
-        words_for_sort.push_back((word_refs) {words + words_len - last_word_len, last_word_len, ref_id});
+        words_for_sort.push_back((word_refs) {words + words_len - last_word_len, last_word_len, ref_id, node_id});
         word_count++;
       }
       if (max_word_count < word_count)
@@ -2659,12 +2660,12 @@ class builder : public builder_fwd {
             // printf("\ncol_val: %u, Next entry 1: %u\n", ct_node.get_col_val(), ct_nm->link);
             uint32_t prev_node_id = 0;
             while (1) {
-              uint32_t node_start = (ct_nm->node_start - prev_node_id - 1) << 1;
-              prev_node_id = ct_nm->node_start;
+              uint32_t node_start = (ct_nm->node_start - prev_node_id) << 1;
+              prev_node_id = ct_nm->node_start + 1;
               gen::append_svint61(rev_nids, node_start | (ct_nm->node_end != UINT32_MAX ? 1 : 0));
               if (ct_nm->node_end != UINT32_MAX) {
-                gen::append_svint61(rev_nids, ct_nm->node_end - prev_node_id - 1);
-                prev_node_id = ct_nm->node_end;
+                gen::append_svint61(rev_nids, ct_nm->node_end - prev_node_id);
+                prev_node_id = ct_nm->node_end + 1;
               }
               if (ct_nm->link == 0)
                 break;
@@ -2840,10 +2841,10 @@ class builder : public builder_fwd {
       int64_t prev_ival = 0;
       uint32_t prev_val_node_id = 0;
       uint32_t pos = 2;
-      uint32_t node_id = 1;
+      uint32_t node_id = 0;
       uint32_t leaf_id = 1;
       size_t block_size = all_vals->get_block_size();
-      for (uint32_t i = 1; i < memtrie.all_node_sets.size(); i++) {
+      for (uint32_t i = pk_col_count == 0 ? 1 : 0; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
         if (cur_ns.hdr()->flags & NODE_SET_LEAP) {
           node_id++;
@@ -2943,7 +2944,7 @@ class builder : public builder_fwd {
               uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
               int64_t col_val = flavic48::cvt2_i64(u64);
               int64_t delta_val = col_val;
-              if (((node_id - (pk_col_count > 0 ? 0 : 1)) / nodes_per_bv_block_n) == ((prev_val_node_id - (pk_col_count > 0 ? 0 : 1)) / nodes_per_bv_block_n))
+              if ((node_id / nodes_per_bv_block_n) == (prev_val_node_id / nodes_per_bv_block_n))
                 delta_val -= prev_ival;
               prev_ival = col_val;
               prev_val_node_id = node_id;
