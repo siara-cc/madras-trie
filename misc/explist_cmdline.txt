@@ -4,11 +4,11 @@
 ./export_sqlite ~/Downloads/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
 ./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 eii5i uuuuu
 
-./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 0tt00000GGtt tttuuuutdduu
+./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 0tt00000ggtt tttuuuutdduw
 - key_col 1 not working
 ./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 -----------t tttuuuutttuw
 
-~/Downloads/amazon_products.db products 0 -w--------- twttuuuuuuu 300 
+./export_sqlite ~/Downloads/amazon_products.db products 1 tt--------- uwttuuuuuuu
 ./export_sqlite ~/Downloads/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
 ./export_sqlite ~/Downloads/amazon_products.db products 0 tttt90990t0 twttuuuuuuu
 

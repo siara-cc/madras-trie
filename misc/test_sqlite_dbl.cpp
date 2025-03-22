@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <limits.h>
 #include <sqlite3.h>
@@ -88,6 +89,25 @@ uint8_t convert_to_int(double dbl, int64_t& i64) {
   return frac_width;
 }
 
+size_t exp01_count;
+void print_dbl_parts(double dbl) {
+  uint64_t u64;
+  memcpy(&u64, &dbl, 8);
+  uint64_t exp = (u64 >> 52) & 1023ULL;
+  uint64_t man = u64 & ((1ULL << 52) - 1ULL);
+  size_t exp_bw = 0;
+  if (exp > 0)
+    exp_bw = 64 - __builtin_clzll(exp);
+  size_t man_bw = 0;
+  if (man > 0)
+    man_bw = 64 - __builtin_clzll(man);
+  //printf("%llu\n", man);
+  if (exp == 0 || exp == 1023 || exp == 1022 || exp == 1021 || exp == 1020 || exp == 1019 || exp == 1018 || exp == 1 || exp == 2)
+    exp01_count++;
+  else
+    printf("d:%.20g, -:%llu, e-:%llu, e:%llu, ebw:%lu, m:%llu, mbw:%lu\n", dbl, u64 >> 63, (u64 >> 62) & 1ULL, exp, exp_bw, man, man_bw);
+}
+
 bool check_dbl_error(double dbl) {
   int64_t i64;
   uint8_t c = convert_to_int(dbl, i64);
@@ -98,6 +118,7 @@ bool check_dbl_error(double dbl) {
   double convert_back = (double) i64 / tens[c];
   // double convert_back = (double) i64 / dbl_div[c];
   if (dbl != convert_back) {
+    // print_dbl_parts(dbl);
     // printf("orig: %.16lf, converted: %.16lf, i: %lld, dc: %d\n", dbl, convert_back, i64, c);
     return false;
   }
@@ -112,6 +133,28 @@ int main(int argc, char* argv[]) {
 
   // check_dbl_error(54.6838400000000036);
   // return 1;
+
+  if (argc > 1 && strstr(argv[1], ".txt") != nullptr) {
+    FILE *fp = fopen(argv[1], "rb");
+    if (fp == nullptr) {
+      perror("Unable to open file: ");
+      return 0;
+    }
+    char *end_ptr;
+    char line[100];
+    size_t err_count = 0;
+    size_t total_count = 0;
+    exp01_count = 0;
+    while (fgets(line, sizeof(line), fp) != nullptr) {
+      total_count++;
+      double dbl = strtod(line, &end_ptr);
+      if (!check_dbl_error(dbl))
+        err_count++;
+      print_dbl_parts(dbl);
+    }
+    printf("Error count: %lu, total count: %lu, e01c: %lu\n", err_count, total_count, exp01_count);
+    return 1;
+  }
 
   sqlite3 *db;
   sqlite3_stmt *stmt;

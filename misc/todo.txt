@@ -161,6 +161,13 @@ x ODBC driver
 + run_tests chk_sum and len
 - bv int_bv_reader bit_len > 32 not working?
 
+madras_flutter todos
+- DATETIME_ISO_MS not working (g)
+- index dropdowns per window
+- Find/Next not working all combinations
+- Combined words search
+- Word split interface
+
 - Pure Rust/Go version?
 - Integrate Unishox
 - GUI crashing on linux
