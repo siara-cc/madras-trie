@@ -2214,6 +2214,9 @@ class builder : public builder_fwd {
       uint32_t prev_val_len = it->word_len;
       while (it != words_for_sort.end()) {
         int cmp = gen::compare(it->word_pos, it->word_len, prev_val, prev_val_len);
+        // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0) {
+        //   printf("[%.*s], nid: %u\n", (int) it->word_len, it->word_pos, it->node_id);
+        // }
         if (cmp != 0) {
           uniq_info_base *ui_ptr = new uniq_info_base({0, prev_val_len, (uint32_t) uniq_words_vec.size()});
           ui_ptr->freq_count = freq_count;
@@ -2223,6 +2226,8 @@ class builder : public builder_fwd {
           freq_count = 0;
           prev_val = it->word_pos;
           prev_val_len = it->word_len;
+              // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0)
+              //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_start_id);
               add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
               // printf("Rev nids size: %lu\n", rev_nids.size());
               ui_ptr->ptr = rev_col_vals->push_back_with_vlen(rev_nids.data(), rev_nids.size());
@@ -2236,9 +2241,11 @@ class builder : public builder_fwd {
         uint32_t cur_node_id = it->node_id;
         if (prev_node_id == 0) {
           node_start = cur_node_id;
-        } else if (cur_node_id - prev_node_id == 1) {
+        } else if (cur_node_id - prev_node_id < 2) {
           node_end = cur_node_id;
         } else {
+          // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0)
+          //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_start_id);
           add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
           prev_node_start_id = node_start;
           if (node_end != UINT32_MAX)
