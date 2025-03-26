@@ -185,6 +185,26 @@ class cmn {
         *vlen = 5 - len;
       return ret;
     }
+    __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, void *ret_val, size_t& ret_len, uint8_t *null_val, size_t null_len) {
+      switch (data_type) {
+        case MST_INT:
+        case MST_DECV ... MST_DEC9:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+          ret_len = 8;
+          if (*val_loc == 0x00) {
+            memcpy(ret_val, null_val, null_len);
+            return;
+          }
+          int64_t i64 = gen::read_svint60(val_loc);
+          if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
+            double dbl = static_cast<double>(i64);
+            dbl /= gen::pow10(data_type - MST_DEC0);
+            *((double *)ret_val) = dbl;
+          } else
+            memcpy(ret_val, &i64, sizeof(int64_t));
+        } break;
+      }
+    }
 };
 
 class lt_builder {
@@ -1813,15 +1833,15 @@ class val_ptr_group_map : public ptr_group_map {
           if (to_skip == 0) {
             uint8_t code = ptr_reader.read8(ptr_bit_count);
             uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-            if (grp_no != rpt_grp_no)
+            if (grp_no != rpt_grp_no && rpt_grp_no > 0)
               last_pbc = ptr_bit_count;
             uint8_t code_len = code_lt_code_len[code] >> 4;
             uint8_t bit_len = code_lt_bit_len[code];
             ptr_bit_count += code_len;
             uint32_t count = ptr_reader.read(ptr_bit_count, bit_len - code_len);
-            if (grp_no == rpt_grp_no) {
+            if (rpt_grp_no > 0 && grp_no == rpt_grp_no) {
               to_skip = count - 1; // todo: -1 not needed
-              printf("To skip: %lu\n", to_skip);
+              //printf("To skip: %lu\n", to_skip);
             } else {
               while (count--) {
                 code = ptr_reader.read8(ptr_bit_count);
@@ -1834,7 +1854,9 @@ class val_ptr_group_map : public ptr_group_map {
         node_id_from++;
         bm_mask <<= 1;
       }
-      if (to_skip > 0)
+      uint8_t code = ptr_reader.read8(ptr_bit_count);
+      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
+      if (to_skip > 0 || (grp_no == rpt_grp_no && rpt_grp_no > 0))
         ptr_bit_count = last_pbc;
       return ptr_bit_count;
     }
@@ -1851,6 +1873,9 @@ class val_ptr_group_map : public ptr_group_map {
       uint8_t bit_len = code_lt_bit_len[code];
       uint8_t grp_no = code_lt_code_len[code] & 0x0F;
       uint8_t code_len = code_lt_code_len[code] >> 4;
+      if (grp_no != 0) {
+        printf("Group no. ought to be 0: %d\n", grp_no);
+      }
       *p_ptr_bit_count += code_len;
       uint32_t word_count = ptr_reader.read(*p_ptr_bit_count, bit_len - code_len);
       size_t val_len;
@@ -1980,28 +2005,6 @@ class val_ptr_group_map : public ptr_group_map {
       *((double *)ret_val) = dbl;
     }
 
-    __fq1 __fq2 void convert_back(uint8_t *val_loc, void *ret_val, size_t& ret_len) {
-      switch (data_type) {
-        case MST_INT:
-        case MST_DECV ... MST_DEC9:
-        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          ret_len = 8;
-          if (*val_loc == 0x00) {
-            uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(ret_len);
-            memcpy(ret_val, null_val, ret_len);
-            return;
-          }
-          int64_t i64 = gen::read_svint60(val_loc);
-          if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
-            double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(data_type - MST_DEC0);
-            *((double *)ret_val) = dbl;
-          } else
-            memcpy(ret_val, &i64, sizeof(int64_t));
-        } break;
-      }
-    }
-
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       if (in_size_out_value_len == nullptr)
         return nullptr;
@@ -2009,8 +2012,11 @@ class val_ptr_group_map : public ptr_group_map {
       uint8_t grp_no = 0;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         get_col_trie_val(node_id, in_size_out_value_len, ret_val);
-        if (data_type != MST_TEXT && data_type != MST_BIN)
-          convert_back((uint8_t *) ret_val, ret_val, *in_size_out_value_len);
+        if (data_type != MST_TEXT && data_type != MST_BIN) {
+          size_t null_len;
+          uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
+          cmn::convert_back(data_type, (uint8_t *) ret_val, ret_val, *in_size_out_value_len, null_val, null_len);
+        }
         return (const uint8_t *) ret_val;
       } else if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
         return get_word_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
@@ -2054,7 +2060,9 @@ class val_ptr_group_map : public ptr_group_map {
               val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
               // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
               *in_size_out_value_len = 8;
-              convert_back(val_loc, ret_val, *in_size_out_value_len);
+              size_t null_len;
+              uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
+              cmn::convert_back(data_type, val_loc, ret_val, *in_size_out_value_len, null_val, null_len);
             }
             return (uint8_t *) ret_val;
           } break;
@@ -2255,7 +2263,9 @@ class static_trie_map : public static_trie {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
         if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val))
           return nullptr;
-        val_map[col_val_idx].convert_back((uint8_t *) val, val, *in_size_out_value_len);
+        size_t null_len;
+        uint8_t *null_val = get_null_value(null_len);
+        cmn::convert_back(get_column_type(col_val_idx), (uint8_t *) val, val, *in_size_out_value_len, null_val, null_len);
         return (const uint8_t *) val;
       }
       return val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
@@ -2385,7 +2395,8 @@ class static_trie_map : public static_trie {
         }
         iter_ctx *it_ctx = &rev_ctx;
         printf("found first: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
-        if (cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
+        if (it_ctx->key_len < in_ctx->key_len ||
+            cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
@@ -2413,7 +2424,8 @@ class static_trie_map : public static_trie {
         input_ctx *in_ctx = &rev_ctx;
         iter_ctx *it_ctx = &rev_ctx;
         printf("found next: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
-        if (cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
+        if (it_ctx->key_len < in_ctx->key_len ||
+            cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }

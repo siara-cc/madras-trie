@@ -2238,7 +2238,7 @@ class builder : public builder_fwd {
               node_end = UINT32_MAX;
               node_start = 0;
         }
-        uint32_t cur_node_id = it->node_id;
+        uint32_t cur_node_id = it->node_id >> get_opts()->sec_idx_nid_shift_bits;
         if (prev_node_id == 0) {
           node_start = cur_node_id;
         } else if (cur_node_id - prev_node_id < 2) {
@@ -2290,7 +2290,7 @@ class builder : public builder_fwd {
       ptr_grps.update_current_grp(len_grp_no, max_word_count, total_word_entries, max_word_count);
       ptr_grps.append_text(len_grp_no, (const uint8_t *) "L", 1);
 
-      if (rpt_freq > 0) {
+      if (rpt_freq > 0 && max_rpts > 0) {
         rpt_grp_no = grp_no;
         ptr_grps.next_grp(grp_no, pow(2, ceil(log2(max_rpts)) - 1), 0, tot_freq, true);
         ptr_grps.update_current_grp(rpt_grp_no, max_rpts, rpt_freq, max_rpts);
@@ -2444,15 +2444,16 @@ class builder : public builder_fwd {
       //         std::memcmp(words, prev_val, prev_val_len) == 0) {
       //   rpt_freq++;
       //   size_t last_idx = word_ptrs.size() - 1;
-      //   if (word_ptrs[last_idx] == 0)
+      //   if (word_ptrs[last_idx] == 0) {
       //     word_ptrs.push_back(0x40000001L);
-      //   else {
+      //     last_idx++;
+      //   } else {
       //     // if (word_ptrs[last_idx] & 0x40000000L) { // implied
       //       word_ptrs[last_idx]++;
-      //       if (max_rpts < (word_ptrs[last_idx] & 0x3FFFFFFFL))
-      //         max_rpts = (word_ptrs[last_idx] & 0x3FFFFFFFL);
       //     // }
       //   }
+      //   if (max_rpts < (word_ptrs[last_idx] & 0x3FFFFFFFL))
+      //     max_rpts = (word_ptrs[last_idx] & 0x3FFFFFFFL);
       //   return;
       // }
       total_word_entries++;
