@@ -1733,6 +1733,8 @@ class builder : public builder_fwd {
       is_processing_cols = false;
       tail_maps.init();
       val_maps.init();
+      if (_sk_col_positions == nullptr)
+        _sk_col_positions = "";
       sk_col_positions = new char[strlen(_sk_col_positions) + 1];
       strcpy(sk_col_positions, _sk_col_positions);
       memcpy(null_value, _null_value, _null_value_len);
@@ -1811,7 +1813,7 @@ class builder : public builder_fwd {
     }
 
     void set_names(const char *_names, const char *_column_types, const char *_column_encodings) {
-      names_len = strlen(_names) + column_count * 2 + 3;
+      names_len = strlen(_names) + strlen(sk_col_positions) + column_count * 2 + 4;
       names = new char[names_len];
       memset(names, '*', column_count);
       memcpy(names, _column_types, gen::min(strlen(_column_types), column_count));
@@ -1819,6 +1821,8 @@ class builder : public builder_fwd {
       memcpy(names + column_count + 1, _column_encodings, column_count);
       names[column_count * 2 + 1] = ',';
       memcpy(names + column_count * 2 + 2, _names, strlen(_names));
+      names[column_count * 2 + 2 + strlen(_names)] = ',';
+      memcpy(names + column_count * 2 + 2 + strlen(_names) + 1, sk_col_positions, strlen(sk_col_positions));
       // std::cout << names << std::endl;
       int pos_count = column_count + 2;
       names_positions = new uint16_t[pos_count];
@@ -2618,7 +2622,8 @@ class builder : public builder_fwd {
           uint8_t *data_pos = (*val_blocks)[n.get_col_val()];
           switch (column_types[cur_col_idx]) {
             case MST_TEXT:
-            case MST_BIN: {
+            case MST_BIN:
+            case MST_SEC_2WAY: {
               data_len = gen::read_vint32(data_pos, &len_len);
               data_pos += len_len;
             } break;
@@ -2887,7 +2892,8 @@ class builder : public builder_fwd {
                 char col_data_type = column_types[col_idx];
               switch (col_data_type) {
                 case MST_TEXT:
-                case MST_BIN: {
+                case MST_BIN:
+                case MST_SEC_2WAY: {
                   data_len = gen::read_vint32(data_pos, &len_len);
                   data_pos += len_len;
                   pos += len_len;
@@ -3047,9 +3053,8 @@ class builder : public builder_fwd {
       }
     }
 
-    void init_col_trie_builder(char enc_type) {
-      if (col_trie_builder != nullptr)
-        delete col_trie_builder;
+    builder *new_col_trie_builder(bool two_way) {
+      builder *new_ct_builder;
       //get_opts()->split_tails_method = 0;
       bldr_options ctb_opts[2];
       ctb_opts[0] = dflt_opts;
@@ -3058,16 +3063,23 @@ class builder : public builder_fwd {
       ctb_opts[0].max_inner_tries = 2;
       ctb_opts[0].partial_sfx_coding = false;
       ctb_opts[0].sort_nodes_on_freq = false;
-      if (enc_type == MSE_TRIE_2WAY) {
+      if (two_way) {
         ctb_opts[0].opts_count = 2;
         ctb_opts[0].leap_frog = true;
         ctb_opts[1].inner_tries = 0;
         ctb_opts[1].max_inner_tries = 0;
-        col_trie_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
+        new_ct_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
       } else
-        col_trie_builder = new builder(NULL, "col_trie,key", 1, "*", "u", 0, 1, ctb_opts);
-      col_trie_builder->fp = fp;
-      col_trie_builder->out_vec = out_vec;
+        new_ct_builder = new builder(NULL, "col_trie,key", 1, "*", "u", 0, 1, ctb_opts);
+      new_ct_builder->fp = fp;
+      new_ct_builder->out_vec = out_vec;
+      return new_ct_builder;
+    }
+
+    void init_col_trie_builder(char enc_type) {
+      if (col_trie_builder != nullptr)
+        delete col_trie_builder;
+      col_trie_builder = new_col_trie_builder(enc_type == MSE_TRIE_2WAY);
       col_trie = &col_trie_builder->memtrie;
     }
 
@@ -4288,25 +4300,53 @@ class builder : public builder_fwd {
       return value_len;
     }
 
+    size_t get_value_len(size_t i, char type, const uint64_t *values, const size_t value_lens[]) {
+      size_t value_len = 0;
+      if (value_lens != nullptr)
+        value_len = value_lens[i];
+      if (value_lens == nullptr) {
+        if (type == MST_TEXT && values[i] != 0 && values[i] != UINT64_MAX)
+          value_len = strlen((const char *) values[i]);
+      }
+      return value_len;
+    }
     bool insert(const uint64_t *values, const size_t value_lens[] = NULL) {
       cur_seq_idx++;
       byte_vec rec;
       byte_vec key_rec;
-      for (size_t i = 0; i < column_count; i++) {
+      size_t i = 0;
+      for (; i < column_count; i++) {
         uint8_t type = column_types[i];
+        if (type == MST_SEC_2WAY)
+          break;
         // printf("col: %lu - ", i);
-        size_t value_len = 0;
-        if (value_lens != nullptr)
-          value_len = value_lens[i];
-        if (value_lens == nullptr) {
-          if (type == MST_TEXT && values[i] != 0 && values[i] != UINT64_MAX)
-            value_len = strlen((const char *) values[i]);
-        }
+        size_t value_len = get_value_len(i, type, values, value_lens);
         append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, rec, APPEND_REC_NOKEY);
         if (i < pk_col_count) {
           append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, key_rec,
              i < (pk_col_count - 1) ? APPEND_REC_KEY_MIDDLE : APPEND_REC_KEY_LAST);
         }
+      }
+      size_t sec_idx = 0;
+      for (; i < column_count; i++, sec_idx++) {
+        const char *sec_cols = names + names_positions[i + 2];
+        size_t sec_cols_len = strlen(sec_cols);
+        const char *cur_col = sec_cols;
+        byte_vec sec_rec;
+        for (size_t j = 0; j < sec_cols_len; j++) {
+          if (sec_cols[j] == '+') {
+            int sec_col_idx = atoi(cur_col) - 1;
+            char sec_col_type = column_types[sec_col_idx];
+            size_t value_len = get_value_len(sec_col_idx, sec_col_type, values, value_lens);
+            append_rec_value(sec_col_type, column_encodings[sec_col_idx], (void *) &values[sec_col_idx], (const uint8_t *) values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_MIDDLE);
+            cur_col = sec_cols + j + 1;
+          }
+        }
+        int sec_col_idx = atoi(cur_col) - 1;
+        char sec_col_type = column_types[sec_col_idx];
+        size_t value_len = get_value_len(sec_col_idx, sec_col_type, values, value_lens);
+        append_rec_value(sec_col_type, column_encodings[sec_col_idx], (void *) &values[sec_col_idx], (const uint8_t *) values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_LAST);
+        append_rec_value('*', 'T', (void *) sec_rec.data(), (const uint8_t *) sec_rec.data(), sec_rec.size(), rec, APPEND_REC_NOKEY);
       }
       if (pk_col_count == 0) {
         uint32_t val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size());

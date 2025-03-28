@@ -192,6 +192,7 @@ class cmn {
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           ret_len = 8;
           if (*val_loc == 0x00) {
+            ret_len = null_len;
             memcpy(ret_val, null_val, null_len);
             return;
           }

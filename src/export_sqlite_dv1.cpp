@@ -156,7 +156,8 @@ int main(int argc, char* argv[]) {
   }
   sqlite3_step(stmt_col_names);
 
-  int column_count = sqlite3_column_count(stmt_col_names);
+  int sql_column_count = sqlite3_column_count(stmt_col_names);
+  int column_count = sql_column_count;
   const char *storage_types = argv[4];
   if (column_count > strlen(storage_types)) {
     std::cerr << "Storage types not specified for all columns" << std::endl;
@@ -164,18 +165,26 @@ int main(int argc, char* argv[]) {
     sqlite3_close(db);
     return 1;
   }
+  if (column_count < strlen(storage_types))
+    column_count = strlen(storage_types);
   const char *encoding_types = argv[5];
   int row_count = INT_MAX;
   if (argc > 6)
     row_count = atoi(argv[6]);
+  if (row_count == 0)
+    row_count = INT_MAX;
 
+  const char *sk_col_positions = "";
+  if (argc > 7)
+    sk_col_positions = argv[7];
+    
   const char *col_positions_str = argv[3];
   std::vector<uint16_t> col_positions;
   if (col_positions_str[0] != '0' && col_positions_str[0] != '\0') {
     size_t col_positions_len = strlen(col_positions_str);
     const char *cur_col = col_positions_str;
     for (size_t i = 0; i < col_positions_len; i++) {
-      if (col_positions_str[i] == ',') {
+      if (col_positions_str[i] == '+') {
         col_positions.push_back(atoi(cur_col) - 1);
         cur_col = col_positions_str + i + 1;
       }
@@ -217,12 +226,14 @@ int main(int argc, char* argv[]) {
   std::string col_encodings;
   size_t exp_col_count = 0;
   for (size_t i = 0; i < col_positions.size(); i++) {
-    uint16_t sql_pos = col_positions[i];
-    const char* column_name = sqlite3_column_name(stmt_col_names, sql_pos);
-    column_names.append(",");
-    column_names.append(column_name);
-    col_types.append(1, storage_types[sql_pos]);
-    col_encodings.append(1, encoding_types[sql_pos]);
+    uint16_t col_pos = col_positions[i];
+    if (col_pos < sql_column_count) {
+      const char* column_name = sqlite3_column_name(stmt_col_names, col_pos);
+      column_names.append(",");
+      column_names.append(column_name);
+    }
+    col_types.append(1, storage_types[col_pos]);
+    col_encodings.append(1, encoding_types[col_pos]);
     exp_col_count++;
   }
   printf("Col Count: %lu, PK Col Count: %lu, Table/Key/Column names: %s, types: %s, encodings: %s\n",
@@ -250,7 +261,7 @@ int main(int argc, char* argv[]) {
   bldr_opts.sort_nodes_on_freq = false;
   madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
       col_types.c_str(), col_encodings.c_str(), 0, pk_col_count,
-      &bldr_opts);
+      &bldr_opts, sk_col_positions);
   mb.set_print_enabled();
   mb.open_file();
 
@@ -343,7 +354,7 @@ int main(int argc, char* argv[]) {
       node_id = in_ctx.node_id;
     }
     size_t col_val_idx = pk_col_count;
-    for (size_t i = pk_col_count; i < col_positions.size(); i++) {
+    for (size_t i = pk_col_count; i < sql_column_count; i++) {
       size_t sql_col_idx = col_positions[i];
       char exp_col_type = storage_types[sql_col_idx];
       char encoding_type = encoding_types[sql_col_idx];
