@@ -224,6 +224,7 @@ int main(int argc, char* argv[]) {
   std::string column_names = table_name;
   std::string col_types;
   std::string col_encodings;
+  size_t sec_col_count = 0;
   size_t exp_col_count = 0;
   for (size_t i = 0; i < col_positions.size(); i++) {
     uint16_t col_pos = col_positions[i];
@@ -235,6 +236,20 @@ int main(int argc, char* argv[]) {
     col_types.append(1, storage_types[col_pos]);
     col_encodings.append(1, encoding_types[col_pos]);
     exp_col_count++;
+    if (storage_types[col_pos] == MST_SEC_2WAY) {
+      sec_col_count++;
+      if (encoding_types[col_pos] != MSE_TRIE_2WAY) {
+        std::cerr << "Encoding type should be T for secondary indices" << std::endl;
+        sqlite3_finalize(stmt_col_names);
+        sqlite3_close(db);
+        return 1;
+      }
+    } else if (sec_col_count > 0) {
+      std::cerr << "Secondary indices should be defined at the end" << std::endl;
+      sqlite3_finalize(stmt_col_names);
+      sqlite3_close(db);
+      return 1;
+    }
   }
   printf("Col Count: %lu, PK Col Count: %lu, Table/Key/Column names: %s, types: %s, encodings: %s\n",
     exp_col_count, pk_col_count, column_names.c_str(), col_types.c_str(), col_encodings.c_str());
@@ -354,7 +369,7 @@ int main(int argc, char* argv[]) {
       node_id = in_ctx.node_id;
     }
     size_t col_val_idx = pk_col_count;
-    for (size_t i = pk_col_count; i < sql_column_count; i++) {
+    for (size_t i = pk_col_count; i < (exp_col_count - sec_col_count); i++) {
       size_t sql_col_idx = col_positions[i];
       char exp_col_type = storage_types[sql_col_idx];
       char encoding_type = encoding_types[sql_col_idx];

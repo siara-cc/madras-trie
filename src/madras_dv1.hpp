@@ -1896,6 +1896,35 @@ class val_ptr_group_map : public ptr_group_map {
       return  (uint8_t *) ret_val;
     }
 
+    __fq1 __fq2 uint8_t *get_stored_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
+      uint32_t ptr_bit_count = UINT32_MAX;
+      if (p_ptr_bit_count == nullptr)
+        p_ptr_bit_count = &ptr_bit_count;
+      if (*p_ptr_bit_count == UINT32_MAX)
+        *p_ptr_bit_count = ptr_reader.get_ptr_block_t_words(node_id);
+      uint8_t *data = grp_data[0] + *p_ptr_bit_count + 2;
+      size_t len_len;
+      uint32_t vint_len;
+      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
+      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
+      uint64_t bm_leaf = UINT64_MAX;
+      if (key_count > 0)
+        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      while (node_id_from < node_id) {
+        if (bm_leaf & bm_mask) {
+          vint_len = cmn::read_vint32(data, &len_len);
+          // printf("nid from: %u, to: %u, len:%u, len_len:%lu\n", node_id_from, node_id, vint_len, len_len);
+          data += len_len;
+          data += vint_len;
+        }
+        node_id_from++;
+        bm_mask <<= 1;
+      }
+      *in_size_out_value_len = cmn::read_vint32(data, &len_len);
+      ret_val = (void *) (data + len_len);
+      return (uint8_t *) ret_val;
+    }
+
     __fq1 __fq2 void get_col_trie_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       uint32_t ptr_pos = node_id;
       if (key_count > 0)
@@ -2021,6 +2050,8 @@ class val_ptr_group_map : public ptr_group_map {
         return (const uint8_t *) ret_val;
       } else if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
         return get_word_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
+      } else if (encoding_type == MSE_STORE) {
+        return get_stored_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
       } else {
         switch (data_type) {
           case MST_BIN: {

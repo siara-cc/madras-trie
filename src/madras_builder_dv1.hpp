@@ -519,17 +519,19 @@ class ptr_groups {
       pk_col_count = _pk_col_count;
       dessicate = dessicat;
       enc_type = encoding_type;
-      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && freq_grp_vec.size() > 2) {
+      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && (freq_grp_vec.size() > 2 || encoding_type == MSE_STORE)) {
         ptr_lkup_tbl_ptr_width = 4;
         if (!dessicate)
           build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type);
-        if (!is_tail && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
-          build_val_ptrs(all_node_sets, get_info_func, info_vec);
+        if (encoding_type != MSE_STORE) {
+          if (!is_tail && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
+            build_val_ptrs(all_node_sets, get_info_func, info_vec);
+        }
       }
-      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
+      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE)
         build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
       ptr_lookup_tbl_loc = 7 * 4 + 20;
-      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || freq_grp_vec.size() <= 2)
+      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE))
         ptr_lookup_tbl_sz = 0;
       else {
         if (dessicate)
@@ -537,7 +539,7 @@ class ptr_groups {
         else { // TODO: PTR LT gets created unnecessarily for last level of tail tries
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block,
             ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1)
-                                        * (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY ? 3 : 2));
+            * (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE ? 3 : 2));
         }
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + gen::size_align8(ptr_lookup_tbl_sz);
@@ -554,6 +556,7 @@ class ptr_groups {
       }
       if (dessicate)
         ptr_lookup_tbl_loc = 0;
+      printf("Ptr sz: %lu, Data sz: %u, lt size: %lu, lt sz: %u\n", ptrs.size(), grp_data_size, ptr_lookup_tbl.size(), ptr_lookup_tbl_sz);
     }
     #define CODE_LT_BIT_LEN 0
     #define CODE_LT_CODE_LEN 1
@@ -646,6 +649,23 @@ class ptr_groups {
       }
       append_ptr_bits(0x00, 8); // read beyond protection
     }
+    byte_vec *get_ptr_lkup_tbl() {
+      return &ptr_lookup_tbl;
+    }
+    void append_plt_count(uint32_t bit_count) {
+      if (ptr_lkup_tbl_ptr_width == 4)
+        gen::append_uint32(bit_count, ptr_lookup_tbl);
+      else
+        gen::append_uint24(bit_count, ptr_lookup_tbl);
+    }
+    void append_plt_count16(uint32_t *bit_counts, size_t u16_arr_count, char encoding_type) {
+      for (size_t j = 0; j < u16_arr_count; j++) {
+        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE)
+          gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
+        else
+          gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
+      }
+}
     void build_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
           uniq_info_vec& info_vec, char encoding_type) {
       uint32_t node_id = 0;
@@ -657,10 +677,7 @@ class ptr_groups {
       uint32_t bit_counts[u16_arr_count + 1];
       memset(bit_counts, '\0', u16_arr_count * 4 + 4);
       ptr_lookup_tbl.clear();
-      if (ptr_lkup_tbl_ptr_width == 4)
-        gen::append_uint32(bit_count, ptr_lookup_tbl);
-      else
-        gen::append_uint24(bit_count, ptr_lookup_tbl);
+      append_plt_count(bit_count);
       leopard::node_iterator ni(all_node_sets, pk_col_count == 0 ? 1 : 0);
       leopard::node cur_node = ni.next();
       while (cur_node != nullptr) {
@@ -668,29 +685,21 @@ class ptr_groups {
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
         if (node_id && (node_id % nodes_per_ptr_block_n) == 0) {
-          if (bit_count4 > (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY ? 16777215 : 65535))
+          if (bit_count4 > (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE ? 16777215 : 65535))
             std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_count4 << std::endl;
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
-          for (int j = 0; j < u16_arr_count; j++) {
-            if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
-              gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
-            else
-              gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
-          }
+          append_plt_count16(bit_counts, u16_arr_count, encoding_type);
           bit_count += bit_counts[u16_arr_count];
-          if (ptr_lkup_tbl_ptr_width == 4)
-            gen::append_uint32(bit_count, ptr_lookup_tbl);
-          else
-            gen::append_uint24(bit_count, ptr_lookup_tbl);
+          append_plt_count(bit_count);
           bit_count4 = 0;
           pos4 = 0;
           memset(bit_counts, '\0', u16_arr_count * 4 + 4);
         }
         if (cur_node_flags & (is_tail ? NFLAG_TAIL : NFLAG_LEAF)) {
-          if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
+          if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE) {
             bit_count4 += cur_node.get_col_val();
             //printf("gcv: %u, bc4: %u\n", cur_node.get_col_val(), bit_count4);
           } else {
@@ -702,23 +711,10 @@ class ptr_groups {
         node_id++;
         cur_node = ni.next();
       }
-      for (int j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
-          gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
-        else
-          gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
-      }
+      append_plt_count16(bit_counts, u16_arr_count, encoding_type);
       bit_count += bit_counts[u16_arr_count];
-      if (ptr_lkup_tbl_ptr_width == 4)
-        gen::append_uint32(bit_count, ptr_lookup_tbl);
-      else
-        gen::append_uint24(bit_count, ptr_lookup_tbl);
-      for (int j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY)
-          gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
-        else
-          gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
-      }
+      append_plt_count(bit_count);
+      append_plt_count16(bit_counts, u16_arr_count, encoding_type);
     }
     void write_ptrs_data(char data_type, uint8_t flags, bool is_tail, FILE *fp, byte_vec *out_vec) {
       //size_t ftell_start = ftell(fp);
@@ -754,7 +750,7 @@ class ptr_groups {
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         write_ptrs(fp, out_vec);
       } else {
-        if (freq_grp_vec.size() > 2)
+        if (freq_grp_vec.size() > 2 || enc_type == MSE_STORE)
           write_ptr_lookup_tbl(fp, out_vec);
         write_ptrs(fp, out_vec);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
@@ -2857,6 +2853,7 @@ class builder : public builder_fwd {
       uint32_t node_id = 0;
       uint32_t leaf_id = 1;
       size_t block_size = all_vals->get_block_size();
+      ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
       for (uint32_t i = pk_col_count == 0 ? 1 : 0; i < memtrie.all_node_sets.size(); i++) {
         leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
         if (cur_ns.hdr()->flags & NODE_SET_LEAP) {
@@ -2869,7 +2866,7 @@ class builder : public builder_fwd {
             node_id++;
             continue;
           }
-         if (memcmp((*all_vals)[0], "\xFF\xFF", 2) == 0) {
+          if (memcmp((*all_vals)[0], "\xFF\xFF", 2) == 0) {
             size_t vlen;
             pos = n.get_col_val();
             data_len = gen::read_vint32((*all_vals)[pos], &vlen);
@@ -2953,6 +2950,13 @@ class builder : public builder_fwd {
               }
               // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
             } break;
+            case MSE_STORE: {
+              uint32_t ptr = ptr_grps->append_bin_to_grp_data(1, data_pos, data_len, data_type);
+              byte_vec& data = ptr_grps->get_data(1);
+              n.set_col_val(data.size() - ptr);
+              if (max_len < data_len)
+                max_len = data_len;
+            } break;
             case MSE_DICT_DELTA: {
               uint64_t u64;
               uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
@@ -2971,7 +2975,7 @@ class builder : public builder_fwd {
             } break;
             default:
               nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
-              // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
+            // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
           }
           leaf_id++;
           node_id++;
@@ -2985,7 +2989,6 @@ class builder : public builder_fwd {
           gen::byte_blocks uniq_words;
           uniq_info_vec uniq_words_vec;
           build_words(words_for_sort, word_ptrs, uniq_words_vec, uniq_words, max_word_count, total_word_entries, rpt_freq, max_rpt_count, new_vals);
-          ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
@@ -2994,10 +2997,13 @@ class builder : public builder_fwd {
         case MSE_TRIE_2WAY: {
           // fclose(col_trie_fp);
           col_trie_size = build_col_trie(all_vals, revmap_vec, *new_vals, encoding_type);
-          ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
           ptr_grps->set_max_len(col_trie->max_key_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, col_trie_size);
+        } break;
+        case MSE_STORE: {
+          ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
+              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
         } break;
         default: {
           val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *all_vals, uniq_vals);
@@ -3015,7 +3021,6 @@ class builder : public builder_fwd {
           else
             val_maps.build_val_maps(tot_freq_count, max_len, data_type, max_repeats);
           
-          ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
@@ -3025,7 +3030,6 @@ class builder : public builder_fwd {
       if (max_val_len < max_len)
         max_val_len = max_len;
 
-      ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
       uint32_t val_size = ptr_grps->get_total_size();
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         val_size += col_trie_builder->build_kv(false);
@@ -3068,7 +3072,7 @@ class builder : public builder_fwd {
         ctb_opts[0].leap_frog = true;
         ctb_opts[1].inner_tries = 0;
         ctb_opts[1].max_inner_tries = 0;
-        new_ct_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "uu", 0, 1, ctb_opts);
+        new_ct_builder = new builder(NULL, "col_trie,key,rev_nids", 2, "**", "us", 0, 1, ctb_opts);
       } else
         new_ct_builder = new builder(NULL, "col_trie,key", 1, "*", "u", 0, 1, ctb_opts);
       new_ct_builder->fp = fp;
@@ -3097,7 +3101,7 @@ class builder : public builder_fwd {
       wtb_opts[1].max_inner_tries = 0;
       builder *ret;
       if (enc_type == MSE_WORDS_2WAY) {
-        ret = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "uu", 0, 1, wtb_opts);
+        ret = new builder(NULL, "word_trie,key,rev_nids", 2, "t*", "us", 0, 1, wtb_opts);
         ret->set_all_vals(rev_col_vals);
       } else
         ret = new builder(NULL, "word_trie,key", 1, "t", "u", 0, 1, wtb_opts);
@@ -3348,8 +3352,8 @@ class builder : public builder_fwd {
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
       uint32_t val_fp_offset = 0;
-      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
-        gen::gen_printf("Stats - ");
+      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE) {
+        gen::gen_printf("Stats - %c - ", encoding_type);
         val_maps.get_grp_ptrs()->write_ptrs_data(data_type, flags, false, fp, out_vec);
         val_fp_offset += val_maps.get_grp_ptrs()->get_total_size();
       }
