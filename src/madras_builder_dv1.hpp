@@ -2182,9 +2182,9 @@ class builder : public builder_fwd {
       node_start -= prev_node_start_id;
       if (prev_node_start_id > 0)
         node_start--;
-      gen::append_svint61(rev_nids, (node_start << 1) | (node_end != UINT32_MAX ? 1 : 0));
+      gen::append_vint32(rev_nids, (node_start << 1) | (node_end != UINT32_MAX ? 1 : 0));
       if (node_end != UINT32_MAX)
-         gen::append_svint61(rev_nids, node_end);
+         gen::append_vint32(rev_nids, node_end);
     }
 
     uint32_t build_words(std::vector<word_refs>& words_for_sort, std::vector<uint32_t>& word_ptrs,
@@ -2671,9 +2671,9 @@ class builder : public builder_fwd {
             while (1) {
               uint32_t node_start = (ct_nm->node_start - prev_node_id) << 1;
               prev_node_id = ct_nm->node_start + 1;
-              gen::append_svint61(rev_nids, node_start | (ct_nm->node_end != UINT32_MAX ? 1 : 0));
+              gen::append_vint32(rev_nids, node_start | (ct_nm->node_end != UINT32_MAX ? 1 : 0));
               if (ct_nm->node_end != UINT32_MAX) {
-                gen::append_svint61(rev_nids, ct_nm->node_end - prev_node_id);
+                gen::append_vint32(rev_nids, ct_nm->node_end - prev_node_id);
                 prev_node_id = ct_nm->node_end + 1;
               }
               if (ct_nm->link == 0)
