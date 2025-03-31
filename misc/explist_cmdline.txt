@@ -1,23 +1,26 @@
-./export_sqlite ~/Downloads/daily_weather.db dw 0 ItttffffffffffI uutuuuuuuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/daily_weather.db dw 0 ItttffffffffffI uutuuuuuuuuuuuu
 - encoding t for date field not working
 
-./export_sqlite ~/Downloads/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
-./export_sqlite ~/Downloads/df2016_sales_data.db sd 0 eii5i uuuuu
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
+./export_sqlite ~/git2/sqlite_dbs/df2016_sales_data.db sd 0 eii5i uuuuu
 
 ./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 0tt00000ggtt tttuuuutdduw
 - key_col 1 not working
 ./export_sqlite /Users/arun/git2/stackoverflow_db/so_users.db so_users 0 -----------t tttuuuutttuw
 
-./export_sqlite ~/Downloads/amazon_products.db products 1 tt--------- uwttuuuuuuu
-./export_sqlite ~/Downloads/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
-./export_sqlite ~/Downloads/amazon_products.db products 0 tttt90990t0 twttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 -t--------- uwttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt9i99iti twttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt9i99iti TWTTTTTTTTT
 
-~/Downloads/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
-./export_sqlite ~/Downloads/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuuuuut
-./export_sqlite ~/Downloads/allCountries.db countries 0 ----------------0-- dtttdduuuuuuuuuuuut
+~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuuuuut
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ----------------0-- dtttdduuuuuuuuuuuut
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
 
-./export_sqlite ~/git2/stackoverflow_db/census.db surnames 2 itii22222222 utdddduuuuuu
-./export_sqlite ~/git2/stackoverflow_db/census.db surnames 0 itii22222222 utdddduuuuuu
+./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 utdddduuuuuu
+./export_sqlite ~/git2/sqlite_dbs/census.db surnames 0 itii22222222 utdddduuuuuu
 
-./export_sqlite ~/git2/stackoverflow_db/babynames.db gendered_names 0 ittiti1 uutuuuu
-./export_sqlite ~/git2/stackoverflow_db/babynames.db gendered_names 2,3 ittiti1 uutuuuu
+./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti1 uutuuuu
+./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 2+3 ittiti1 uuuuuuu
+

@@ -162,11 +162,26 @@ x ODBC driver
 - bv int_bv_reader bit_len > 32 not working?
 
 madras_flutter todos
-- DATETIME_ISO_MS not working (g)
 - index dropdowns per window
-- Find/Next not working all combinations
++ Find/Next not working all combinations
 - Combined words search
 - Word split interface
+- API for nid_shift_bits for T and W
+- Search on date not working
+- web_bridge
+
+* replace for !no_primary_trie
+- implement dessicate
+- Secondary indexes
+- Compression levels as parameter
+- Next val
+- interface for multiple keys on pk and sk
+- DATETIME_ISO_MS not working (g)
+- composite primary index get_col_val()
+- Implement Repeat (RLE)
+- 1 file for each column
+- SQL interface
+- Fix CUDA demo
 
 - Pure Rust/Go version?
 - Integrate Unishox
@@ -174,25 +189,16 @@ madras_flutter todos
 
 + Word encoding for tails
 + Emscripten support
-- Implement Repeat (RLE)
++ Word encoding for Vals and optional index
 - Implement 32/64 bit
-- Word encoding for Vals and optional index
-- 1 file for each column
-- SQL interface
 - Support CTAS on Spark / BigQuery?
 
+- 1.58101e-322 census.db
 - wrong totals for integer/doubles
 - INT32/64, float double
 - ALP and fast_lanes
 - Fix grouping logic
 - Cleanup madras builder
-
-- implement dessicate
-* replace for !no_primary_trie
-- Secondary indexes
-- Compression levels as parameter
-- Next val
-- interface for multiple keys on pk and sk
 
 - count errors/warnings on export
 - CSV/JSON export?
@@ -208,6 +214,7 @@ madras_flutter todos
 - Documentation and format definition
 - Standardise limits and format
 - check release and leaks
+- check null and empty values consistency
 
 Integer codec with ALP
 - flavic48 - floating point losless adaptive variable integer 32 and 64 bit
@@ -217,4 +224,4 @@ doubles:
 <dec count> - 0 to 31
 <data> 
 
-0xF8 is null for both int and double
+- 0xF8 is null for both int and double
