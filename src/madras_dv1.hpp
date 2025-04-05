@@ -1940,14 +1940,32 @@ class val_ptr_group_map : public ptr_group_map {
       uint64_t bm_leaf = UINT64_MAX;
       if (key_count > 0)
         bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      size_t to_skip = 0;
+      uint32_t last_pbc = ptr_bit_count;
       while (node_id_from < node_id) {
         if (bm_leaf & bm_mask) {
-          uint8_t code = ptr_reader.read8(ptr_bit_count);
-          ptr_bit_count += code_lt_bit_len[code];
+          if (to_skip == 0) {
+            uint8_t code = ptr_reader.read8(ptr_bit_count);
+            uint8_t grp_no = code_lt_code_len[code] & 0x0F;
+            if (grp_no != rpt_grp_no && rpt_grp_no > 0)
+              last_pbc = ptr_bit_count;
+            uint8_t code_len = code_lt_code_len[code] >> 4;
+            uint8_t bit_len = code_lt_bit_len[code];
+            ptr_bit_count += code_len;
+            uint32_t count = ptr_reader.read(ptr_bit_count, bit_len - code_len);
+            if (rpt_grp_no > 0 && grp_no == rpt_grp_no) {
+              to_skip = count - 1; // todo: -1 not needed
+            }
+          } else
+            to_skip--;
         }
         node_id_from++;
         bm_mask <<= 1;
       }
+      uint8_t code = ptr_reader.read8(ptr_bit_count);
+      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
+      if (to_skip > 0 || (grp_no == rpt_grp_no && rpt_grp_no > 0))
+        ptr_bit_count = last_pbc;
       return ptr_bit_count;
     }
     __fq1 __fq2 uint32_t get_ptr_bit_count_val(uint32_t node_id) {
@@ -2016,7 +2034,7 @@ class val_ptr_group_map : public ptr_group_map {
       do {
         // printf("Delta Node-id: %u\n", delta_node_id);
         if (bm_mask & bm_leaf) {
-          val_loc = get_val_loc(delta_node_id, &ptr_bit_count);
+          val_loc = get_val_loc(delta_node_id); // todo: pass ptr_bit_count?
           if (val_loc != nullptr) {
             int64_t delta_val = gen::read_svint60(val_loc);
             // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);

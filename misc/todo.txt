@@ -168,53 +168,55 @@ madras_flutter todos
 - Word split interface
 - API for nid_shift_bits for T and W
 - Search on date not working
+
 - web_bridge
+- JDBC driver
+- ALP and fast_lanes
 
 * replace for !no_primary_trie
-- implement dessicate
-- Secondary indexes
-- Compression levels as parameter
++ Secondary indexes
++ interface for multiple keys on pk and sk
+- Options for each column
 - Next val
-- interface for multiple keys on pk and sk
 - DATETIME_ISO_MS not working (g)
 - composite primary index get_col_val()
 - Implement Repeat (RLE)
 - 1 file for each column
 - SQL interface
 - Fix CUDA demo
-
-- Pure Rust/Go version?
-- Integrate Unishox
 - GUI crashing on linux
 
 + Word encoding for tails
 + Emscripten support
 + Word encoding for Vals and optional index
-- Implement 32/64 bit
-- Support CTAS on Spark / BigQuery?
+^ Implement 32/64 bit
+^ Support CTAS on Spark / BigQuery?
+^ CSV/JSON export?
+^ Integrity check
+^ Integrate Unishox
+^ Auto encoding option
+^ Implement dessicate
+^ Pure Rust/Go/Java version?
+^ Compression levels as parameter
+^ GUI for viewing/creating from SQLite / CSV
+^ Grasping ptrs for col tries with repeats
 
 - 1.58101e-322 census.db
 - wrong totals for integer/doubles
 - INT32/64, float double
-- ALP and fast_lanes
 - Fix grouping logic
 - Cleanup madras builder
 
-- count errors/warnings on export
-- CSV/JSON export?
-- Auto encoding option
-- GUI for viewing/creating from SQLite / CSV
-- JDBC driver
+- Count errors/warnings on export
 - Testing on Other OS?
 
-- Integrity check
 - Testing with boundary conditions 64/512
 - Setup unit tests
 - Doxyfile
 - Documentation and format definition
 - Standardise limits and format
-- check release and leaks
-- check null and empty values consistency
+- Check release and leaks
+- Check null and empty values consistency
 
 Integer codec with ALP
 - flavic48 - floating point losless adaptive variable integer 32 and 64 bit

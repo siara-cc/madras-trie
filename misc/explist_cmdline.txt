@@ -14,11 +14,10 @@
 ./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt9i99iti TWTTTTTTTTT
 
 ~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuuuuut
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ----------------0-- dtttdduuuuuuuuuuuut
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
 
-./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 utdddduuuuuu
+./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 uudddduuuuuu
 ./export_sqlite ~/git2/sqlite_dbs/census.db surnames 0 itii22222222 utdddduuuuuu
 
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti1 uutuuuu

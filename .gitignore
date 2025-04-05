@@ -17,6 +17,7 @@ a.out*
 *.mdx
 *.bin
 *.msa
+*.mdx
 *.ods#
 *.trace
 tex/*.pdf
