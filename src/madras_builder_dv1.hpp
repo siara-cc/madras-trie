@@ -1651,6 +1651,41 @@ class uniq_maker {
     }
 };
 
+class fast_vint {
+  private:
+    char data_type;
+    byte_vec col_data;
+    byte_vec block_data;
+    uint64_t repeats_bm;
+    uint64_t dbl_exc_bm;
+    uint8_t *prev_data_pos;
+    size_t prev_data_len;
+    uint8_t cur_pos;
+    uint8_t block_count;
+    bool has_neg;
+  public:
+    fast_vint(char _data_type) {
+      cur_pos = 0;
+      block_count = 0;
+      has_neg = false;
+      prev_data_len = 0;
+      prev_data_pos = nullptr;
+      data_type = _data_type;
+    }
+    void add_int(uint8_t *data_pos, size_t data_len) {
+      uint64_t u64;
+      flavic48::simple_decode(data_pos, 1, &u64);
+      int64_t i64 = flavic48::cvt2_i64(u64);
+      if (i64 < 0)
+        has_neg = true;
+      // if (data_len == prev_data_len && memcmp(data_pos, prev_data_pos, data_len) == 0) {
+      // }
+      for (size_t i = 1; i < data_len; i++) {
+        block_data.push_back(data_pos[i]);
+      }
+    }
+};
+
 class builder : public builder_fwd {
 
   private:
@@ -2517,26 +2552,6 @@ class builder : public builder_fwd {
       word_ptrs[word_count_pos] = word_count;
     }
 
-    uint32_t encode_vint_gb(node_data_vec& nodes) {
-      leopard::node_iterator ni(memtrie.all_node_sets, 0);
-      leopard::node cur_node = ni.next();
-      while (cur_node != nullptr) {
-        if (cur_node.get_flags() & NODE_SET_LEAP) {
-          cur_node = ni.next();
-          continue;
-        }
-        // uint32_t col_val_pos = cur_node.get_col_val();
-        // uint8_t *v = (*all_vals)[col_val_pos];
-        // int8_t vlen;
-        // uint32_t len = gen::read_vint32(v, &vlen);
-        // wm.add_words(col_val_pos + vlen, len, cur_ns_idx);
-        cur_node = ni.next();
-      }
-      //wm.make_uniq_words();
-      //wm.process_combis();
-      return 0;
-    }
-
     bool lookup_memtrie(const uint8_t *key, size_t key_len, leopard::node_set_vars& nsv) {
       if (key == NULL) {
         key = null_value;
@@ -2894,133 +2909,128 @@ class builder : public builder_fwd {
       uint32_t leaf_id = 1;
       size_t block_size = all_vals->get_block_size();
       ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
-      for (uint32_t i = pk_col_count == 0 ? 1 : 0; i < memtrie.all_node_sets.size(); i++) {
-        leopard::node_set_handler cur_ns(memtrie.all_node_sets, i);
-        if (cur_ns.hdr()->flags & NODE_SET_LEAP) {
+      leopard::node_iterator ni(memtrie.all_node_sets, pk_col_count == 0 ? 1 : 0);
+      leopard::node n = ni.next();
+      while (n != nullptr) {
+        if (ni.hdr()->flags & NODE_SET_LEAP || (n.get_flags() & NFLAG_LEAF) == 0) {
+          n = ni.next();
           node_id++;
+          continue;
         }
-        leopard::node n = cur_ns.first_node();
-        for (size_t k = 0; k <= cur_ns.last_node_idx(); k++) {
-          if ((n.get_flags() & NFLAG_LEAF) == 0) {
-            n.next();
-            node_id++;
-            continue;
-          }
-          if (memcmp((*all_vals)[0], "\xFF\xFF", 2) == 0) {
-            size_t vlen;
-            pos = n.get_col_val();
-            data_len = gen::read_vint32((*all_vals)[pos], &vlen);
-            // printf("Pos:\t%u\tData len:\t%u\n", pos, data_len);
-            data_pos = (*all_vals)[pos + vlen];
-          } else {
-            size_t vlen;
-            if (pk_col_count > 0 && !is_rec_pos_src_leaf_id)
-              rec_pos_vec[leaf_id] = n.get_col_val();
-            pos = rec_pos_vec[leaf_id];
-            gen::read_vint32((*all_vals)[pos], &vlen);
-            pos += vlen;
-            for (size_t col_idx = 0; col_idx < column_count; col_idx++) {
-              data_pos = (*all_vals)[pos];
-              len_len = 0;
-              data_len = 0;
-              uint32_t col_val = pos;
-              n.set_col_val(col_val);
-              // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
-                char col_data_type = column_types[col_idx];
-              switch (col_data_type) {
-                case MST_TEXT:
-                case MST_BIN:
-                case MST_SEC_2WAY: {
-                  data_len = gen::read_vint32(data_pos, &len_len);
-                  data_pos += len_len;
-                  pos += len_len;
-                  pos += data_len;
-                } break;
-                case MST_INT:
-                case MST_DECV ... MST_DEC9:
-                case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-                  data_len = *data_pos & 0x07;
-                  data_len += 2;
-                  pos += data_len;
-                  if (encoding_type != MSE_DICT_DELTA) {
-                    uint64_t u64;
-                    flavic48::simple_decode(data_pos, 1, &u64);
-                    int64_t i64 = flavic48::cvt2_i64(u64);
-                    if (*data_pos == 0xF8 && data_pos[1] == 0) {
-                      data_len = 1;
-                      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
-                        *num_data = 0;
-                      else
-                        data_pos = (*new_vals)[new_vals->push_back(0x00)];
-                    } else {
-                      data_len = gen::get_svint60_len(i64);
-                      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
-                        gen::copy_svint60(i64, num_data, data_len);
-                      else
-                        data_pos = (*new_vals)[new_vals->append_svint60(i64)];
-                    }
+        if (memcmp((*all_vals)[0], "\xFF\xFF", 2) == 0) {
+          size_t vlen;
+          pos = n.get_col_val();
+          data_len = gen::read_vint32((*all_vals)[pos], &vlen);
+          // printf("Pos:\t%u\tData len:\t%u\n", pos, data_len);
+          data_pos = (*all_vals)[pos + vlen];
+        } else {
+          size_t vlen;
+          if (pk_col_count > 0 && !is_rec_pos_src_leaf_id)
+            rec_pos_vec[leaf_id] = n.get_col_val();
+          pos = rec_pos_vec[leaf_id];
+          gen::read_vint32((*all_vals)[pos], &vlen);
+          pos += vlen;
+          for (size_t col_idx = 0; col_idx < column_count; col_idx++) {
+            data_pos = (*all_vals)[pos];
+            len_len = 0;
+            data_len = 0;
+            uint32_t col_val = pos;
+            n.set_col_val(col_val);
+            // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
+              char col_data_type = column_types[col_idx];
+            switch (col_data_type) {
+              case MST_TEXT:
+              case MST_BIN:
+              case MST_SEC_2WAY: {
+                data_len = gen::read_vint32(data_pos, &len_len);
+                data_pos += len_len;
+                pos += len_len;
+                pos += data_len;
+              } break;
+              case MST_INT:
+              case MST_DECV ... MST_DEC9:
+              case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+                data_len = *data_pos & 0x07;
+                data_len += 2;
+                pos += data_len;
+                if (encoding_type != MSE_DICT_DELTA) {
+                  uint64_t u64;
+                  flavic48::simple_decode(data_pos, 1, &u64);
+                  int64_t i64 = flavic48::cvt2_i64(u64);
+                  if (*data_pos == 0xF8 && data_pos[1] == 0) {
+                    data_len = 1;
                     if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
-                      data_pos = num_data;
+                      *num_data = 0;
+                    else
+                      data_pos = (*new_vals)[new_vals->push_back(0x00)];
+                  } else {
+                    data_len = gen::get_svint60_len(i64);
+                    if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                      gen::copy_svint60(i64, num_data, data_len);
+                    else
+                      data_pos = (*new_vals)[new_vals->append_svint60(i64)];
                   }
-                } break;
-              }
-              if (cur_col_idx == col_idx)
-                break;
+                  if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                    data_pos = num_data;
+                }
+              } break;
             }
+            if (cur_col_idx == col_idx)
+              break;
           }
-          switch (encoding_type) {
-            case MSE_WORDS:
-            case MSE_WORDS_2WAY: {
-              if (max_len < data_len)
-                max_len = data_len;
-              add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len,
-                          max_word_count, total_word_entries, rpt_freq, max_rpt_count);
-              prev_val = data_pos;
-              prev_val_len = data_len;
-            } break;
-            case MSE_TRIE:
-            case MSE_TRIE_2WAY: {
-              if (max_len < data_len)
-                max_len = data_len;
-              uint32_t nid_shifted = node_id >> get_opts()->sec_idx_nid_shift_bits;
-              // printf("Data: [%.*s]\n", data_len, data_pos);
-              leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
-              if (encoding_type == MSE_TRIE_2WAY) {
-                add_to_rev_map(col_trie_builder, nsv, revmap_vec, nid_shifted);
-              }
-              // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
-            } break;
-            case MSE_STORE: {
-              uint32_t ptr = ptr_grps->append_bin_to_grp_data(1, data_pos, data_len, data_type);
-              byte_vec& data = ptr_grps->get_data(1);
-              n.set_col_val(data.size() - ptr);
-              if (max_len < data_len)
-                max_len = data_len;
-            } break;
-            case MSE_DICT_DELTA: {
-              uint64_t u64;
-              uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
-              int64_t col_val = flavic48::cvt2_i64(u64);
-              int64_t delta_val = col_val;
-              if ((node_id / nodes_per_bv_block_n) == (prev_val_node_id / nodes_per_bv_block_n))
-                delta_val -= prev_ival;
-              prev_ival = col_val;
-              prev_val_node_id = node_id;
-              // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
-              data_len = gen::get_svint60_len(delta_val);
-              data_pos = (*new_vals)[new_vals->append_svint60(delta_val)];
-              n.set_col_val(data_pos - (*new_vals)[0]);
-              nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
-              // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
-            } break;
-            default:
-              nodes_for_sort.push_back((struct node_data) {data_pos, data_len, i, (uint8_t) k, (uint8_t) len_len});
-            // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
-          }
-          leaf_id++;
-          node_id++;
-          n.next();
         }
+        switch (encoding_type) {
+          case MSE_WORDS:
+          case MSE_WORDS_2WAY: {
+            if (max_len < data_len)
+              max_len = data_len;
+            add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len,
+                        max_word_count, total_word_entries, rpt_freq, max_rpt_count);
+            prev_val = data_pos;
+            prev_val_len = data_len;
+          } break;
+          case MSE_TRIE:
+          case MSE_TRIE_2WAY: {
+            if (max_len < data_len)
+              max_len = data_len;
+            uint32_t nid_shifted = node_id >> get_opts()->sec_idx_nid_shift_bits;
+            // printf("Data: [%.*s]\n", data_len, data_pos);
+            leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
+            if (encoding_type == MSE_TRIE_2WAY) {
+              add_to_rev_map(col_trie_builder, nsv, revmap_vec, nid_shifted);
+            }
+            // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
+          } break;
+          case MSE_STORE: {
+            uint32_t ptr = ptr_grps->append_bin_to_grp_data(1, data_pos, data_len, data_type);
+            byte_vec& data = ptr_grps->get_data(1);
+            n.set_col_val(data.size() - ptr);
+            if (max_len < data_len)
+              max_len = data_len;
+          } break;
+          case MSE_DICT_DELTA: {
+            uint64_t u64;
+            uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
+            int64_t col_val = flavic48::cvt2_i64(u64);
+            int64_t delta_val = col_val;
+            if ((node_id / nodes_per_bv_block_n) == (prev_val_node_id / nodes_per_bv_block_n))
+              delta_val -= prev_ival;
+            prev_ival = col_val;
+            prev_val_node_id = node_id;
+            // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
+            data_len = gen::get_svint60_len(delta_val);
+            data_pos = (*new_vals)[new_vals->append_svint60(delta_val)];
+            n.set_col_val(data_pos - (*new_vals)[0]);
+            nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
+            // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
+          } break;
+          default:
+            nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
+          // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
+        }
+        leaf_id++;
+        node_id++;
+        n = ni.next();
       }
       uint32_t col_trie_size = 0;
       switch (encoding_type) {
@@ -4314,8 +4324,11 @@ class builder : public builder_fwd {
             if (type == MST_DECV) {
               double dbl = *dbl_ptr;
               frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
-              if (frac_width == UINT8_MAX)
+              if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
                 frac_width = 0xF0;
+                memcpy(&i64, &dbl, 8);
+              } else
+                frac_width <<= 3;
             }
             if (type >= MST_DEC0 && type <= MST_DEC9) {
               double dbl = *dbl_ptr;
@@ -4326,7 +4339,8 @@ class builder : public builder_fwd {
               uint8_t v64[10];
               if (frac_width == 0xF0) {
                 value_len = 9;
-                *((uint64_t *) v64) = u64;
+                v64[0] = 0xF7;
+                memcpy(v64 + 1, &i64, 8);
               } else {
                 uint8_t *v_end = flavic48::simple_encode_single(u64, v64, frac_width);
                 value_len = (v_end - v64);
