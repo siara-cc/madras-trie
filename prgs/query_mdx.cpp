@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 
   int row_count = dict_reader.get_key_count();
   if (row_count == 0)
-    row_count = dict_reader.get_node_count();
+    row_count = dict_reader.get_node_count() - 1;
   else {
     printf("This utility only for mdx with no primary trie\n");
     return 1;
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     }
     printf("Sum: %lld\n", sum);
   } else
-  if (data_type == '0' || data_type == 'i') {
+  if (data_type == 'i') {
     int64_t sum = 0;
     for (int i = 0; i < row_count; i++) {
       bool is_success = dict_reader.get_col_val(i, column_idx, &col_len, col_val, &ptr_bit_count);

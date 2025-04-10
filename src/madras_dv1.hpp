@@ -192,8 +192,7 @@ class cmn {
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           ret_len = 8;
           if (*val_loc == 0x00) {
-            ret_len = null_len;
-            memcpy(ret_val, null_val, null_len);
+            *((int64_t *) ret_val) = INT64_MIN;
             return;
           }
           int64_t i64 = gen::read_svint60(val_loc);
@@ -1896,6 +1895,54 @@ class val_ptr_group_map : public ptr_group_map {
       return  (uint8_t *) ret_val;
     }
 
+    __fq1 __fq2 uint8_t *get_fast_vint_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
+      uint32_t ptr_bit_count = UINT32_MAX;
+      if (p_ptr_bit_count == nullptr)
+        p_ptr_bit_count = &ptr_bit_count;
+      if (*p_ptr_bit_count == UINT32_MAX)
+        *p_ptr_bit_count = ptr_reader.get_ptr_block_t_words(node_id);
+      // printf("pbc: %u\n", *p_ptr_bit_count);
+      uint8_t *data = grp_data[0] + *p_ptr_bit_count + 2;
+      size_t len_len;
+      uint32_t vint_len;
+      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
+      uint64_t bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n)) - 1;
+      uint64_t bm_leaf = UINT64_MAX;
+      if (key_count > 0)
+        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      int count = data[1];
+      int to_skip = __builtin_popcountll(bm_leaf & bm_mask);
+
+      uint64_t u64;
+      if (*data == 0x80) {
+        uint64_t *decoded = new uint64_t[count];
+        flavic48::decode(data + 2, count, decoded);
+        u64 = *(decoded + to_skip);
+        delete [] decoded;
+      } else {
+        uint32_t *decoded = new uint32_t[count];
+        flavic48::decode(data + 2, count, decoded);
+        u64 = (uint64_t) *(decoded + to_skip);
+        delete [] decoded;
+      }
+      *in_size_out_value_len = 8;
+      switch (data_type) {
+        case MST_INT: {
+          int64_t i64 = flavic48::cvt2_i64(u64);
+          memcpy(ret_val, &i64, 8);
+        } break;
+        case MST_DECV: {
+        } break;
+        case MST_DEC0 ... MST_DEC9: {
+          int64_t i64 = flavic48::cvt2_i64(u64);
+          double dbl = static_cast<double>(i64);
+          dbl /= gen::pow10(data_type - MST_DEC0);
+          *((double *)ret_val) = dbl;
+      } break;
+      }
+      return (uint8_t *) ret_val;
+    }
+
     __fq1 __fq2 uint8_t *get_stored_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       uint32_t ptr_bit_count = UINT32_MAX;
       if (p_ptr_bit_count == nullptr)
@@ -2068,6 +2115,8 @@ class val_ptr_group_map : public ptr_group_map {
         return (const uint8_t *) ret_val;
       } else if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
         return get_word_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
+      } else if (encoding_type == MSE_VINTGB) {
+        return get_fast_vint_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
       } else if (encoding_type == MSE_STORE) {
         return get_stored_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
       } else {

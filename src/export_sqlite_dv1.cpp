@@ -379,9 +379,16 @@ int main(int argc, char* argv[]) {
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
         size_t null_value_len;
         uint8_t *null_value = stm.get_null_value(null_value_len);
-        if (val_len != null_value_len || memcmp(val_buf, null_value, null_value_len) != 0) {
-          printf("Val not null: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, null_value_len);
-          printf("%d, %d\n", val_buf[0], val_buf[1]);
+        if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
+          if (val_len != null_value_len || memcmp(val_buf, null_value, null_value_len) != 0) {
+            printf("Val not null: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, null_value_len);
+            printf("%d, %d\n", val_buf[0], val_buf[1]);
+          }
+        } else {
+          int64_t i64 = *((int64_t *) val_buf);
+          if (i64 != INT64_MIN) {
+            printf("Val not null: nid: %u, seq: %lu, col: %lu, A: %lld\n", node_id, ins_seq_id, col_val_idx, i64);
+          }
         }
       } else
       if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
@@ -452,7 +459,7 @@ int main(int argc, char* argv[]) {
           std::cerr << "Int not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << i64 << std::endl;
         int_sums[col_val_idx] += i64;
       } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
-        double sql_val = round_dbl(sqlite3_column_double(stmt, i), exp_col_type);
+        double sql_val = round_dbl(sqlite3_column_double(stmt, sql_col_idx), exp_col_type);
         uint8_t val_buf[16];
         size_t val_len;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);

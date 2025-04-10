@@ -284,7 +284,7 @@ class ptr_groups {
       freq_grp_vec.resize(0);
       grp_data.resize(0);
       inner_tries.resize(0);
-      ptrs.resize(0);
+      ptrs.clear();
       idx2_ptrs_map.resize(0);
       next_idx = 0;
       inner_trie_start_grp = 0;
@@ -520,19 +520,19 @@ class ptr_groups {
       pk_col_count = _pk_col_count;
       dessicate = dessicat;
       enc_type = encoding_type;
-      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && (freq_grp_vec.size() > 2 || encoding_type == MSE_STORE)) {
+      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && (freq_grp_vec.size() > 2 || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB)) {
         ptr_lkup_tbl_ptr_width = 4;
         if (!dessicate)
           build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type);
-        if (encoding_type != MSE_STORE) {
+        if (encoding_type != MSE_STORE && encoding_type != MSE_VINTGB) {
           if (!is_tail && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
             build_val_ptrs(all_node_sets, get_info_func, info_vec);
         }
       }
-      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE)
+      if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB)
         build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
       ptr_lookup_tbl_loc = 7 * 4 + 20;
-      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE))
+      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB))
         ptr_lookup_tbl_sz = 0;
       else {
         if (dessicate)
@@ -540,7 +540,7 @@ class ptr_groups {
         else { // TODO: PTR LT gets created unnecessarily for last level of tail tries
           ptr_lookup_tbl_sz = gen::get_lkup_tbl_size2(node_count, nodes_per_ptr_block,
             ptr_lkup_tbl_ptr_width + (nodes_per_ptr_block / nodes_per_ptr_block_n - 1)
-            * (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE ? 3 : 2));
+            * (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB ? 3 : 2));
         }
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + gen::size_align8(ptr_lookup_tbl_sz);
@@ -668,7 +668,7 @@ class ptr_groups {
     }
     void append_plt_count16(uint32_t *bit_counts, size_t u16_arr_count, char encoding_type) {
       for (size_t j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE)
+        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB)
           gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
         else
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
@@ -693,8 +693,11 @@ class ptr_groups {
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
         if (node_id && (node_id % nodes_per_ptr_block_n) == 0) {
-          if (bit_count4 > (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE ? 16777215 : 65535))
+          if (bit_count4 > (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB ? 16777215 : 65535))
             std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_count4 << std::endl;
+          // printf("nid: %u, bit count: %u\n", node_id, bit_count4);
+          if (encoding_type == MSE_VINTGB && (bit_count4 == 0 || (pos4 > 0 && (bit_count4 - bit_counts[pos4 - 1] == 0))))
+            bit_count4 += 2;
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
@@ -707,7 +710,7 @@ class ptr_groups {
           memset(bit_counts, '\0', u16_arr_count * 4 + 4);
         }
         if (cur_node_flags & (is_tail ? NFLAG_TAIL : NFLAG_LEAF)) {
-          if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE) {
+          if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
             bit_count4 += cur_node.get_col_val();
             //printf("gcv: %u, bc4: %u\n", cur_node.get_col_val(), bit_count4);
           } else {
@@ -726,8 +729,8 @@ class ptr_groups {
         node_id++;
         cur_node = ni.next();
       }
-      // bit_counts[pos4] = bit_count4;
-      // bit_count += bit_count4;
+      bit_counts[pos4] = bit_count4;
+      bit_count += bit_count4;
       append_plt_count16(bit_counts, u16_arr_count, encoding_type);
       bit_count += bit_counts[u16_arr_count];
       append_plt_count(bit_count);
@@ -767,7 +770,7 @@ class ptr_groups {
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         write_ptrs(fp, out_vec);
       } else {
-        if (freq_grp_vec.size() > 2 || enc_type == MSE_STORE)
+        if (freq_grp_vec.size() > 2 || enc_type == MSE_STORE || enc_type == MSE_VINTGB)
           write_ptr_lookup_tbl(fp, out_vec);
         write_ptrs(fp, out_vec);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
@@ -1654,35 +1657,77 @@ class uniq_maker {
 class fast_vint {
   private:
     char data_type;
-    byte_vec col_data;
-    byte_vec block_data;
-    uint64_t repeats_bm;
-    uint64_t dbl_exc_bm;
-    uint8_t *prev_data_pos;
-    size_t prev_data_len;
-    uint8_t cur_pos;
-    uint8_t block_count;
-    bool has_neg;
+    uint8_t hdr_size;
+    uint8_t dec_count;
+    std::vector<uint64_t> u64_data;
+    std::vector<uint32_t> u32_data;
+    std::vector<uint8_t> dbl_exceptions;
+    byte_vec *block_data;
+    size_t count;
+    bool is64bit;
   public:
     fast_vint(char _data_type) {
-      cur_pos = 0;
-      block_count = 0;
-      has_neg = false;
-      prev_data_len = 0;
-      prev_data_pos = nullptr;
       data_type = _data_type;
+      hdr_size = data_type == MST_DECV ? 3 : 2;
+      dec_count = 0;
+      count = 0;
+      is64bit = false;
+      block_data = nullptr;
     }
-    void add_int(uint8_t *data_pos, size_t data_len) {
+    ~fast_vint() {
+    }
+    void reset_block() {
+      count = 0;
+      dec_count = 0;
+      u64_data.clear();
+      u32_data.clear();
+      dbl_exceptions.clear();
+    }
+    void set_block_data(byte_vec *bd) {
+      block_data = bd;
+    }
+    void add(uint8_t *data_pos, size_t data_len) {
       uint64_t u64;
-      flavic48::simple_decode(data_pos, 1, &u64);
-      int64_t i64 = flavic48::cvt2_i64(u64);
-      if (i64 < 0)
-        has_neg = true;
-      // if (data_len == prev_data_len && memcmp(data_pos, prev_data_pos, data_len) == 0) {
-      // }
-      for (size_t i = 1; i < data_len; i++) {
-        block_data.push_back(data_pos[i]);
+      if (data_type == MST_DECV) {
+        double dbl = *((double *) (data_pos + 1));
+        int64_t i64;
+        uint8_t frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
+        if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
+          memcpy(&u64, &dbl, 8);
+          dbl_exceptions.push_back(1);
+          is64bit = true;
+        } else {
+          if (dec_count < frac_width)
+            dec_count = frac_width;
+          dbl_exceptions.push_back(0);
+        }
+      } else {
+        flavic48::simple_decode(data_pos, 1, &u64);
+        dbl_exceptions.push_back(0);
       }
+      u64_data.push_back(u64);
+      if (u64 > 4294967295LL)
+        is64bit = true;
+      else
+        u32_data.push_back(u64);
+      count++;
+    }
+    size_t build_block() {
+      uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00);
+      size_t last_size = block_data->size();
+      block_data->resize(block_data->size() + u64_data.size() * 9 + hdr_size);
+      block_data->at(last_size + 0) = hdr_b1;
+      block_data->at(last_size + 1) = count;
+      if (hdr_size == 3)
+        block_data->at(last_size + 2) = dec_count;
+      size_t blk_size;
+      if (is64bit)
+        blk_size = flavic48::encode(u64_data.data(), count, block_data->data() + last_size + hdr_size, dbl_exceptions.data());
+      else
+        blk_size = flavic48::encode(u32_data.data(), count, block_data->data() + last_size + hdr_size);
+      // printf("Total blk size: %lu, cur size: %lu\n", block_data->size(), blk_size);
+      block_data->resize(last_size + blk_size + hdr_size);
+      return blk_size + hdr_size;
     }
 };
 
@@ -2880,6 +2925,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Type: %c, Enc: %c. ", data_type, encoding_type);
       std::vector<uint32_t> word_ptrs;
       std::vector<word_refs> words_for_sort;
+      fast_vint fast_v(data_type);
       gen::byte_blocks *new_vals = nullptr;
       // if (encoding_type == MSE_DICT_DELTA || encoding_type == MSE_TRIE_2WAY)
         new_vals = new gen::byte_blocks();
@@ -2907,12 +2953,23 @@ class builder : public builder_fwd {
       uint32_t pos = 2;
       uint32_t node_id = 0;
       uint32_t leaf_id = 1;
-      size_t block_size = all_vals->get_block_size();
+      size_t data_size = 0;
       ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
+      fast_v.set_block_data(&ptr_grps->get_data(1));
       leopard::node_iterator ni(memtrie.all_node_sets, pk_col_count == 0 ? 1 : 0);
       leopard::node n = ni.next();
+      leopard::node prev_node = n;
       while (n != nullptr) {
-        if (ni.hdr()->flags & NODE_SET_LEAP || (n.get_flags() & NFLAG_LEAF) == 0) {
+        if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
+          if (encoding_type == MSE_VINTGB) {
+            size_t blk_size = fast_v.build_block();
+            if (blk_size > 2)
+              prev_node.set_col_val(blk_size);
+            fast_v.reset_block();
+            data_size += blk_size;
+          }
+        }
+        if ((n.get_flags() & NFLAG_LEAF) == 0) { // || ni.hdr()->flags & NODE_SET_LEAP
           n = ni.next();
           node_id++;
           continue;
@@ -2953,7 +3010,7 @@ class builder : public builder_fwd {
                 data_len = *data_pos & 0x07;
                 data_len += 2;
                 pos += data_len;
-                if (encoding_type != MSE_DICT_DELTA) {
+                if (encoding_type != MSE_DICT_DELTA && encoding_type != MSE_VINTGB) {
                   uint64_t u64;
                   flavic48::simple_decode(data_pos, 1, &u64);
                   int64_t i64 = flavic48::cvt2_i64(u64);
@@ -3001,6 +3058,12 @@ class builder : public builder_fwd {
             }
             // fprintf(col_trie_fp, "%.*s\n", (int) data_len, data_pos);
           } break;
+          case MSE_VINTGB: {
+            n.set_col_val(0);
+            fast_v.add(data_pos, data_len);
+            if (max_len < data_len)
+              max_len = data_len;
+          } break;
           case MSE_STORE: {
             uint32_t ptr = ptr_grps->append_bin_to_grp_data(1, data_pos, data_len, data_type);
             byte_vec& data = ptr_grps->get_data(1);
@@ -3030,7 +3093,14 @@ class builder : public builder_fwd {
         }
         leaf_id++;
         node_id++;
+        prev_node = n;
         n = ni.next();
+      }
+      if (encoding_type == MSE_VINTGB) {
+        size_t blk_size = fast_v.build_block();
+        if (blk_size > 2)
+          prev_node.set_col_val(blk_size);
+        data_size += blk_size;
       }
       uint32_t col_trie_size = 0;
       switch (encoding_type) {
@@ -3051,6 +3121,7 @@ class builder : public builder_fwd {
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, col_trie_size);
         } break;
+        case MSE_VINTGB:
         case MSE_STORE: {
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
@@ -3170,6 +3241,7 @@ class builder : public builder_fwd {
       // all_vals->push_back("\0", 2);
       uniq_vals.reset();
       wm.reset();
+      val_maps.get_grp_ptrs()->reset();
       for (size_t i = 0; i < uniq_vals_fwd.size(); i++)
         delete uniq_vals_fwd[i];
       uniq_vals_fwd.resize(0);
@@ -3403,7 +3475,7 @@ class builder : public builder_fwd {
     }
     uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
       uint32_t val_fp_offset = 0;
-      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE) {
+      if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
         gen::gen_printf("Stats - %c - ", encoding_type);
         val_maps.get_grp_ptrs()->write_ptrs_data(data_type, flags, false, fp, out_vec);
         val_fp_offset += val_maps.get_grp_ptrs()->get_total_size();
@@ -4312,46 +4384,39 @@ class builder : public builder_fwd {
         case MST_INT:
         case MST_DECV ... MST_DEC9:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          if (*ptr == INT64_MIN) { // null
-            if (val_type == APPEND_REC_NOKEY) {
-              rec.push_back(0xF8);
-            }
-            rec.push_back(0);
-            value_len = 1;
-          } else {
-            uint8_t frac_width = 0;
-            int64_t i64 = (int64_t) *ptr;
+          if (val_type == APPEND_REC_NOKEY) {
             if (type == MST_DECV) {
-              double dbl = *dbl_ptr;
-              frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
-              if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
-                frac_width = 0xF0;
-                memcpy(&i64, &dbl, 8);
-              } else
-                frac_width <<= 3;
-            }
-            if (type >= MST_DEC0 && type <= MST_DEC9) {
-              double dbl = *dbl_ptr;
-              i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
-            }
-            if (val_type == APPEND_REC_NOKEY) {
-              uint64_t u64 = flavic48::cvt2_u64(i64);
-              uint8_t v64[10];
-              if (frac_width == 0xF0) {
-                value_len = 9;
-                v64[0] = 0xF7;
-                memcpy(v64 + 1, &i64, 8);
-              } else {
-                uint8_t *v_end = flavic48::simple_encode_single(u64, v64, frac_width);
-                value_len = (v_end - v64);
-                // if (type == 'I')
-                //   printf("u64: %llu, %lu\n", u64, value_len);
-              }
+              uint8_t *v64 = (uint8_t *) dbl_ptr;
+              value_len = 8;
               for (size_t vi = 0; vi < value_len; vi++)
                 rec.push_back(v64[vi]);
             } else {
-              gen::append_svint60(rec, i64);
-              value_len = gen::get_svint60_len(i64);
+              if (*ptr == INT64_MIN) { // null
+                rec.push_back(0xF8);
+                rec.push_back(0);
+                value_len = 1;
+              } else {
+                uint64_t u64;
+                if (type >= MST_DEC0 && type <= MST_DEC9) {
+                  double dbl = *dbl_ptr;
+                  int64_t i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
+                  u64 = flavic48::cvt2_u64(i64);
+                } else
+                  u64 = flavic48::cvt2_u64(*ptr);
+                uint8_t v64[10];
+                uint8_t *v_end = flavic48::simple_encode_single(u64, v64, 0);
+                value_len = (v_end - v64);
+                for (size_t vi = 0; vi < value_len; vi++)
+                  rec.push_back(v64[vi]);
+              }
+            }
+          } else {
+            if (*ptr == INT64_MIN) { // null
+              rec.push_back(0);
+              value_len = 1;
+            } else {
+              gen::append_svint60(rec, *ptr);
+              value_len = gen::get_svint60_len(*ptr);
             }
           }
         } break;
