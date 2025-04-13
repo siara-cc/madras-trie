@@ -951,7 +951,9 @@ class tail_val_maps {
           sum_freq += vi->freq_count;
           if (last_data_len >= nxt_idx_limit) {
             double cost_frac = last_data_len + nxt_idx_limit * 3;
-            cost_frac /= (sum_freq * cutoff_bits / 8);
+            double divisor = sum_freq * cutoff_bits;
+            divisor /= 8;
+            cost_frac /= (divisor == 0 ? 1 : divisor);
             if (cost_frac > idx_cost_frac_cutoff)
               break;
             grp_no++;
@@ -973,7 +975,6 @@ class tail_val_maps {
         if (cutoff_bits > start_bits) {
           grp_no = 1;
           freq_idx = 0;
-          last_data_len = 0;
           uint32_t next_bits = start_bits;
           nxt_idx_limit = pow(2, next_bits);
           for (cumu_freq_idx = 0; cumu_freq_idx < uniq_freq_vec.size(); cumu_freq_idx++) {
@@ -995,8 +996,11 @@ class tail_val_maps {
             freq_idx++;
           }
         }
-        if (grp_no == 0 && start_bits == 1)
-          start_bits = 2;
+        if (grp_no == 0 && start_bits == 1) {
+          start_bits = ceil(log2(2 + uniq_freq_vec[0]->len + 1));
+          if (start_bits == 0)
+            start_bits++;
+        }
       }
 
       // grp_no = 0;
