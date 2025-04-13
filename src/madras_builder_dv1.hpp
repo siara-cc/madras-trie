@@ -1264,6 +1264,7 @@ class tail_val_maps {
       printf("rpt_ui.pos: %u\n", ptr_grps.rpt_ui.pos);
       if (ptr_grps.rpt_ui.pos == UINT32_MAX) { // repeats
         ptr_grps.rpt_ui.freq_count = ptr_grps.rpt_ui.repeat_freq;
+        max_repeats++;
         ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
         ptr_grps.set_grp_nos(0, grp_no, 0);
         ptr_grps.append_text(grp_no, (const uint8_t *) "", 1);
@@ -1411,6 +1412,7 @@ class tail_val_maps {
       printf("rpt_ui.pos: %u\n", ptr_grps.rpt_ui.pos);
       if (ptr_grps.rpt_ui.pos == UINT32_MAX) { // repeats
         ptr_grps.rpt_ui.freq_count = ptr_grps.rpt_ui.repeat_freq;
+        max_repeats++;
         ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
         ptr_grps.set_grp_nos(0, grp_no, 0);
         ptr_grps.append_text(grp_no, (const uint8_t *) "", 1);
