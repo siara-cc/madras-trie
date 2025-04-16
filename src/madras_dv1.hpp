@@ -1909,19 +1909,21 @@ class val_ptr_group_map : public ptr_group_map {
       uint64_t bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n)) - 1;
       uint64_t bm_leaf = UINT64_MAX;
       if (key_count > 0)
-        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+        bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
       int count = data[1];
       int to_skip = __builtin_popcountll(bm_leaf & bm_mask);
 
       uint64_t u64;
+      size_t offset = (data_type == MST_DECV ? 3 : 2);
+      bool dbl_exception = false;
       if (*data == 0x80) {
         uint64_t *decoded = new uint64_t[count];
-        flavic48::decode(data + 2, count, decoded);
+        flavic48::decode(data + offset, count, decoded);
         u64 = *(decoded + to_skip);
         delete [] decoded;
       } else {
         uint32_t *decoded = new uint32_t[count];
-        flavic48::decode(data + 2, count, decoded);
+        flavic48::decode(data + offset, count, decoded);
         u64 = (uint64_t) *(decoded + to_skip);
         delete [] decoded;
       }
@@ -1932,13 +1934,32 @@ class val_ptr_group_map : public ptr_group_map {
           memcpy(ret_val, &i64, 8);
         } break;
         case MST_DECV: {
+          size_t len = 0;
+          if (*data == 0x80)
+            len = flavic48::decode_len(data + offset, to_skip);
+          if (len == 7) {
+            memcpy(ret_val, &u64, 8);
+          } else {
+            if (u64 != 1) {
+              int64_t i64 = flavic48::cvt2_i64(u64);
+              double dbl = static_cast<double>(i64);
+              dbl /= flavic48::tens[data[2]];
+              *((double *)ret_val) = dbl;
+            } else {
+              *((double *)ret_val) = -0.0;
+            }
+          }
         } break;
         case MST_DEC0 ... MST_DEC9: {
-          int64_t i64 = flavic48::cvt2_i64(u64);
-          double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(data_type - MST_DEC0);
-          *((double *)ret_val) = dbl;
-      } break;
+          if (u64 != 1) {
+            int64_t i64 = flavic48::cvt2_i64(u64);
+            double dbl = static_cast<double>(i64);
+            dbl /= gen::pow10(data_type - MST_DEC0);
+            *((double *)ret_val) = dbl;
+          } else {
+            *((double *)ret_val) = -0.0;
+          }
+        } break;
       }
       return (uint8_t *) ret_val;
     }

@@ -30,6 +30,8 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
 }
 
 static double round_dbl(const double input, char data_type) {
+  if (data_type == MST_DECV)
+    return input;
   double p10 = gen::pow10(data_type - MST_DEC0);
   int64_t i64 = static_cast<int64_t>(input * p10);
   double ret = i64;
@@ -81,7 +83,7 @@ void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, 
     s64 = sqlite3_column_int64(stmt, sql_col_idx);
     memcpy(values + exp_col_idx, &s64, 8);
     value_lens[exp_col_idx] = 8;
-  } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
+  } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
     values_dbl[exp_col_idx] = sqlite3_column_double(stmt, sql_col_idx);
     value_lens[exp_col_idx] = 8;
   }
@@ -458,7 +460,7 @@ int main(int argc, char* argv[]) {
         if (i64 != sql_val)
           std::cerr << "Int not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << i64 << std::endl;
         int_sums[col_val_idx] += i64;
-      } else if (exp_col_type >= MST_DEC0 && exp_col_type <= MST_DEC9) {
+      } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
         double sql_val = round_dbl(sqlite3_column_double(stmt, sql_col_idx), exp_col_type);
         uint8_t val_buf[16];
         size_t val_len;

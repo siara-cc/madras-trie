@@ -1667,6 +1667,7 @@ class fast_vint {
     uint8_t dec_count;
     std::vector<uint64_t> u64_data;
     std::vector<uint32_t> u32_data;
+    std::vector<double> dbl_data;
     std::vector<uint8_t> dbl_exceptions;
     byte_vec *block_data;
     size_t count;
@@ -1687,6 +1688,7 @@ class fast_vint {
       dec_count = 0;
       u64_data.clear();
       u32_data.clear();
+      dbl_data.clear();
       dbl_exceptions.clear();
     }
     void set_block_data(byte_vec *bd) {
@@ -1695,11 +1697,10 @@ class fast_vint {
     void add(uint8_t *data_pos, size_t data_len) {
       uint64_t u64;
       if (data_type == MST_DECV) {
-        double dbl = *((double *) (data_pos + 1));
+        double dbl = *((double *) data_pos);
         int64_t i64;
         uint8_t frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
         if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
-          memcpy(&u64, &dbl, 8);
           dbl_exceptions.push_back(1);
           is64bit = true;
         } else {
@@ -1707,18 +1708,46 @@ class fast_vint {
             dec_count = frac_width;
           dbl_exceptions.push_back(0);
         }
+        dbl_data.push_back(dbl);
       } else {
         flavic48::simple_decode(data_pos, 1, &u64);
         dbl_exceptions.push_back(0);
+        u64_data.push_back(u64);
+        if (u64 > 4294967295LL)
+          is64bit = true;
+        else
+          u32_data.push_back(u64);
       }
-      u64_data.push_back(u64);
-      if (u64 > 4294967295LL)
-        is64bit = true;
-      else
-        u32_data.push_back(u64);
       count++;
     }
     size_t build_block() {
+      if (data_type == MST_DECV) {
+        for (size_t i = 0; i < dbl_data.size(); i++) {
+          if (i == 37)
+            int hello = 1;
+          uint64_t u64;
+          double dbl = dbl_data[i];
+          int64_t i64 = static_cast<int64_t>(dbl * flavic48::tens[dec_count]);
+          double dbl_back = static_cast<double>(i64);
+          dbl_back /= flavic48::tens[dec_count];
+          if (dbl != dbl_back)
+            dbl_exceptions[i] = 1;
+          if (dbl_exceptions[i] == 0) {
+            u64 = flavic48::cvt2_u64(i64);
+            if (dbl == -0.0)
+              u64 = 1;
+            u64_data.push_back(u64);
+            if (u64 > 4294967295LL)
+              is64bit = true;
+            else
+              u32_data.push_back(u64);
+          } else {
+            memcpy(&u64, &dbl, 8);
+            u64_data.push_back(u64);
+            is64bit = true;
+          }
+        }
+      }
       uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00);
       size_t last_size = block_data->size();
       block_data->resize(block_data->size() + u64_data.size() * 9 + hdr_size);
@@ -2969,7 +2998,7 @@ class builder : public builder_fwd {
         if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
           if (encoding_type == MSE_VINTGB) {
             size_t blk_size = fast_v.build_block();
-            if (blk_size > 2)
+            if (blk_size > (data_type == MST_DECV ? 3 : 2))
               prev_node.set_col_val(blk_size);
             fast_v.reset_block();
             data_size += blk_size;
@@ -3010,8 +3039,12 @@ class builder : public builder_fwd {
                 pos += len_len;
                 pos += data_len;
               } break;
+              case MST_DECV: {
+                data_len = 8;
+                pos += data_len;
+              } break;
               case MST_INT:
-              case MST_DECV ... MST_DEC9:
+              case MST_DEC0 ... MST_DEC9:
               case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
                 data_len = *data_pos & 0x07;
                 data_len += 2;
@@ -3020,7 +3053,7 @@ class builder : public builder_fwd {
                   uint64_t u64;
                   flavic48::simple_decode(data_pos, 1, &u64);
                   int64_t i64 = flavic48::cvt2_i64(u64);
-                  if (*data_pos == 0xF8 && data_pos[1] == 0) {
+                  if (*data_pos == 0xF8 && data_pos[1] == 1) {
                     data_len = 1;
                     if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
                       *num_data = 0;
@@ -3104,7 +3137,7 @@ class builder : public builder_fwd {
       }
       if (encoding_type == MSE_VINTGB) {
         size_t blk_size = fast_v.build_block();
-        if (blk_size > 2)
+        if (blk_size > (data_type == MST_DECV ? 3 : 2))
           prev_node.set_col_val(blk_size);
         data_size += blk_size;
       }
@@ -4399,8 +4432,8 @@ class builder : public builder_fwd {
             } else {
               if (*ptr == INT64_MIN) { // null
                 rec.push_back(0xF8);
-                rec.push_back(0);
-                value_len = 1;
+                rec.push_back(1);
+                value_len = 2;
               } else {
                 uint64_t u64;
                 if (type >= MST_DEC0 && type <= MST_DEC9) {
