@@ -234,6 +234,7 @@ class ptr_groups {
     byte_vec idx2_ptrs_map;
     int last_byte_bits;
     char enc_type;
+    char data_type;
     uint16_t pk_col_count;
     bool dessicate;
     uint8_t ptr_lkup_tbl_ptr_width;
@@ -516,10 +517,11 @@ class ptr_groups {
     }
     void build(uint32_t node_count, byte_ptr_vec& all_node_sets, get_info_fn get_info_func,
           uniq_info_vec& info_vec, bool is_tail, uint16_t _pk_col_count, bool dessicat,
-          char encoding_type = 'u', int col_trie_size = 0) {
+          char encoding_type = 'u', char _data_type = '*', int col_trie_size = 0) {
       pk_col_count = _pk_col_count;
       dessicate = dessicat;
       enc_type = encoding_type;
+      data_type = _data_type;
       if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && (freq_grp_vec.size() > 2 || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB)) {
         ptr_lkup_tbl_ptr_width = 4;
         if (!dessicate)
@@ -673,7 +675,7 @@ class ptr_groups {
         else
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
-}
+    }
     void build_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
           uniq_info_vec& info_vec, char encoding_type) {
       uint32_t node_id = 0;
@@ -697,7 +699,7 @@ class ptr_groups {
             std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_count4 << std::endl;
           // printf("nid: %u, bit count: %u\n", node_id, bit_count4);
           if (encoding_type == MSE_VINTGB && (bit_count4 == 0 || (pos4 > 0 && (bit_count4 - bit_counts[pos4 - 1] == 0))))
-            bit_count4 += 2;
+            bit_count4 += (data_type == MST_INT ? 2 : 3);
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
@@ -736,7 +738,7 @@ class ptr_groups {
       append_plt_count(bit_count);
       append_plt_count16(bit_counts, u16_arr_count, encoding_type);
     }
-    void write_ptrs_data(char data_type, uint8_t flags, bool is_tail, FILE *fp, byte_vec *out_vec) {
+    void write_ptrs_data(uint8_t flags, bool is_tail, FILE *fp, byte_vec *out_vec) {
       //size_t ftell_start = ftell(fp);
       output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
       output_byte(data_type, fp, out_vec);
@@ -1723,15 +1725,15 @@ class fast_vint {
     size_t build_block() {
       if (data_type == MST_DECV) {
         for (size_t i = 0; i < dbl_data.size(); i++) {
-          if (i == 37)
-            int hello = 1;
           uint64_t u64;
           double dbl = dbl_data[i];
           int64_t i64 = static_cast<int64_t>(dbl * flavic48::tens[dec_count]);
-          double dbl_back = static_cast<double>(i64);
-          dbl_back /= flavic48::tens[dec_count];
-          if (dbl != dbl_back)
-            dbl_exceptions[i] = 1;
+          if (dbl_exceptions[i] == 0) {
+            double dbl_back = static_cast<double>(i64);
+            dbl_back /= flavic48::tens[dec_count];
+            if (dbl != dbl_back)
+              dbl_exceptions[i] = 1;
+          }
           if (dbl_exceptions[i] == 0) {
             u64 = flavic48::cvt2_u64(i64);
             if (dbl == -0.0)
@@ -1750,7 +1752,7 @@ class fast_vint {
       }
       uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00);
       size_t last_size = block_data->size();
-      block_data->resize(block_data->size() + u64_data.size() * 9 + hdr_size);
+      block_data->resize(block_data->size() + u64_data.size() * 9 + hdr_size + 2);
       block_data->at(last_size + 0) = hdr_b1;
       block_data->at(last_size + 1) = count;
       if (hdr_size == 3)
@@ -3099,6 +3101,8 @@ class builder : public builder_fwd {
           } break;
           case MSE_VINTGB: {
             n.set_col_val(0);
+            if (node_id == 82862)
+              int hello = 1;
             fast_v.add(data_pos, data_len);
             if (max_len < data_len)
               max_len = data_len;
@@ -3150,7 +3154,7 @@ class builder : public builder_fwd {
           build_words(words_for_sort, word_ptrs, uniq_words_vec, uniq_words, max_word_count, total_word_entries, rpt_freq, max_rpt_count, new_vals);
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
-              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
+              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
         } break;
         case MSE_TRIE:
         case MSE_TRIE_2WAY: {
@@ -3158,12 +3162,12 @@ class builder : public builder_fwd {
           col_trie_size = build_col_trie(all_vals, revmap_vec, *new_vals, encoding_type);
           ptr_grps->set_max_len(col_trie->max_key_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
-              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, col_trie_size);
+              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type, col_trie_size);
         } break;
         case MSE_VINTGB:
         case MSE_STORE: {
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
-              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
+              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
         } break;
         default: {
           val_sort_callbacks val_sort_cb(memtrie.all_node_sets, *all_vals, uniq_vals);
@@ -3184,7 +3188,7 @@ class builder : public builder_fwd {
           
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
-              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type);
+              uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
         }
       }
 
@@ -3490,7 +3494,7 @@ class builder : public builder_fwd {
       }
       gen::gen_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
       tail_maps.get_grp_ptrs()->build(node_count, memtrie.all_node_sets, ptr_groups::get_tails_info_fn, 
-              uniq_tails_rev, true, pk_col_count, get_opts()->dessicate, tail_trie_size == 0 ? 'u' : MSE_TRIE, tail_trie_size);
+              uniq_tails_rev, true, pk_col_count, get_opts()->dessicate, tail_trie_size == 0 ? 'u' : MSE_TRIE, MST_BIN, tail_trie_size);
       end_loc = trie_data_ptr_size();
       gen::print_time_taken(t, "Time taken for build_trie(): ");
       return end_loc;
@@ -3501,7 +3505,7 @@ class builder : public builder_fwd {
       output_u32(tail_size, fp, out_vec);
       output_u32(trie_flags.size(), fp, out_vec);
       gen::gen_printf("Tail stats - ");
-      tail_maps.get_grp_ptrs()->write_ptrs_data(MST_BIN, 1, true, fp, out_vec);
+      tail_maps.get_grp_ptrs()->write_ptrs_data(1, true, fp, out_vec);
       if (get_opts()->inner_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->out_vec = out_vec;
@@ -3516,7 +3520,7 @@ class builder : public builder_fwd {
       uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
         gen::gen_printf("Stats - %c - ", encoding_type);
-        val_maps.get_grp_ptrs()->write_ptrs_data(data_type, flags, false, fp, out_vec);
+        val_maps.get_grp_ptrs()->write_ptrs_data(flags, false, fp, out_vec);
         val_fp_offset += val_maps.get_grp_ptrs()->get_total_size();
       }
       return val_fp_offset;
