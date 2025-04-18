@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <errno.h>
@@ -49,6 +50,38 @@ namespace madras_dv1 {
 #define TF_TERM 1
 #define TF_CHILD 2
 #define TF_LEAF 3
+
+class val_ctx {
+  private:
+    uint8_t *val = nullptr;
+    size_t val_len;
+    uint32_t node_id;
+    uint32_t ptr_bit_count;
+    uint64_t *u64_vals;
+    uint32_t *u32_vals;
+    uint8_t rpt_left;
+    uint8_t grp_no;
+    uint8_t is_init = 0;
+  public:
+    ~val_ctx() {
+      if (val != nullptr)
+        delete [] val;
+    }
+    void init(size_t max_len) {
+      is_init = 1;
+      val = new uint8_t[max_len];
+      val_len = 0;
+      grp_no = 0;
+      ptr_bit_count = UINT32_MAX;
+      node_id = 0;
+      rpt_left = 0;
+      u64_vals = nullptr;
+      u32_vals = nullptr;
+    }
+    bool is_initialized() {
+      return is_init == 1;
+    }
+};
 
 class iter_ctx {
   private:
@@ -1810,16 +1843,144 @@ class static_trie : public inner_trie {
 
 };
 
-class val_ptr_group_map : public ptr_group_map {
-  private:
-    // __fq1 __fq2 val_ptr_group_map(val_ptr_group_map const&);
-    // __fq1 __fq2 val_ptr_group_map& operator=(val_ptr_group_map const&);
+class value_retriever : public ptr_group_map {
+  protected:
     std::vector<uint8_t> prev_val;
     uint32_t node_count;
     uint32_t key_count;
-    gen::int_bv_reader int_ptr_bv;
-    inner_trie_fwd *col_trie;
+    gen::int_bv_reader *int_ptr_bv;
+    inner_trie_fwd *col_trie = nullptr;
   public:
+    __fq1 __fq2 uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
+      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
+      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
+      uint64_t bm_leaf = UINT64_MAX;
+      if (key_count > 0)
+        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      size_t to_skip = 0;
+      uint32_t last_pbc = ptr_bit_count;
+      while (node_id_from < node_id) {
+        if (bm_leaf & bm_mask) {
+          if (to_skip == 0) {
+            uint8_t code = ptr_reader.read8(ptr_bit_count);
+            uint8_t grp_no = code_lt_code_len[code] & 0x0F;
+            if (grp_no != rpt_grp_no && rpt_grp_no > 0)
+              last_pbc = ptr_bit_count;
+            uint8_t code_len = code_lt_code_len[code] >> 4;
+            uint8_t bit_len = code_lt_bit_len[code];
+            ptr_bit_count += code_len;
+            uint32_t count = ptr_reader.read(ptr_bit_count, bit_len - code_len);
+            if (rpt_grp_no > 0 && grp_no == rpt_grp_no) {
+              to_skip = count - 1; // todo: -1 not needed
+            }
+          } else
+            to_skip--;
+        }
+        node_id_from++;
+        bm_mask <<= 1;
+      }
+      uint8_t code = ptr_reader.read8(ptr_bit_count);
+      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
+      if (to_skip > 0 || (grp_no == rpt_grp_no && rpt_grp_no > 0))
+        ptr_bit_count = last_pbc;
+      return ptr_bit_count;
+    }
+    __fq1 __fq2 uint32_t get_ptr_bit_count_val(uint32_t node_id) {
+      uint32_t ptr_bit_count = ptr_reader.get_ptr_block_t(node_id);
+      return scan_ptr_bits_val(node_id, ptr_bit_count);
+    }
+
+    __fq1 __fq2 uint8_t *get_val_loc(uint32_t node_id, uint8_t *p_grp_no = nullptr) {
+      uint8_t grp_no = 0;
+      if (p_grp_no == nullptr)
+        p_grp_no = &grp_no;
+      uint32_t ptr_bit_count = UINT32_MAX;
+      if (group_count == 1) {
+        *p_grp_no = 0;
+        uint32_t ptr_pos = node_id;
+        if (key_count > 0)
+          ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
+        uint32_t ptr = (*int_ptr_bv)[ptr_pos];
+        if (*p_grp_no < grp_idx_limit)
+          ptr = read_ptr_from_idx(*p_grp_no, ptr);
+        return grp_data[0] + ptr;
+      }
+      ptr_bit_count = get_ptr_bit_count_val(node_id);
+      uint8_t code = ptr_reader.read8(ptr_bit_count);
+      uint8_t bit_len = code_lt_bit_len[code];
+      *p_grp_no = code_lt_code_len[code] & 0x0F;
+      uint8_t code_len = code_lt_code_len[code] >> 4;
+      ptr_bit_count += code_len;
+      uint32_t ptr = ptr_reader.read(ptr_bit_count, bit_len - code_len);
+      if (*p_grp_no < grp_idx_limit)
+        ptr = read_ptr_from_idx(*p_grp_no, ptr);
+      return grp_data[*p_grp_no] + ptr;
+    }
+
+    __fq1 __fq2 bool next_val(val_ctx& vctx) {
+      return false;
+    }
+
+    __fq1 __fq2 void init_val_ctx(uint32_t node_id, val_ctx& vctx) {
+      // MST_BIN, MST_TEXT, MST_INT, MST_DEC
+      // init ptr_bit_count and grp_no
+    }
+
+    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+                uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) {
+      key_count = _key_count;
+      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
+      uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 28);
+      uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 40);
+      if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
+        int_ptr_bv = new gen::int_bv_reader();
+        int_ptr_bv->init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
+      }
+      col_trie = nullptr;
+      if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
+        col_trie = _dict_obj->new_instance(data_loc);
+      }
+    }
+    __fq1 __fq2 static_trie *get_col_trie() {
+      return (static_trie *) col_trie;
+    }
+    __fq1 __fq2 virtual ~value_retriever() {
+      if (int_ptr_bv != nullptr)
+        delete int_ptr_bv;
+      if (col_trie != nullptr)
+        delete col_trie;
+    }
+    __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
+};
+
+class col_trie_retriever : public value_retriever {
+  public:
+    virtual ~col_trie_retriever() {}
+    __fq1 __fq2 void get_col_trie_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      uint32_t ptr_pos = node_id;
+      if (key_count > 0)
+        ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
+      uint32_t col_trie_node_id = (*int_ptr_bv)[ptr_pos];
+      // printf("Col trie node_id: %u\n", col_trie_node_id);
+      ((static_trie *) col_trie)->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, true);
+    }
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      get_col_trie_val(node_id, in_size_out_value_len, ret_val);
+      if (data_type != MST_TEXT && data_type != MST_BIN) {
+        size_t null_len;
+        uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
+        cmn::convert_back(data_type, (uint8_t *) ret_val, ret_val, *in_size_out_value_len, null_val, null_len);
+      }
+      return (const uint8_t *) ret_val;
+    }
+
+};
+
+class words_retriever : public value_retriever {
+  public:
+    virtual ~words_retriever() {}
     __fq1 __fq2 uint32_t scan_ptr_bits_words(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
@@ -1894,7 +2055,16 @@ class val_ptr_group_map : public ptr_group_map {
       // printf("pbc: %u\n", *p_ptr_bit_count);
       return  (uint8_t *) ret_val;
     }
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+        if (in_size_out_value_len == nullptr)
+          return nullptr;
+        return get_word_val(node_id, in_size_out_value_len, ret_val);
+    }
+};
 
+class fast_vint_retriever : public value_retriever {
+  public:
+    virtual ~fast_vint_retriever() {}
     __fq1 __fq2 uint8_t *get_fast_vint_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       uint32_t ptr_bit_count = UINT32_MAX;
       if (p_ptr_bit_count == nullptr)
@@ -1963,7 +2133,16 @@ class val_ptr_group_map : public ptr_group_map {
       }
       return (uint8_t *) ret_val;
     }
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      return get_fast_vint_val(node_id, in_size_out_value_len, ret_val);
+    }
+};
 
+class stored_val_retriever : public value_retriever {
+  public:
+    virtual ~stored_val_retriever() {}
     __fq1 __fq2 uint8_t *get_stored_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
       uint32_t ptr_bit_count = UINT32_MAX;
       if (p_ptr_bit_count == nullptr)
@@ -1992,209 +2171,36 @@ class val_ptr_group_map : public ptr_group_map {
       ret_val = (void *) (data + len_len);
       return (uint8_t *) ret_val;
     }
-
-    __fq1 __fq2 void get_col_trie_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
-      uint32_t ptr_pos = node_id;
-      if (key_count > 0)
-        ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
-      uint32_t col_trie_node_id = int_ptr_bv[ptr_pos];
-      // printf("Col trie node_id: %u\n", col_trie_node_id);
-      ((static_trie *) col_trie)->reverse_lookup_from_node_id(col_trie_node_id, in_size_out_value_len, (uint8_t *) ret_val, true);
-    }
-
-    __fq1 __fq2 uint32_t scan_ptr_bits_val(uint32_t node_id, uint32_t ptr_bit_count) {
-      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
-      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
-      uint64_t bm_leaf = UINT64_MAX;
-      if (key_count > 0)
-        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
-      size_t to_skip = 0;
-      uint32_t last_pbc = ptr_bit_count;
-      while (node_id_from < node_id) {
-        if (bm_leaf & bm_mask) {
-          if (to_skip == 0) {
-            uint8_t code = ptr_reader.read8(ptr_bit_count);
-            uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-            if (grp_no != rpt_grp_no && rpt_grp_no > 0)
-              last_pbc = ptr_bit_count;
-            uint8_t code_len = code_lt_code_len[code] >> 4;
-            uint8_t bit_len = code_lt_bit_len[code];
-            ptr_bit_count += code_len;
-            uint32_t count = ptr_reader.read(ptr_bit_count, bit_len - code_len);
-            if (rpt_grp_no > 0 && grp_no == rpt_grp_no) {
-              to_skip = count - 1; // todo: -1 not needed
-            }
-          } else
-            to_skip--;
-        }
-        node_id_from++;
-        bm_mask <<= 1;
-      }
-      uint8_t code = ptr_reader.read8(ptr_bit_count);
-      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-      if (to_skip > 0 || (grp_no == rpt_grp_no && rpt_grp_no > 0))
-        ptr_bit_count = last_pbc;
-      return ptr_bit_count;
-    }
-    __fq1 __fq2 uint32_t get_ptr_bit_count_val(uint32_t node_id) {
-      uint32_t ptr_bit_count = ptr_reader.get_ptr_block_t(node_id);
-      return scan_ptr_bits_val(node_id, ptr_bit_count);
-    }
-
-    __fq1 __fq2 bool next_val(uint32_t node_id, size_t *in_size_out_value_len, uint8_t *ret_val) {
-      if (node_id >= node_count)
-        return false;
-      uint32_t ptr_bit_count = UINT32_MAX;
-      if (key_count == 0) {
-        get_val(node_id, in_size_out_value_len, ret_val, &ptr_bit_count);
-        return true;
-      }
-      do {
-        // if ((*ptr_flags)[node_id]) { // TODO: Fix
-          get_val(node_id, in_size_out_value_len, ret_val, &ptr_bit_count);
-          return true;
-        // }
-        node_id++;
-      } while (node_id < node_count);
-      return false;
-    }
-
-    __fq1 __fq2 uint8_t *get_val_loc(uint32_t node_id, uint32_t *p_ptr_bit_count = nullptr, uint8_t *p_grp_no = nullptr) {
-      uint8_t grp_no = 0;
-      if (p_grp_no == nullptr)
-        p_grp_no = &grp_no;
-      uint32_t ptr_bit_count = UINT32_MAX;
-      if (p_ptr_bit_count == nullptr)
-        p_ptr_bit_count = &ptr_bit_count;
-      if (group_count == 1) {
-        *p_grp_no = 0;
-        uint32_t ptr_pos = node_id;
-        if (key_count > 0)
-          ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(node_id);
-        uint32_t ptr = int_ptr_bv[ptr_pos];
-        if (*p_grp_no < grp_idx_limit)
-          ptr = read_ptr_from_idx(*p_grp_no, ptr);
-        return grp_data[0] + ptr;
-      }
-      if (*p_ptr_bit_count == UINT32_MAX)
-        *p_ptr_bit_count = get_ptr_bit_count_val(node_id);
-      uint8_t code = ptr_reader.read8(*p_ptr_bit_count);
-      uint8_t bit_len = code_lt_bit_len[code];
-      *p_grp_no = code_lt_code_len[code] & 0x0F;
-      uint8_t code_len = code_lt_code_len[code] >> 4;
-      *p_ptr_bit_count += code_len;
-      uint32_t ptr = ptr_reader.read(*p_ptr_bit_count, bit_len - code_len);
-      if (*p_grp_no < grp_idx_limit)
-        ptr = read_ptr_from_idx(*p_grp_no, ptr);
-      return grp_data[*p_grp_no] + ptr;
-    }
-
-    __fq1 __fq2 void get_delta_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
-      uint8_t *val_loc;
-      uint32_t ptr_bit_count = UINT32_MAX;
-      uint32_t delta_node_id = node_id / nodes_per_bv_block_n;
-      delta_node_id *= nodes_per_bv_block_n;
-      uint64_t bm_mask = bm_init_mask;
-      uint64_t bm_leaf = UINT64_MAX;
-      if (key_count > 0)
-        bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
-      int64_t col_val = 0;
-      do {
-        // printf("Delta Node-id: %u\n", delta_node_id);
-        if (bm_mask & bm_leaf) {
-          val_loc = get_val_loc(delta_node_id); // todo: pass ptr_bit_count?
-          if (val_loc != nullptr) {
-            int64_t delta_val = gen::read_svint60(val_loc);
-            // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
-            col_val += delta_val;
-          }
-        }
-        bm_mask <<= 1;
-      } while (delta_node_id++ < node_id);
-      *in_size_out_value_len = 8;
-      if (data_type == MST_INT) {
-        *((int64_t *) ret_val) = col_val;
-        return;
-      }
-      double dbl = static_cast<double>(col_val);
-      dbl /= gen::pow10(data_type - MST_DEC0);
-      *((double *)ret_val) = dbl;
-    }
-
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val, uint32_t *p_ptr_bit_count = nullptr) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       if (in_size_out_value_len == nullptr)
         return nullptr;
-      uint8_t *val_loc;
-      uint8_t grp_no = 0;
-      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-        get_col_trie_val(node_id, in_size_out_value_len, ret_val);
-        if (data_type != MST_TEXT && data_type != MST_BIN) {
-          size_t null_len;
-          uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
-          cmn::convert_back(data_type, (uint8_t *) ret_val, ret_val, *in_size_out_value_len, null_val, null_len);
-        }
-        return (const uint8_t *) ret_val;
-      } else if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY) {
-        return get_word_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
-      } else if (encoding_type == MSE_VINTGB) {
-        return get_fast_vint_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
-      } else if (encoding_type == MSE_STORE) {
-        return get_stored_val(node_id, in_size_out_value_len, ret_val, p_ptr_bit_count);
-      } else {
-        switch (data_type) {
-          case MST_BIN: {
-            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-            uint32_t bin_len;
-            const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
-            *in_size_out_value_len = bin_len;
-            return bin_str;
-          } break;
-          case MST_TEXT: {
-            val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-            *in_size_out_value_len = 8;
-            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-            uint8_t *val_str_buf = new uint8_t[max_len];
-            #else
-            uint8_t val_str_buf[max_len];
-            #endif
-            gen::byte_str val_str(val_str_buf, max_len);
-            uint8_t *val_start = grp_data[grp_no];
-            if (*val_start != 0)
-              inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
-            else
-              get_val_str(val_str, val_loc - val_start, grp_no, max_len);
-            size_t val_len = val_str.length();
-            *in_size_out_value_len = val_len;
-            memcpy(ret_val, val_str.data(), val_len);
-            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-            delete [] val_str_buf;
-            #endif
-            return (uint8_t *) ret_val;
-          } break;
-          case MST_INT:
-          case MST_DECV ... MST_DEC9:
-          case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-            if (encoding_type == MSE_DICT_DELTA) {
-              get_delta_val(node_id, in_size_out_value_len, ret_val);
-            } else {
-              val_loc = get_val_loc(node_id, p_ptr_bit_count, &grp_no);
-              // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
-              *in_size_out_value_len = 8;
-              size_t null_len;
-              uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
-              cmn::convert_back(data_type, val_loc, ret_val, *in_size_out_value_len, null_val, null_len);
-            }
-            return (uint8_t *) ret_val;
-          } break;
-        }
-      }
-      return nullptr;
+      return get_stored_val(node_id, in_size_out_value_len, ret_val);
     }
+};
+
+class uniq_bin_val_retriever : public value_retriever {
+  public:
+    virtual ~uniq_bin_val_retriever() {}
     __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint32_t& bin_len) {
       tail_ptr_flat_map::read_len_bw(val_loc, bin_len);
       return val_loc + 1;
     }
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      uint8_t *val_loc;
+      uint8_t grp_no = 0;
+      val_loc = get_val_loc(node_id, &grp_no);
+      uint32_t bin_len;
+      const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
+      *in_size_out_value_len = bin_len;
+      return bin_str;
+    }
+};
 
+class uniq_text_retriever : public value_retriever {
+  public:
+    virtual ~uniq_text_retriever() {}
     __fq1 __fq2 void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, size_t max_valset_len) {
       uint8_t *val = grp_data[grp_no];
       ret.clear();
@@ -2240,29 +2246,94 @@ class val_ptr_group_map : public ptr_group_map {
       while (pfx_len-- > 0)
         *out_str-- = *(t + pfx_len);
     }
-    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
-                uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) {
-      key_count = _key_count;
-      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
-      uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 28);
-      uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 40);
-      if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY)
-        int_ptr_bv.init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
-      col_trie = nullptr;
-      if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
-        col_trie = _dict_obj->new_instance(data_loc);
-      }
-    }
-    __fq1 __fq2 static_trie *get_col_trie() {
-      return (static_trie *) col_trie;
-    }
+    __fq1 __fq2 const uint8_t *get_text_val(uint8_t *val_loc, uint8_t grp_no, uint8_t *ret_val, size_t& val_len) {
 
-    __fq1 __fq2 val_ptr_group_map() {
-      col_trie = nullptr;
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+      uint8_t *val_str_buf = new uint8_t[max_len];
+      #else
+      uint8_t val_str_buf[max_len];
+      #endif
+      gen::byte_str val_str(val_str_buf, max_len);
+      uint8_t *val_start = grp_data[grp_no];
+      if (*val_start != 0)
+        inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
+      else
+        get_val_str(val_str, val_loc - val_start, grp_no, max_len);
+      val_len = val_str.length();
+      memcpy(ret_val, val_str.data(), val_len);
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+      delete [] val_str_buf;
+      #endif
+      return ret_val;
     }
-    __fq1 __fq2 virtual ~val_ptr_group_map() {
-      if (col_trie != nullptr)
-        delete col_trie;
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      uint8_t *val_loc;
+      uint8_t grp_no = 0;
+      val_loc = get_val_loc(node_id, &grp_no);
+      get_text_val(val_loc, grp_no, (uint8_t *) ret_val, *in_size_out_value_len);
+      return (uint8_t *) ret_val;
+    }
+};
+
+class delta_val_retriever : public value_retriever {
+  public:
+    virtual ~delta_val_retriever() {}
+    __fq1 __fq2 void get_delta_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      uint8_t *val_loc;
+      uint32_t ptr_bit_count = UINT32_MAX;
+      uint32_t delta_node_id = node_id / nodes_per_bv_block_n;
+      delta_node_id *= nodes_per_bv_block_n;
+      uint64_t bm_mask = bm_init_mask;
+      uint64_t bm_leaf = UINT64_MAX;
+      if (key_count > 0)
+        bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
+      int64_t col_val = 0;
+      do {
+        // printf("Delta Node-id: %u\n", delta_node_id);
+        if (bm_mask & bm_leaf) {
+          val_loc = get_val_loc(delta_node_id); // todo: pass ptr_bit_count?
+          if (val_loc != nullptr) {
+            int64_t delta_val = gen::read_svint60(val_loc);
+            // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
+            col_val += delta_val;
+          }
+        }
+        bm_mask <<= 1;
+      } while (delta_node_id++ < node_id);
+      *in_size_out_value_len = 8;
+      if (data_type == MST_INT) {
+        *((int64_t *) ret_val) = col_val;
+        return;
+      }
+      double dbl = static_cast<double>(col_val);
+      dbl /= gen::pow10(data_type - MST_DEC0);
+      *((double *)ret_val) = dbl;
+    }
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      get_delta_val(node_id, in_size_out_value_len, ret_val);
+      return (uint8_t *) ret_val;
+    }
+};
+
+class uniq_ifp_retriever : public value_retriever {
+  public:
+    virtual ~uniq_ifp_retriever() {}
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+      if (in_size_out_value_len == nullptr)
+        return nullptr;
+      uint8_t *val_loc;
+      uint8_t grp_no = 0;
+      val_loc = get_val_loc(node_id, &grp_no);
+      // printf("%d, %lu, %lu\n", grp_no, p_ptr_bit_count, val_loc-grp_data[grp_no]);
+      *in_size_out_value_len = 8;
+      size_t null_len;
+      uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
+      cmn::convert_back(data_type, val_loc, ret_val, *in_size_out_value_len, null_val, null_len);
+      return (uint8_t *) ret_val;
     }
 };
 
@@ -2325,7 +2396,7 @@ class static_trie_map : public static_trie {
   private:
     // __fq1 __fq2 static_trie_map(static_trie_map const&); // todo: restore? can't return because of this
     // __fq1 __fq2 static_trie_map& operator=(static_trie_map const&);
-    val_ptr_group_map *val_map;
+    value_retriever **val_map;
     uint16_t val_count;
     uint16_t pk_col_count;
     size_t max_val_len;
@@ -2352,6 +2423,9 @@ class static_trie_map : public static_trie {
         }
       }
       if (val_map != nullptr) {
+        for (size_t i = 0; i < val_count; i++) {
+          delete val_map[i];
+        }
         delete [] val_map;
       }
     }
@@ -2372,14 +2446,18 @@ class static_trie_map : public static_trie {
       bool is_found = lookup(in_ctx);
       if (is_found) {
         if (val_count > 1)
-          val_map[1].get_val(in_ctx.node_id, in_size_out_value_len, val);
+          val_map[1]->get_val(in_ctx.node_id, in_size_out_value_len, val);
         return true;
       }
       return false;
     }
 
+    __fq1 __fq2 const bool next_col_val(int col_val_idx, val_ctx& vctx) {
+      return val_map[col_val_idx]->next_val(vctx);
+    }
+
     __fq1 __fq2 const uint8_t *get_col_val(uint32_t node_id, int col_val_idx,
-          size_t *in_size_out_value_len, void *val = nullptr, uint32_t *p_ptr_bit_count = nullptr) {
+          size_t *in_size_out_value_len, void *val = nullptr) {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
         if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val))
           return nullptr;
@@ -2388,7 +2466,7 @@ class static_trie_map : public static_trie {
         cmn::convert_back(get_column_type(col_val_idx), (uint8_t *) val, val, *in_size_out_value_len, null_val, null_len);
         return (const uint8_t *) val;
       }
-      return val_map[col_val_idx].get_val(node_id, in_size_out_value_len, val, p_ptr_bit_count);
+      return val_map[col_val_idx]->get_val(node_id, in_size_out_value_len, val);
     }
 
     __fq1 __fq2 const char *get_table_name() {
@@ -2420,28 +2498,28 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 uint32_t get_max_val_len(int col_val_idx) {
-      return val_map[col_val_idx].max_len;
+      return val_map[col_val_idx]->max_len;
     }
 
     __fq1 __fq2 static_trie *get_col_trie(int col_val_idx) {
-      return val_map[col_val_idx].get_col_trie();
+      return val_map[col_val_idx]->get_col_trie();
     }
 
     __fq1 __fq2 static_trie_map *get_col_trie_map(int col_val_idx) {
-      return (static_trie_map *) val_map[col_val_idx].get_col_trie();
+      return (static_trie_map *) val_map[col_val_idx]->get_col_trie();
     }
 
     __fq1 __fq2 static_trie_map **get_trie_groups(int col_val_idx) {
-      inner_trie_fwd **inner_tries = val_map[col_val_idx].inner_tries;
+      inner_trie_fwd **inner_tries = val_map[col_val_idx]->inner_tries;
       return (static_trie_map **) inner_tries;
     }
 
     __fq1 __fq2 size_t get_trie_start_group(int col_val_idx) {
-      return val_map[col_val_idx].inner_trie_start_grp;
+      return val_map[col_val_idx]->inner_trie_start_grp;
     }
 
     __fq1 __fq2 size_t get_group_count(int col_val_idx) {
-      return val_map[col_val_idx].group_count;
+      return val_map[col_val_idx]->group_count;
     }
 
     __fq1 __fq2 uint16_t get_column_count() {
@@ -2669,6 +2747,43 @@ class static_trie_map : public static_trie {
 
     }
 
+    value_retriever *new_value_retriever(char data_type, char encoding_type) {
+      value_retriever *val_retriever = nullptr;
+      switch (encoding_type) {
+        case MSE_TRIE: case MSE_TRIE_2WAY:
+          val_retriever = new col_trie_retriever();
+          break;
+        case MSE_WORDS: case MSE_WORDS_2WAY:
+          val_retriever = new words_retriever();
+          break;
+        case MSE_VINTGB:
+          val_retriever = new fast_vint_retriever();
+          break;
+        case MSE_STORE:
+          val_retriever = new stored_val_retriever();
+          break;
+        default:
+          switch (data_type) {
+            case MST_BIN:
+              val_retriever = new uniq_bin_val_retriever();
+              break;
+            case MST_TEXT:
+              val_retriever = new uniq_text_retriever();
+              break;
+            case MST_INT:
+            case MST_DECV ... MST_DEC9:
+            case MST_DATE_US ... MST_DATETIME_ISOT_MS:
+              if (encoding_type == MSE_DICT_DELTA)
+                val_retriever = new delta_val_retriever();
+              else
+                val_retriever = new uniq_ifp_retriever();
+              break;
+        }
+      }
+      if (val_retriever == nullptr)
+        val_retriever = new uniq_text_retriever(); // does not matter which
+      return val_retriever;
+    }
     __fq1 __fq2 void load_into_vars() {
       load_static_trie();
       pk_col_count = trie_bytes[2];
@@ -2683,17 +2798,15 @@ class static_trie_map : public static_trie {
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
-      val_map = nullptr;
-      if (val_count > 0) {
-        val_map = new val_ptr_group_map[val_count]();
-        for (size_t i = pk_col_count; i < val_count; i++) {
-          uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
-          // printf("Val idx: %lu, %llu\n", i, vl64);
-          uint8_t *val_loc = trie_bytes + vl64;
-          if (val_loc == trie_bytes)
-            continue;
-          val_map[i].init(this, trie_loc, tf_leaf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, val_loc, key_count, node_count);
-        }
+      val_map = new value_retriever*[val_count]();
+      for (size_t i = 0; i < val_count; i++) {
+        val_map[i] = new_value_retriever(get_column_type(i), get_column_encoding(i));
+        uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
+        // printf("Val idx: %lu, %llu\n", i, vl64);
+        uint8_t *val_loc = trie_bytes + vl64;
+        if (val_loc == trie_bytes)
+          continue;
+        val_map[i]->init(this, trie_loc, tf_leaf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, val_loc, key_count, node_count);
       }
     }
 };
