@@ -3101,8 +3101,6 @@ class builder : public builder_fwd {
           } break;
           case MSE_VINTGB: {
             n.set_col_val(0);
-            if (node_id == 82862)
-              int hello = 1;
             fast_v.add(data_pos, data_len);
             if (max_len < data_len)
               max_len = data_len;
