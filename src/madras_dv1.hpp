@@ -2133,11 +2133,16 @@ class fast_vint_retriever : public value_retriever {
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
-      if (vctx.bm_mask == 0 || to_skip >= vctx.count) {
-        uint32_t node_id = vctx.node_id;
+      uint32_t node_id = vctx.node_id;
+      while (vctx.bm_mask == 0 || to_skip >= vctx.count) {
         vctx.node_id = UINT32_MAX;
         retrieve_block(node_id, vctx);
         to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
+        node_id = (node_id + nodes_per_bv_block_n) / nodes_per_bv_block_n * nodes_per_bv_block_n;
+      }
+      while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
+        vctx.node_id++;
+        vctx.bm_mask <<= 1;
       }
       uint64_t u64;
       if (vctx.is64)

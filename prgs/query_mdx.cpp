@@ -41,10 +41,10 @@ int main(int argc, char *argv[]) {
   int row_count = dict_reader.get_key_count();
   if (row_count == 0)
     row_count = dict_reader.get_node_count() - 1;
-  else {
-    printf("This utility only for mdx with no primary trie\n");
-    return 1;
-  }
+  // else {
+  //   printf("This utility only for mdx with no primary trie\n");
+  //   return 1;
+  // }
   char data_type = dict_reader.get_column_type(column_idx);
   printf("Row count: %d, Col type: %c, name: %s\n", row_count,
     dict_reader.get_column_type(column_idx), dict_reader.get_column_name(column_idx));
@@ -85,6 +85,7 @@ int main(int argc, char *argv[]) {
     }
     printf("Sum: %lf\n", sum);
   }
+  printf("eps: %lf, ", row_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for sum: ");
 
   return 1;
