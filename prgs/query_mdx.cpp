@@ -54,27 +54,34 @@ int main(int argc, char *argv[]) {
     size_t val_len;
     int64_t sum = 0;
     for (size_t i = 0; i < row_count; i++) {
-      bool is_success = dict_reader.get_col_val(i, column_idx, &val_len, val, &ptr_bit_count);
+      bool is_success = dict_reader.get_col_val(i, column_idx, &val_len, val);
       if (is_success && val_len != -1)
         sum += val_len;
     }
     printf("Sum: %lld\n", sum);
   } else
   if (data_type == 'i') {
+    madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
+    madras_dv1::val_ctx vctx;
+    vctx.init(8, true, true);
+    val_retriever->init_val_ctx(0, vctx);
     int64_t sum = 0;
     for (int i = 0; i < row_count; i++) {
-      bool is_success = dict_reader.get_col_val(i, column_idx, &col_len, col_val, &ptr_bit_count);
-      if (is_success && col_len != -1)
-        sum += *((int64_t *) col_val);
+      bool is_success = val_retriever->next_val(vctx);
+      if (is_success && *vctx.val_len != -1)
+        sum += *((int64_t *) vctx.val);
     }
     printf("Sum: %lld\n", sum);
   } else {
+    madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
+    madras_dv1::val_ctx vctx;
+    vctx.init(8, true, true);
+    val_retriever->init_val_ctx(0, vctx);
     double sum = 0;
     for (int i = 0; i < row_count; i++) {
-      *((double *) col_val) = 0;
-      bool is_success = dict_reader.get_col_val(i, column_idx, &col_len, col_val, &ptr_bit_count);
-      if (is_success && col_len != -1)
-        sum += *((double *) col_val);
+      bool is_success = val_retriever->next_val(vctx);
+      if (is_success && *vctx.val_len != -1)
+        sum += *((double *) vctx.val);
     }
     printf("Sum: %lf\n", sum);
   }
