@@ -402,9 +402,9 @@ int main(int argc, char* argv[]) {
         if (sql_val == nullptr) {
           size_t empty_value_len;
           uint8_t *empty_value = stm.get_empty_value(empty_value_len);
-          if (val_len != empty_value_len || memcmp(val_buf, empty_value, empty_value_len) != 0) {
-            printf("Val not empty: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, empty_value_len);
-            printf("%d, %d\n", val_buf[0], val_buf[1]);
+          if (val_len != empty_value_len || memcmp(ret_buf, empty_value, empty_value_len) != 0) {
+            printf("Val not empty: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, ret_buf, empty_value_len);
+            printf("%d, %d\n", ret_buf[0], ret_buf[1]);
           }
         } else if (val_len != sql_val_len) {
           printf("Val len mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
@@ -456,7 +456,7 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[16];
         size_t val_len = 8;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        int64_t i64 = *((int64_t *) val_buf);
+        int64_t i64 = *((int64_t *) ret_buf);
         if (i64 != sql_val)
           std::cerr << "Int not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << i64 << std::endl;
         int_sums[col_val_idx] += i64;
@@ -465,7 +465,7 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[16];
         size_t val_len;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        double dbl_val = *((double *) val_buf);
+        double dbl_val = *((double *) ret_buf);
         if (dbl_val != sql_val)
           std::cerr << "Dbl not matching: nid:" << node_id << ", seq:" << ins_seq_id << ", col:" << col_val_idx << " - e" << sql_val << ":a" << dbl_val << std::endl;
         dbl_sums[col_val_idx] += dbl_val;

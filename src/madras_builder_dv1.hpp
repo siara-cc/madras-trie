@@ -2752,7 +2752,7 @@ class builder : public builder_fwd {
                 flavic48::simple_decode(data_pos, 1, &u64);
                 int64_t i64 = flavic48::cvt2_i64(u64);
                 // printf("%lld\n", i64);
-                if (*data_pos == 0xF8 && data_pos[1] == 0) {
+                if (*data_pos == 0xF8 && data_pos[1] == 1) {
                   data_len = 1;
                   data_pos = num_data;
                   *num_data = 0;
@@ -3164,6 +3164,7 @@ class builder : public builder_fwd {
         } break;
         case MSE_VINTGB:
         case MSE_STORE: {
+          ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
         } break;
@@ -3797,6 +3798,9 @@ class builder : public builder_fwd {
       tp = {};
       tp.opts_loc = MDX_HEADER_SIZE; // 136
       tp.opts_size = sizeof(bldr_options) * opts->opts_count;
+
+      if (pk_col_count == 0)
+        memtrie.node_count--;
 
       if (pk_col_count > 0) {
         if (get_opts()->split_tails_method > 0)

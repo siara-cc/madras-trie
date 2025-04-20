@@ -40,51 +40,55 @@ int main(int argc, char *argv[]) {
 
   int row_count = dict_reader.get_key_count();
   if (row_count == 0)
-    row_count = dict_reader.get_node_count() - 1;
+    row_count = dict_reader.get_node_count();
   // else {
   //   printf("This utility only for mdx with no primary trie\n");
   //   return 1;
   // }
   char data_type = dict_reader.get_column_type(column_idx);
-  printf("Row count: %d, Col type: %c, name: %s\n", row_count,
-    dict_reader.get_column_type(column_idx), dict_reader.get_column_name(column_idx));
-  if (data_type == 't' || data_type == '*') {
-    uint8_t val[dict_reader.get_max_val_len(column_idx)];
-    //uint8_t val[1000]; // get_max_val_len not working for trie columns
-    size_t val_len;
+  printf("Row count: %d, Node count: %u, Col type: %c, name: %s\n", row_count, dict_reader.get_node_count(),
+    data_type, dict_reader.get_column_name(column_idx));
+  size_t val_len;
+  madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
+  madras_dv1::val_ctx vctx;
+  if (data_type == MST_TEXT || data_type == MST_BIN) {
+    vctx.init(dict_reader.get_max_val_len(column_idx) + 1, true, false);
     int64_t sum = 0;
-    for (size_t i = 0; i < row_count; i++) {
-      bool is_success = dict_reader.get_col_val(i, column_idx, &val_len, val);
-      if (is_success && val_len != -1)
-        sum += val_len;
-    }
+    bool has_next = true;
+    val_retriever->fill_val_ctx(0, vctx);
+    do {
+      has_next = val_retriever->next_val(vctx);
+      if (*vctx.val_len != -1)
+        sum += *vctx.val_len;
+    } while (has_next);
     printf("Sum: %lld\n", sum);
   } else
-  if (data_type == 'i') {
-    madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
-    madras_dv1::val_ctx vctx;
-    vctx.init(8, true, true);
-    val_retriever->init_val_ctx(0, vctx);
+  if (data_type == MST_INT) {
+    vctx.init(32, true, true);
     int64_t sum = 0;
-    for (int i = 0; i < row_count; i++) {
-      bool is_success = val_retriever->next_val(vctx);
-      if (is_success && *vctx.val_len != -1)
+    bool has_next = true;
+    val_retriever->fill_val_ctx(0, vctx);
+    do {
+      has_next = val_retriever->next_val(vctx);
+      if (*vctx.val_len != -1)
         sum += *((int64_t *) vctx.val);
-    }
+    } while (has_next);
     printf("Sum: %lld\n", sum);
   } else {
-    madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
-    madras_dv1::val_ctx vctx;
-    vctx.init(8, true, true);
-    val_retriever->init_val_ctx(0, vctx);
+    vctx.init(32, true, true);
     double sum = 0;
-    for (int i = 0; i < row_count; i++) {
-      bool is_success = val_retriever->next_val(vctx);
-      if (is_success && *vctx.val_len != -1)
+    bool has_next = true;
+    val_retriever->fill_val_ctx(0, vctx);
+    size_t count = 0;
+    do {
+      count++;
+      has_next = val_retriever->next_val(vctx);
+      if (*vctx.val_len != -1)
         sum += *((double *) vctx.val);
-    }
-    printf("Sum: %lf\n", sum);
+    } while (has_next);
+    printf("Sum: %lf, count: %lu\n", sum, count);
   }
+  printf("vctx.node_id: %u\n", vctx.node_id);
   printf("eps: %lf, ", row_count / time_taken_in_secs(t) / 1000);
   t = print_time_taken(t, "Time taken for sum: ");
 
