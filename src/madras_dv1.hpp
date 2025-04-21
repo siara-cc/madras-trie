@@ -1958,14 +1958,11 @@ class value_retriever : public ptr_group_map {
       if (key_count > 0)
         vctx.bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
     }
-    __fq1 __fq2 void skip_to_next_leaf_(val_ctx& vctx) {
+    __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
         vctx.node_id++;
         vctx.bm_mask <<= 1;
       }
-    }
-    __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
-      skip_to_next_leaf_(vctx);
       if (vctx.node_id >= node_count)
         return false;
       if (vctx.bm_mask != 0)
@@ -2146,14 +2143,17 @@ class words_retriever : public value_retriever {
         *vctx.val_len += word_len;
       }
       vctx.node_id++;
-      return vctx.node_id < node_count;
+      vctx.bm_mask <<= 1;
+      return skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
-      uint32_t pbc = ptr_reader.get_ptr_block3(node_id);
-      vctx.ptr_bit_count = scan_ptr_bits_words(node_id, pbc);
+      load_bm(node_id, vctx);
+      skip_to_next_leaf(vctx);
+      uint32_t pbc = ptr_reader.get_ptr_block3(vctx.node_id);
+      vctx.ptr_bit_count = scan_ptr_bits_words(vctx.node_id, pbc);
     }
-    __fq1 __fq2 uint8_t *get_word_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
       vctx.init(0, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
@@ -2162,21 +2162,18 @@ class words_retriever : public value_retriever {
       // printf("pbc: %u\n", *p_ptr_bit_count);
       return  (uint8_t *) ret_val;
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
-      return get_word_val(node_id, in_size_out_value_len, ret_val);
-    }
 };
 
 class fast_vint_retriever : public value_retriever {
   public:
     virtual ~fast_vint_retriever() {}
     __fq1 __fq2 void retrieve_block(uint32_t node_id, val_ctx& vctx) {
-      if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
-        return;
-      if (vctx.node_id != UINT32_MAX)
-        return;
-      vctx.node_id = node_id;
       load_bm(node_id, vctx);
+      // if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
+      //   return;
+      // if (vctx.node_id != UINT32_MAX)
+      //   return;
+      vctx.node_id = node_id;
       vctx.ptr_bit_count = ptr_reader.get_ptr_block3(node_id);
       uint8_t *data = grp_data[0] + vctx.ptr_bit_count + 2;
       vctx.count = data[1];
@@ -2195,20 +2192,21 @@ class fast_vint_retriever : public value_retriever {
         memset(vctx.byts, '\0', vctx.count); // not setting lens, just 0s
       }
     }
-    __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
-      uint32_t node_id = vctx.node_id;
-      while (vctx.bm_mask == 0 || to_skip >= vctx.count) {
-        vctx.node_id = UINT32_MAX;
-        retrieve_block(node_id, vctx);
-        to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
-        node_id = (node_id + nodes_per_bv_block_n) / nodes_per_bv_block_n * nodes_per_bv_block_n;
-      }
+    __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
         vctx.node_id++;
         vctx.bm_mask <<= 1;
       }
+      if (vctx.node_id >= node_count)
+        return false;
+      if (vctx.bm_mask != 0)
+        return true;
+      retrieve_block(vctx.node_id, vctx);
+      return skip_to_next_leaf(vctx);
+    }
+    __fq1 __fq2 bool next_val(val_ctx& vctx) {
       uint64_t u64;
+      int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
       if (vctx.is64)
         u64 = *(vctx.u64_vals + to_skip);
       else
@@ -2246,21 +2244,13 @@ class fast_vint_retriever : public value_retriever {
           // printf("%.2lf\n", *((double *) vctx.val));
         } break;
       }
-      do {
-        vctx.node_id++;
-        vctx.bm_mask <<= 1;
-      } while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0);
-      return true;
+      vctx.node_id++;
+      vctx.bm_mask <<= 1;
+      return skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
-      do {
-        retrieve_block(node_id, vctx);
-        vctx.node_id = node_id;
-        while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
-          vctx.node_id++;
-          vctx.bm_mask <<= 1;
-        }
-      } while (vctx.count == 0); // && vctx.node_id < node_count);
+      retrieve_block(node_id, vctx);
+      skip_to_next_leaf(vctx);
       *vctx.val_len = 8;
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
