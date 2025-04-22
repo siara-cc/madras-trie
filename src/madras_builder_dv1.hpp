@@ -1834,7 +1834,7 @@ class builder : public builder_fwd {
     bool is_ns_sorted;
     bool is_processing_cols;
     std::vector<uint32_t> rec_pos_vec;
-    int max_val_len;
+    size_t max_val_len;
     uint32_t max_level;
     uint32_t column_count;
     char *names;
@@ -1903,7 +1903,7 @@ class builder : public builder_fwd {
       r_cache_freq = nullptr;
       max_level = 0;
       cur_col_idx = 0;
-      max_val_len = 0;
+      max_val_len = 8;
       rec_pos_vec.push_back(0);
       all_vals = new gen::byte_blocks();
       all_vals->push_back("\0", 2);
@@ -3191,9 +3191,6 @@ class builder : public builder_fwd {
         }
       }
 
-      if (max_val_len < max_len)
-        max_val_len = max_len;
-
       uint32_t val_size = ptr_grps->get_total_size();
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         val_size += col_trie_builder->build_kv(false);
@@ -4466,6 +4463,8 @@ class builder : public builder_fwd {
           }
         } break;
       }
+      if (max_val_len < value_len)
+        max_val_len = value_len;
       return value_len;
     }
 

@@ -126,8 +126,9 @@ int main(int argc, char* argv[]) {
   }
 
   const char *print_each_mismatch = std::getenv("MDX_PRINT_MISMATCH");
+  printf("pem: [%s]\n", print_each_mismatch);
   bool to_print_mismatch = false;
-  if (print_each_mismatch != nullptr && strcmp(print_each_mismatch, "yes"))
+  if (print_each_mismatch != nullptr && strcmp(print_each_mismatch, "yes") == 0)
     to_print_mismatch = true;
   struct timespec t;
   clock_gettime(CLOCK_REALTIME, &t);
@@ -347,7 +348,6 @@ int main(int argc, char* argv[]) {
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
   size_t errors[column_count];
-  uint8_t key_val[stm.get_max_key_len() + 1];
   memset(ptr_count, '\xFF', sizeof(uint32_t) * column_count);
   memset(int_sums, '\0', sizeof(int64_t) * column_count);
   memset(dbl_sums, '\0', sizeof(double) * column_count);
@@ -506,6 +506,8 @@ int main(int argc, char* argv[]) {
       }
       col_val_idx++;
     }
+    if (errors[0] > 0)
+      printf("errors > 0: %lu\n", ins_seq_id);
     ins_seq_id++;
   }
   printf("Totals:");

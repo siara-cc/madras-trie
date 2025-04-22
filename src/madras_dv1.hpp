@@ -2394,7 +2394,7 @@ class delta_val_retriever : public value_retriever {
         bm_mask <<= 1;
       } while (delta_node_id++ < node_id);
       *in_size_out_value_len = 8;
-      if (data_type == MST_INT) {
+      if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
         *((int64_t *) ret_val) = col_val;
         return;
       }

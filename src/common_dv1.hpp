@@ -104,6 +104,8 @@ const static size_t EMPTY_VALUE_LEN = 1;
 #define MSE_DICT_DELTA 'd'
 #define MSE_VINTGB 'v'
 #define MSE_STORE 's'
+// MSE_STORE is used internally for storing reverse indices
+// and not available for user (yet)
 
 // int / float format
 // b1 - header
