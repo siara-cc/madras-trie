@@ -126,7 +126,6 @@ int main(int argc, char* argv[]) {
   }
 
   const char *print_each_mismatch = std::getenv("MDX_PRINT_MISMATCH");
-  printf("pem: [%s]\n", print_each_mismatch);
   bool to_print_mismatch = false;
   if (print_each_mismatch != nullptr && strcmp(print_each_mismatch, "yes") == 0)
     to_print_mismatch = true;

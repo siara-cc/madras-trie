@@ -34,10 +34,6 @@ int main(int argc, char *argv[]) {
 
   int column_idx = atoi(argv[2]);
 
-  uint8_t col_val[20];
-  size_t col_len = 0;
-  uint32_t ptr_bit_count = UINT32_MAX;
-
   int row_count = dict_reader.get_key_count();
   if (row_count == 0)
     row_count = dict_reader.get_node_count();
@@ -46,8 +42,12 @@ int main(int argc, char *argv[]) {
   //   return 1;
   // }
   char data_type = dict_reader.get_column_type(column_idx);
-  printf("Row count: %d, Node count: %u, Col type: %c, name: %s\n", row_count, dict_reader.get_node_count(),
-    data_type, dict_reader.get_column_name(column_idx));
+  char enc_type = dict_reader.get_column_encoding(column_idx);
+  const char *col_name = dict_reader.get_column_name(column_idx);
+  uint32_t node_count = dict_reader.get_node_count();
+  size_t col_size = dict_reader.get_column_size(column_idx);
+  printf("Row count: %d, Node count: %u, Col size: %lu\n", row_count, node_count, col_size);
+  printf("Data type: %c, Enc_type: %c, Name: %s\n", data_type, enc_type, col_name);
   size_t val_len;
   madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
   madras_dv1::val_ctx vctx;
