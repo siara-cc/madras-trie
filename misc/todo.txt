@@ -69,12 +69,12 @@ x 6 byte cache struct
 + is reverse cache effective?
 + rank/select is slow?
 
-- improve dart
-- next cascading greedy cuckoo
-- ptr bit count in fwd cache
-- differentiating using term flag, leaf flag for ptr reduction?
-- improve leapfrog using SIMD (not working for freq sorted)
-- option to disable idx map
+^ improve dart
+^ next cascading greedy cuckoo
+^ ptr bit count in fwd cache
+^ differentiating using term flag, leaf flag for ptr reduction?
+^ improve leapfrog using SIMD (not working for freq sorted)
+^ option to disable idx map
 
 # sort nodes on freq for madras bench
 x separate leaf flags
@@ -93,17 +93,17 @@ x seperate all flags?
 + cleanup null/empty handling
 + next not working on i12
 
-Making trie build faster
-- sort keys
-- compare 2 keys find cmp
-- keep comparing 3rd, 4th etc. till cmp is the same
-- combine and make as node with weight and tail
-- for first pass root is 0
-- for next pass track parent
-- keep sorting nodes on weight
+^ Making trie build faster
+  - sort keys
+  - compare 2 keys find cmp
+  - keep comparing 3rd, 4th etc. till cmp is the same
+  - combine and make as node with weight and tail
+  - for first pass root is 0
+  - for next pass track parent
+  - keep sorting nodes on weight
 
 val interface:
-- export_sqlite <db_file> <table_or_select> <storage_types> <encoding_types> <row_count=0> <offset=0> <key_column_list_0> <key_column_list_1> ... <key_column_list_n>
++ export_sqlite <db_file> <table_or_select> <storage_types> <encoding_types> <row_count=0> <offset=0> <key_column_list_0> <key_column_list_1> ... <key_column_list_n>
 + raw inputs, store processed data as vint, primary trie holds pointers to row_data
 
 data layout for LSM
@@ -128,24 +128,31 @@ u32or64
 - lookup::bm_mask
 - val_ptr_group_map::bm_ptr
 
-- Storage format for LSM
-- GPU resident
-- Indexed data transfer format for use in browsers
-- Storing historical static data
-- Compressed and indexed Columnar data format
-- Storing data in S3 )??)
-- Full text word index
-- Two way indexing
-- Composite static index
-- Type aware
-- Open format
+. Natural order storage
+. Primary key
+. Secondary keys
+. Dense index
+. Sparse index
+. Null and empty value storage
+? Billions of integers per second
+. Storage format for LSM
+. GPU resident
+. Indexed data transfer format for use in browsers
+. Storing historical static data
+. Compressed and indexed Columnar data format
+. Storing data in S3 )??)
+. Full text word index
+. Two way indexing
+. Composite static index
+. Type aware
+. Open format
 
 Split tails and val texts
-- Code for start Multiple
+^ Code for start Multiple
   - For tail, followed by ptr to parts
   - For value, followed by parts
   - Ends with same code
-- Code for (huffman encoded?) literals
+^ Code for (huffman encoded?) literals
 
 + col_trie tail split not working
 + reverse lookup for col_tries
@@ -159,32 +166,41 @@ x ODBC driver
 + Multiple column key/value double mismatch df_sales
 + primary key value extract
 + run_tests chk_sum and len
++ repeat babynames 2+3 ittiti1 uuuuuud 64
 - bv int_bv_reader bit_len > 32 not working?
 
 madras_flutter todos
-- index dropdowns per window
 + Find/Next not working all combinations
+- index dropdowns per window
 - Combined words search
 - Word split interface
 - API for nid_shift_bits for T and W
 - Search on date not working
+- Fix Scroll Issue
+- Sqlite/DuckDB version
+- 1.58101e-322 census.db
+- Find on PK not working for partial matches
 
-- web_bridge
++ web_bridge
 - JDBC driver
 - ALP and fast_lanes
 
 * replace for !no_primary_trie
 + Secondary indexes
 + interface for multiple keys on pk and sk
++ Implement Repeat (RLE)
++ DATETIME_ISO_MS not working (h)
++ Next val
+- get_val with node_id = prev_nid + 1
 - Options for each column
-- Next val
-- DATETIME_ISO_MS not working (g)
+- validation of data adn enc types esp. .v
 - composite primary index get_col_val()
-- Implement Repeat (RLE)
+- 
 - 1 file for each column
 - SQL interface
 - Fix CUDA demo
 - GUI crashing on linux
+- Rust / Go / Python / Java / .Net bindings
 
 + Word encoding for tails
 + Emscripten support
@@ -201,13 +217,16 @@ madras_flutter todos
 ^ GUI for viewing/creating from SQLite / CSV
 ^ Grasping ptrs for col tries with repeats
 
-- 1.58101e-322 census.db
-- wrong totals for integer/doubles
-- INT32/64, float double
++ wrong totals for integer/doubles
++ INT32/64, x(float) double
++ get_val() for stored val returning empty
++ Incorrect max_val_len
+- Val not null for enc T
+- Enc w not working for so_users
 - Fix grouping logic
 - Cleanup madras builder
 
-- Count errors/warnings on export
++ Count errors/warnings on export
 - Testing on Other OS?
 
 - Testing with boundary conditions 64/512
@@ -219,7 +238,7 @@ madras_flutter todos
 - Check null and empty values consistency
 
 Integer codec with ALP
-- flavic48 - floating point losless adaptive variable integer 32 and 64 bit
+- allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit
 
 doubles:
 <len 3 bits> - 0 to 7 - 7 means store as it is

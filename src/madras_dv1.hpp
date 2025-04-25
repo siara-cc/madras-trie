@@ -1944,15 +1944,18 @@ class value_retriever : public ptr_group_map {
       return scan_ptr_bits_val(vctx);
     }
 
-    __fq1 __fq2 uint8_t *get_val_loc(val_ctx& vctx) {
+    bool is_repeat(val_ctx& vctx) {
       if (vctx.rpt_left > 0) {
         vctx.rpt_left--;
         if (vctx.rpt_left == 0 && vctx.next_pbc != 0) {
           vctx.ptr_bit_count = vctx.next_pbc;
           vctx.next_pbc = 0;
         }
-        return grp_data[vctx.grp_no] + vctx.ptr;
+        return true;
       }
+      return false;
+    }
+    __fq1 __fq2 uint8_t *get_val_loc(val_ctx& vctx) {
       if (group_count == 1) {
         vctx.grp_no = 0;
         uint32_t ptr_pos = vctx.node_id;
@@ -2302,10 +2305,12 @@ class uniq_bin_val_retriever : public value_retriever {
       return val_loc + 1;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint8_t *val_loc = get_val_loc(vctx);
-      uint32_t bin_len;
-      const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
-      *vctx.val_len = bin_len;
+      if (!is_repeat(vctx)) {
+        uint8_t *val_loc = get_val_loc(vctx);
+        uint32_t bin_len;
+        const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
+        *vctx.val_len = bin_len;
+      }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
       return skip_to_next_leaf(vctx);
@@ -2393,8 +2398,10 @@ class uniq_text_retriever : public value_retriever {
       return ret_val;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint8_t *val_loc = get_val_loc(vctx);
-      const uint8_t *text_str = get_text_val(val_loc, vctx.grp_no, vctx.val, *vctx.val_len);
+      if (!is_repeat(vctx)) {
+        uint8_t *val_loc = get_val_loc(vctx);
+        const uint8_t *text_str = get_text_val(val_loc, vctx.grp_no, vctx.val, *vctx.val_len);
+      }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
       return skip_to_next_leaf(vctx);
@@ -2417,11 +2424,13 @@ class uniq_ifp_retriever : public value_retriever {
   public:
     virtual ~uniq_ifp_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint8_t *val_loc = get_val_loc(vctx);
-      *vctx.val_len = 8;
-      size_t null_len;
-      uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
-      cmn::convert_back(data_type, val_loc, vctx.val, *vctx.val_len, null_val, null_len);
+      if (!is_repeat(vctx)) {
+        uint8_t *val_loc = get_val_loc(vctx);
+        *vctx.val_len = 8;
+        size_t null_len;
+        uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
+        cmn::convert_back(data_type, val_loc, vctx.val, *vctx.val_len, null_val, null_len);
+      }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
       return skip_to_next_leaf(vctx);
@@ -2452,15 +2461,17 @@ class delta_val_retriever : public value_retriever {
       }
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      if ((vctx.node_id % nodes_per_bv_block_n) == 0)
-        vctx.i64 = 0;
-      add_delta(vctx);
-      if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
-        *((int64_t *) vctx.val) = vctx.i64;
-      } else {
-        double dbl = static_cast<double>(vctx.i64);
-        dbl /= gen::pow10(data_type - MST_DEC0);
-        *((double *) vctx.val) = dbl;
+      if (!is_repeat(vctx)) {
+        if ((vctx.node_id % nodes_per_bv_block_n) == 0)
+          vctx.i64 = 0;
+        add_delta(vctx);
+        if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
+          *((int64_t *) vctx.val) = vctx.i64;
+        } else {
+          double dbl = static_cast<double>(vctx.i64);
+          dbl /= gen::pow10(data_type - MST_DEC0);
+          *((double *) vctx.val) = dbl;
+        }
       }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
