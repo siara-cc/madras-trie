@@ -3052,24 +3052,21 @@ class builder : public builder_fwd {
                 data_len += 2;
                 pos += data_len;
                 if (encoding_type != MSE_DICT_DELTA && encoding_type != MSE_VINTGB) {
-                  uint64_t u64;
-                  flavic48::simple_decode(data_pos, 1, &u64);
-                  int64_t i64 = flavic48::cvt2_i64(u64);
-                  if (*data_pos == 0xF8 && data_pos[1] == 1) {
-                    data_len = 1;
-                    if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                  if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
+                    if (*data_pos == 0xF8 && data_pos[1] == 1) {
+                      data_len = 1;
                       *num_data = 0;
-                    else
-                      data_pos = (*new_vals)[new_vals->push_back(0x00)];
-                  } else {
-                    data_len = gen::get_svint60_len(i64);
-                    if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                    } else {
+                      uint64_t u64;
+                      flavic48::simple_decode(data_pos, 1, &u64);
+                      int64_t i64 = flavic48::cvt2_i64(u64);
+                      data_len = gen::get_svint60_len(i64);
                       gen::copy_svint60(i64, num_data, data_len);
-                    else
-                      data_pos = (*new_vals)[new_vals->append_svint60(i64)];
-                  }
-                  if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY)
+                    }
                     data_pos = num_data;
+                  } else {
+                    data_pos = (*new_vals)[new_vals->push_back(data_pos, data_len)];
+                  }
                 }
               } break;
             }
@@ -3122,8 +3119,11 @@ class builder : public builder_fwd {
             prev_ival = col_val;
             prev_val_node_id = node_id;
             // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
-            data_len = gen::get_svint60_len(delta_val);
-            data_pos = (*new_vals)[new_vals->append_svint60(delta_val)];
+            uint8_t v64[10];
+            u64 = flavic48::cvt2_u64(delta_val);
+            uint8_t *v_end = flavic48::simple_encode_single(u64, v64, 0);
+            data_len = (v_end - v64);
+            data_pos = (*new_vals)[new_vals->push_back(v64, data_len)];
             n.set_col_val(data_pos - (*new_vals)[0]);
             nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
             // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);

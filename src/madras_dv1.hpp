@@ -2427,9 +2427,19 @@ class uniq_ifp_retriever : public value_retriever {
       if (!is_repeat(vctx)) {
         uint8_t *val_loc = get_val_loc(vctx);
         *vctx.val_len = 8;
-        size_t null_len;
-        uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
-        cmn::convert_back(data_type, val_loc, vctx.val, *vctx.val_len, null_val, null_len);
+        if (*val_loc == 0xF8 && val_loc[1] == 1) {
+          *((int64_t *) vctx.val) = INT64_MIN;
+        } else {
+          uint64_t u64;
+          flavic48::simple_decode(val_loc, 1, &u64);
+          int64_t i64 = flavic48::cvt2_i64(u64);
+          if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
+            double dbl = static_cast<double>(i64);
+            dbl /= gen::pow10(data_type - MST_DEC0);
+            *((double *)vctx.val) = dbl;
+          } else
+            memcpy(vctx.val, &i64, sizeof(int64_t));
+        }
       }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
@@ -2454,10 +2464,17 @@ class delta_val_retriever : public value_retriever {
     virtual ~delta_val_retriever() {}
     __fq1 __fq2 void add_delta(val_ctx& vctx) {
       uint8_t *val_loc = get_val_loc(vctx);
+      int64_t i64;
       if (val_loc != nullptr) {
-        int64_t delta_val = gen::read_svint60(val_loc);
+        if (*val_loc == 0xF8 && val_loc[1] == 1) {
+          i64 = INT64_MIN;
+        } else {
+          uint64_t u64;
+          flavic48::simple_decode(val_loc, 1, &u64);
+          i64 = flavic48::cvt2_i64(u64);
+        }
         // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
-        vctx.i64 += delta_val;
+        vctx.i64 += i64;
       }
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
