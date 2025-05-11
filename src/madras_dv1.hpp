@@ -60,6 +60,7 @@ class val_ctx {
     uint32_t ptr;
     uint32_t next_pbc;
     int64_t i64;
+    int64_t i64_delta;
     uint32_t *u32_vals;
     uint64_t *u64_vals;
     uint8_t *byts;
@@ -2246,7 +2247,8 @@ class fast_vint_retriever : public value_retriever {
       else
         u64 = (uint64_t) *(vctx.u32_vals + to_skip);
       switch (data_type) {
-        case MST_INT: {
+        case MST_INT:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           int64_t i64 = flavic48::cvt2_i64(u64);
           *((int64_t *) vctx.val) = i64;
           // printf("%lld\n", i64);
@@ -2463,6 +2465,10 @@ class delta_val_retriever : public value_retriever {
   public:
     virtual ~delta_val_retriever() {}
     __fq1 __fq2 void add_delta(val_ctx& vctx) {
+      if (is_repeat(vctx)) {
+        vctx.i64 += vctx.i64_delta;
+        return;
+      }
       uint8_t *val_loc = get_val_loc(vctx);
       int64_t i64;
       if (val_loc != nullptr) {
@@ -2474,21 +2480,20 @@ class delta_val_retriever : public value_retriever {
           i64 = flavic48::cvt2_i64(u64);
         }
         // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
+        vctx.i64_delta = i64;
         vctx.i64 += i64;
       }
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      if (!is_repeat(vctx)) {
-        if ((vctx.node_id % nodes_per_bv_block_n) == 0)
-          vctx.i64 = 0;
-        add_delta(vctx);
-        if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
-          *((int64_t *) vctx.val) = vctx.i64;
-        } else {
-          double dbl = static_cast<double>(vctx.i64);
-          dbl /= gen::pow10(data_type - MST_DEC0);
-          *((double *) vctx.val) = dbl;
-        }
+      if ((vctx.node_id % nodes_per_bv_block_n) == 0)
+        vctx.i64 = 0;
+      add_delta(vctx);
+      if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
+        *((int64_t *) vctx.val) = vctx.i64;
+      } else {
+        double dbl = static_cast<double>(vctx.i64);
+        dbl /= gen::pow10(data_type - MST_DEC0);
+        *((double *) vctx.val) = dbl;
       }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
@@ -2722,6 +2727,10 @@ class static_trie_map : public static_trie {
       return val_count;
     }
 
+    __fq1 __fq2 uint16_t get_pk_col_count() {
+      return pk_col_count;
+    }
+
     __fq1 __fq2 value_retriever *get_value_retriever(int col_val_idx) {
       return val_map[col_val_idx];
     }
@@ -2873,6 +2882,7 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 void map_file_to_mem(const char *filename) {
       off_t dict_size;
       trie_bytes = map_file(filename, dict_size);
+      trie_size = dict_size;
       //       int len_will_need = (dict_size >> 2);
       //       //madvise(trie_bytes, len_will_need, MADV_WILLNEED);
       // #ifndef _WIN32

@@ -110,10 +110,10 @@ const static size_t EMPTY_VALUE_LEN = 1;
 // int / float format
 // b1 - header
 // w - 0=32, 1=64
-// d - 0=no, 1=delta
 // r - 0=no, 1=repeats
+// v - 
 // - - 0=no, 1=negatives
-// e - 0=no, 1=float exceptions
+// e - 0=no, 1=float exceptions (w=64)
 // sss - scheme
 //      000 - vintgb
 //      001 - fixed width in iwd (1-8)
@@ -121,6 +121,7 @@ const static size_t EMPTY_VALUE_LEN = 1;
 //      011 - Prefix deltas
 //      100 to 111 - reserved
 // b2 - count excluding repeats - vnnnnnnn
+// b3 - decimal count 0-32 and base vint len - 0-7
 
 struct PACKED_STRUCT fwd_cache {
   uint8_t parent_node_id1;
