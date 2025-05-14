@@ -1667,13 +1667,14 @@ class fast_vint {
     char data_type;
     uint8_t hdr_size;
     uint8_t dec_count;
-    std::vector<uint64_t> u64_data;
-    std::vector<uint32_t> u32_data;
+    std::vector<int64_t> i64_data;
+    std::vector<int32_t> i32_data;
     std::vector<double> dbl_data;
     std::vector<uint8_t> dbl_exceptions;
     byte_vec *block_data;
     size_t count;
     bool is64bit;
+    bool isNeg;
   public:
     fast_vint(char _data_type) {
       data_type = _data_type;
@@ -1681,6 +1682,7 @@ class fast_vint {
       dec_count = 0;
       count = 0;
       is64bit = false;
+      isNeg = false;
       block_data = nullptr;
     }
     ~fast_vint() {
@@ -1688,8 +1690,10 @@ class fast_vint {
     void reset_block() {
       count = 0;
       dec_count = 0;
-      u64_data.clear();
-      u32_data.clear();
+      is64bit = false;
+      isNeg = false;
+      i64_data.clear();
+      i32_data.clear();
       dbl_data.clear();
       dbl_exceptions.clear();
     }
@@ -1697,10 +1701,9 @@ class fast_vint {
       block_data = bd;
     }
     void add(uint8_t *data_pos, size_t data_len) {
-      uint64_t u64;
+      int64_t i64;
       if (data_type == MST_DECV) {
         double dbl = *((double *) data_pos);
-        int64_t i64;
         uint8_t frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
         if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
           dbl_exceptions.push_back(1);
@@ -1709,25 +1712,29 @@ class fast_vint {
           if (dec_count < frac_width)
             dec_count = frac_width;
           dbl_exceptions.push_back(0);
+          if (dbl < 0)
+            isNeg = true;
         }
         dbl_data.push_back(dbl);
       } else {
-        flavic48::simple_decode(data_pos, 1, &u64);
+        flavic48::simple_decode(data_pos, 1, &i64);
         dbl_exceptions.push_back(0);
-        u64_data.push_back(u64);
-        if (u64 > 4294967295LL)
+        i64_data.push_back(i64);
+        if (i64 > INT32_MAX)
           is64bit = true;
         else
-          u32_data.push_back(u64);
+          i32_data.push_back(i64);
+        if (i64 & 1)
+          isNeg = true;
       }
       count++;
     }
     size_t build_block() {
       if (data_type == MST_DECV) {
         for (size_t i = 0; i < dbl_data.size(); i++) {
-          uint64_t u64;
+          int64_t i64;
           double dbl = dbl_data[i];
-          int64_t i64 = static_cast<int64_t>(dbl * flavic48::tens[dec_count]);
+          i64 = static_cast<int64_t>(dbl * flavic48::tens[dec_count]);
           if (dbl_exceptions[i] == 0) {
             double dbl_back = static_cast<double>(i64);
             dbl_back /= flavic48::tens[dec_count];
@@ -1735,33 +1742,41 @@ class fast_vint {
               dbl_exceptions[i] = 1;
           }
           if (dbl_exceptions[i] == 0) {
-            u64 = flavic48::cvt2_u64(i64);
+            i64 = flavic48::reduce_neg(i64);
             if (dbl == -0.0)
-              u64 = 1;
-            u64_data.push_back(u64);
-            if (u64 > 4294967295LL)
+              i64 = 1;
+            i64_data.push_back(i64);
+            if (i64 > INT32_MAX)
               is64bit = true;
             else
-              u32_data.push_back(u64);
+              i32_data.push_back(i64);
           } else {
-            memcpy(&u64, &dbl, 8);
-            u64_data.push_back(u64);
+            memcpy(&i64, &dbl, 8);
+            i64_data.push_back(i64);
             is64bit = true;
           }
         }
+      }/* else {
+        if (!isNeg) {
+          for (size_t i = 0; i < u64_data.size(); i++)
+            u64_data[i] = u64_data[i] >> 1;
+          for (size_t i = 0; i < u32_data.size(); i++)
+            u32_data[i] = u32_data[i] >> 1;
+        }
       }
+      uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00) | (isNeg ? 0x40 : 0x00);*/
       uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00);
       size_t last_size = block_data->size();
-      block_data->resize(block_data->size() + u64_data.size() * 9 + hdr_size + 2);
+      block_data->resize(block_data->size() + i64_data.size() * 9 + hdr_size + 2);
       block_data->at(last_size + 0) = hdr_b1;
       block_data->at(last_size + 1) = count;
       if (hdr_size == 3)
         block_data->at(last_size + 2) = dec_count;
       size_t blk_size;
       if (is64bit)
-        blk_size = flavic48::encode(u64_data.data(), count, block_data->data() + last_size + hdr_size, dbl_exceptions.data());
+        blk_size = flavic48::encode(i64_data.data(), count, block_data->data() + last_size + hdr_size, dbl_exceptions.data());
       else
-        blk_size = flavic48::encode(u32_data.data(), count, block_data->data() + last_size + hdr_size);
+        blk_size = flavic48::encode(i32_data.data(), count, block_data->data() + last_size + hdr_size);
       // printf("Total blk size: %lu, cur size: %lu\n", block_data->size(), blk_size);
       block_data->resize(last_size + blk_size + hdr_size);
       return blk_size + hdr_size;
@@ -2748,9 +2763,9 @@ class builder : public builder_fwd {
               data_len = *data_pos & 0x07;
               data_len += 2;
               if (encoding_type != MSE_DICT_DELTA) {
-                uint64_t u64;
-                flavic48::simple_decode(data_pos, 1, &u64);
-                int64_t i64 = flavic48::cvt2_i64(u64);
+                int64_t i64;
+                flavic48::simple_decode(data_pos, 1, &i64);
+                i64 = flavic48::expand_neg(i64);
                 // printf("%lld\n", i64);
                 if (*data_pos == 0xF8 && data_pos[1] == 1) {
                   data_len = 1;
@@ -3057,9 +3072,9 @@ class builder : public builder_fwd {
                       data_len = 1;
                       *num_data = 0;
                     } else {
-                      uint64_t u64;
-                      flavic48::simple_decode(data_pos, 1, &u64);
-                      int64_t i64 = flavic48::cvt2_i64(u64);
+                      int64_t i64;
+                      flavic48::simple_decode(data_pos, 1, &i64);
+                      i64 = flavic48::expand_neg(i64);
                       data_len = gen::get_svint60_len(i64);
                       gen::copy_svint60(i64, num_data, data_len);
                     }
@@ -3110,9 +3125,9 @@ class builder : public builder_fwd {
               max_len = data_len;
           } break;
           case MSE_DICT_DELTA: {
-            uint64_t u64;
-            uint8_t frac_width = flavic48::simple_decode_single(data_pos, &u64);
-            int64_t col_val = flavic48::cvt2_i64(u64);
+            int64_t i64;
+            uint8_t frac_width = flavic48::simple_decode_single(data_pos, &i64);
+            int64_t col_val = flavic48::expand_neg(i64);
             int64_t delta_val = col_val;
             if ((node_id / nodes_per_bv_block_n) == (prev_val_node_id / nodes_per_bv_block_n))
               delta_val -= prev_ival;
@@ -3120,8 +3135,8 @@ class builder : public builder_fwd {
             prev_val_node_id = node_id;
             // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
             uint8_t v64[10];
-            u64 = flavic48::cvt2_u64(delta_val);
-            uint8_t *v_end = flavic48::simple_encode_single(u64, v64, 0);
+            i64 = flavic48::reduce_neg(delta_val);
+            uint8_t *v_end = flavic48::simple_encode_single(i64, v64, 0);
             data_len = (v_end - v64);
             data_pos = (*new_vals)[new_vals->push_back(v64, data_len)];
             n.set_col_val(data_pos - (*new_vals)[0]);
@@ -4402,13 +4417,13 @@ class builder : public builder_fwd {
     #define APPEND_REC_KEY_MIDDLE 1
     #define APPEND_REC_KEY_LAST 2
     size_t append_rec_value(char type, char encoding_type, void *void_value, const uint8_t *byte_arr, size_t value_len, byte_vec& rec, int val_type) {
-      uint64_t *ptr = (uint64_t *) void_value;
+      int64_t *i64_ptr = (int64_t *) void_value;
       double *dbl_ptr = (double *) void_value;
       switch (type) {
         case MST_TEXT:
         case MST_BIN: {
           const uint8_t *value = byte_arr;
-          if (*ptr == 0) {
+          if (*i64_ptr == 0) {
             value = null_value;
             value_len = null_value_len;
           }
@@ -4433,32 +4448,31 @@ class builder : public builder_fwd {
               for (size_t vi = 0; vi < value_len; vi++)
                 rec.push_back(v64[vi]);
             } else {
-              if (*ptr == INT64_MIN) { // null
+              if (*i64_ptr == INT64_MIN) { // null
                 rec.push_back(0xF8);
                 rec.push_back(1);
                 value_len = 2;
               } else {
-                uint64_t u64;
+                int64_t i64 = *i64_ptr;
                 if (type >= MST_DEC0 && type <= MST_DEC9) {
                   double dbl = *dbl_ptr;
-                  int64_t i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
-                  u64 = flavic48::cvt2_u64(i64);
-                } else
-                  u64 = flavic48::cvt2_u64(*ptr);
+                  i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
+                }
+                i64 = flavic48::reduce_neg(i64);
                 uint8_t v64[10];
-                uint8_t *v_end = flavic48::simple_encode_single(u64, v64, 0);
+                uint8_t *v_end = flavic48::simple_encode_single(i64, v64, 0);
                 value_len = (v_end - v64);
                 for (size_t vi = 0; vi < value_len; vi++)
                   rec.push_back(v64[vi]);
               }
             }
           } else {
-            if (*ptr == INT64_MIN) { // null
+            if (*i64_ptr == INT64_MIN) { // null
               rec.push_back(0);
               value_len = 1;
             } else {
-              gen::append_svint60(rec, *ptr);
-              value_len = gen::get_svint60_len(*ptr);
+              gen::append_svint60(rec, *i64_ptr);
+              value_len = gen::get_svint60_len(*i64_ptr);
             }
           }
         } break;
@@ -4478,7 +4492,8 @@ class builder : public builder_fwd {
       }
       return value_len;
     }
-    bool insert(const uint64_t *values, const size_t value_lens[] = NULL) {
+    bool insert_record(const void *void_values, const size_t value_lens[] = NULL) {
+      uint64_t *values = (uint64_t *) void_values;
       cur_seq_idx++;
       byte_vec rec;
       byte_vec key_rec;

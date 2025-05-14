@@ -300,7 +300,7 @@ int main(int argc, char* argv[]) {
       reduce_sql_value(values, values_dbl, value_lens, stmt, exp_col_idx, exp_col_type, encoding_type, ins_seq_id, sql_col_idx);
       exp_col_idx++;
     }
-    if (mb.insert(values, value_lens)) {
+    if (mb.insert_record(values, value_lens)) {
       std::cerr << "Unexpected: Record found: " << ins_seq_id << ". Check Primary key definition." << std::endl;
       sqlite3_finalize(stmt_col_names);
       sqlite3_close(db);
@@ -505,8 +505,8 @@ int main(int argc, char* argv[]) {
       }
       col_val_idx++;
     }
-    if (errors[0] > 0)
-      printf("errors > 0: %lu\n", ins_seq_id);
+    // if (errors[0] > 0)
+    //   printf("errors > 0: %lu\n", ins_seq_id);
     ins_seq_id++;
   }
   printf("Totals:");

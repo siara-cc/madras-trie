@@ -61,8 +61,8 @@ class val_ctx {
     uint32_t next_pbc;
     int64_t i64;
     int64_t i64_delta;
-    uint32_t *u32_vals;
-    uint64_t *u64_vals;
+    int32_t *i32_vals;
+    int64_t *i64_vals;
     uint8_t *byts;
     uint64_t bm_leaf, bm_mask;
     uint8_t rpt_left;
@@ -79,8 +79,8 @@ class val_ctx {
         delete val_len;
       }
       if (to_alloc_uxx) {
-        delete [] u64_vals;
-        delete [] u32_vals;
+        delete [] i64_vals;
+        delete [] i32_vals;
         delete [] byts;
       }
     }
@@ -102,8 +102,8 @@ class val_ctx {
       node_id = 0;
       init_pbc_vars();
       if (to_alloc_uxx) {
-        u64_vals = new uint64_t[nodes_per_bv_block_n];
-        u32_vals = new uint32_t[nodes_per_bv_block_n];
+        i64_vals = new int64_t[nodes_per_bv_block_n];
+        i32_vals = new int32_t[nodes_per_bv_block_n];
         byts = new uint8_t[nodes_per_bv_block_n];
       }
       is64 = 0;
@@ -2220,10 +2220,18 @@ class fast_vint_retriever : public value_retriever {
         offset = 2;
       if (*data == 0x80) {
         vctx.is64 = 1;
-        flavic48::decode(data + offset, vctx.count, vctx.u64_vals, vctx.byts);
+        flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
+        // if (*data & 0x40) {
+        //   for (size_t i = 0; i < vctx.count; i++)
+        //     vctx.u64_vals[i] = flavic48::cvt2_i64(vctx.u64_vals[i]);
+        // }
       } else {
         vctx.is64 = 0;
-        flavic48::decode(data + offset, vctx.count, vctx.u32_vals);
+        flavic48::decode(data + offset, vctx.count, vctx.i32_vals);
+        // if (*data & 0x40) {
+        //   for (size_t i = 0; i < vctx.count; i++)
+        //     vctx.u32_vals[i] = flavic48::cvt2_i32(vctx.u32_vals[i]);
+        // }
         memset(vctx.byts, '\0', vctx.count); // not setting lens, just 0s
       }
     }
@@ -2240,25 +2248,25 @@ class fast_vint_retriever : public value_retriever {
       return skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint64_t u64;
+      int64_t i64;
       int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
       if (vctx.is64)
-        u64 = *(vctx.u64_vals + to_skip);
+        i64 = *(vctx.i64_vals + to_skip);
       else
-        u64 = (uint64_t) *(vctx.u32_vals + to_skip);
+        i64 = (uint64_t) *(vctx.i32_vals + to_skip);
       switch (data_type) {
         case MST_INT:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          int64_t i64 = flavic48::cvt2_i64(u64);
+          i64 = flavic48::expand_neg(i64);
           *((int64_t *) vctx.val) = i64;
           // printf("%lld\n", i64);
         } break;
         case MST_DECV: {
           if (vctx.byts[to_skip] == 7) {
-            *((uint64_t *) vctx.val) = u64;
+            *((uint64_t *) vctx.val) = i64;
           } else {
-            if (u64 != 1) {
-              int64_t i64 = flavic48::cvt2_i64(u64);
+            if (i64 != 1) {
+              i64 = flavic48::expand_neg(i64);
               double dbl = static_cast<double>(i64);
               dbl /= flavic48::tens[vctx.dec_count];
               *((double *) vctx.val) = dbl;
@@ -2269,8 +2277,8 @@ class fast_vint_retriever : public value_retriever {
           }
         } break;
         case MST_DEC0 ... MST_DEC9: {
-          if (u64 != 1) {
-            int64_t i64 = flavic48::cvt2_i64(u64);
+          if (i64 != 1) {
+            i64 = flavic48::expand_neg(i64);
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(data_type - MST_DEC0);
             *((double *) vctx.val) = dbl;
@@ -2432,9 +2440,9 @@ class uniq_ifp_retriever : public value_retriever {
         if (*val_loc == 0xF8 && val_loc[1] == 1) {
           *((int64_t *) vctx.val) = INT64_MIN;
         } else {
-          uint64_t u64;
-          flavic48::simple_decode(val_loc, 1, &u64);
-          int64_t i64 = flavic48::cvt2_i64(u64);
+          int64_t i64;
+          flavic48::simple_decode(val_loc, 1, &i64);
+          i64 = flavic48::expand_neg(i64);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(data_type - MST_DEC0);
@@ -2475,9 +2483,8 @@ class delta_val_retriever : public value_retriever {
         if (*val_loc == 0xF8 && val_loc[1] == 1) {
           i64 = INT64_MIN;
         } else {
-          uint64_t u64;
-          flavic48::simple_decode(val_loc, 1, &u64);
-          i64 = flavic48::cvt2_i64(u64);
+          flavic48::simple_decode(val_loc, 1, &i64);
+          i64 = flavic48::expand_neg(i64);
         }
         // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
         vctx.i64_delta = i64;
