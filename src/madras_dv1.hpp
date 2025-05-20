@@ -2212,26 +2212,23 @@ class fast_vint_retriever : public value_retriever {
       vctx.ptr_bit_count = ptr_reader.get_ptr_block3(node_id);
       uint8_t *data = grp_data[0] + vctx.ptr_bit_count + 2;
       vctx.count = data[1];
-      size_t offset;
-      if (data_type == MST_DECV) {
-        offset = 3;
-        vctx.dec_count = data[2];
-      } else
-        offset = 2;
-      if (*data == 0x80) {
-        vctx.is64 = 1;
+      vctx.dec_count = data[2]; // only for data_type MST_DECV
+      size_t offset = (data_type == MST_DECV ? 3 : 2);
+      if (*data & 0x80) {
         flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
-        // if (*data & 0x40) {
-        //   for (size_t i = 0; i < vctx.count; i++)
-        //     vctx.u64_vals[i] = flavic48::cvt2_i64(vctx.u64_vals[i]);
-        // }
+        if (*data & 0x40) {
+          for (size_t i = 0; i < vctx.count; i++)
+            vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i64_vals[i]);
+        }
       } else {
-        vctx.is64 = 0;
         flavic48::decode(data + offset, vctx.count, vctx.i32_vals);
-        // if (*data & 0x40) {
-        //   for (size_t i = 0; i < vctx.count; i++)
-        //     vctx.u32_vals[i] = flavic48::cvt2_i32(vctx.u32_vals[i]);
-        // }
+        if (*data & 0x40) {
+          for (size_t i = 0; i < vctx.count; i++)
+            vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i32_vals[i]);
+        } else {
+          for (size_t i = 0; i < vctx.count; i++)
+            vctx.i64_vals[i] = vctx.i32_vals[i];
+        }
         memset(vctx.byts, '\0', vctx.count); // not setting lens, just 0s
       }
     }
@@ -2250,14 +2247,11 @@ class fast_vint_retriever : public value_retriever {
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       int64_t i64;
       int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
-      if (vctx.is64)
-        i64 = *(vctx.i64_vals + to_skip);
-      else
-        i64 = (uint64_t) *(vctx.i32_vals + to_skip);
+      i64 = *(vctx.i64_vals + to_skip);
       switch (data_type) {
         case MST_INT:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          i64 = flavic48::expand_neg(i64);
+          // i64 = flavic48::zigzag_decode(i64);
           *((int64_t *) vctx.val) = i64;
           // printf("%lld\n", i64);
         } break;
@@ -2265,8 +2259,8 @@ class fast_vint_retriever : public value_retriever {
           if (vctx.byts[to_skip] == 7) {
             *((uint64_t *) vctx.val) = i64;
           } else {
-            if (i64 != 1) {
-              i64 = flavic48::expand_neg(i64);
+            if (i64 != INT64_MIN) {
+              // i64 = flavic48::zigzag_decode(i64);
               double dbl = static_cast<double>(i64);
               dbl /= flavic48::tens[vctx.dec_count];
               *((double *) vctx.val) = dbl;
@@ -2277,8 +2271,8 @@ class fast_vint_retriever : public value_retriever {
           }
         } break;
         case MST_DEC0 ... MST_DEC9: {
-          if (i64 != 1) {
-            i64 = flavic48::expand_neg(i64);
+          if (i64 != INT64_MIN) {
+            // i64 = flavic48::zigzag_decode(i64);
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(data_type - MST_DEC0);
             *((double *) vctx.val) = dbl;
@@ -2442,7 +2436,7 @@ class uniq_ifp_retriever : public value_retriever {
         } else {
           int64_t i64;
           flavic48::simple_decode(val_loc, 1, &i64);
-          i64 = flavic48::expand_neg(i64);
+          i64 = flavic48::zigzag_decode(i64);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
             dbl /= gen::pow10(data_type - MST_DEC0);
@@ -2484,7 +2478,7 @@ class delta_val_retriever : public value_retriever {
           i64 = INT64_MIN;
         } else {
           flavic48::simple_decode(val_loc, 1, &i64);
-          i64 = flavic48::expand_neg(i64);
+          i64 = flavic48::zigzag_decode(i64);
         }
         // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
         vctx.i64_delta = i64;

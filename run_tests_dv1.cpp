@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
           memcpy(values + 3, &checksum, 8);
           value_lens[3] = 8;
         }
-        sb->insert(values, value_lens);
+        sb->insert_record((const void *) values, value_lens);
       } else if (what == 1) {
         sb->insert(key, key_len);
       }
