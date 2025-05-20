@@ -169,45 +169,25 @@ x ODBC driver
 + repeat babynames 2+3 ittiti1 uuuuuud 64
 - bv int_bv_reader bit_len > 32 not working?
 
-madras_flutter todos
-+ Find/Next not working all combinations
-- index dropdowns per window
-- Combined words search
-- Word split interface
-- API for nid_shift_bits for T and W
-- Search on date not working
-- Fix Scroll Issue
-- Sqlite/DuckDB version
-- 1.58101e-322 census.db
-- Find on PK not working for partial matches
-
-+ web_bridge
-- JDBC driver
-- ALP and fast_lanes
-
 * replace for !no_primary_trie
 + Secondary indexes
 + interface for multiple keys on pk and sk
 + Implement Repeat (RLE)
 + DATETIME_ISO_MS not working (h)
 + Next val
-- get_val with node_id = prev_nid + 1
 - Options for each column
 - validation of data adn enc types esp. .v
 - composite primary index get_col_val()
-- 
+- Dont use svint60 for u and d encodings
 - 1 file for each column
-- SQL interface
 - Fix CUDA demo
 - GUI crashing on linux
-- Rust / Go / Python / Java / .Net bindings
+- so_users sum incorrect Id (d)
 
 + Word encoding for tails
 + Emscripten support
 + Word encoding for Vals and optional index
-^ Implement 32/64 bit
 ^ Support CTAS on Spark / BigQuery?
-^ CSV/JSON export?
 ^ Integrity check
 ^ Integrate Unishox
 ^ Auto encoding option
@@ -216,20 +196,41 @@ madras_flutter todos
 ^ Compression levels as parameter
 ^ GUI for viewing/creating from SQLite / CSV
 ^ Grasping ptrs for col tries with repeats
+^ FOR for val ptrs
+^ ALP and fast_lanes
 
 + wrong totals for integer/doubles
 + INT32/64, x(float) double
 + get_val() for stored val returning empty
 + Incorrect max_val_len
-- Val not null for enc T
-- Enc w not working for so_users
++ Val not null for enc T
++ Enc w not working for so_users
++ Count errors/warnings on export
+
+madras_flutter todos
++ Find/Next not working all combinations
+? Fix Scroll Issue
+? 1.58101e-322 census.db
+- index dropdowns per window
+- Combined words search
+- Word split interface
+- API for nid_shift_bits for T and W
+- Search on date not working
+- Sqlite/DuckDB version
+- Find on PK not working for partial matches
+
++ web_bridge
+- SQL interface
+- JDBC driver
+- Implement 64 bit
+- CSV/NDJSON/XML export?
+- Rust / Go / Python / Java / .Net bindings
+- ESP32 version
+
 - Fix grouping logic
 - Cleanup madras builder
-
-+ Count errors/warnings on export
-- Testing on Other OS?
-
 - Testing with boundary conditions 64/512
+- Testing on Other OS?
 - Setup unit tests
 - Doxyfile
 - Documentation and format definition
@@ -239,6 +240,11 @@ madras_flutter todos
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit
+- isNeg and ~
+- VInt + FOR
+- Repeats
+- . and v
+- Xor and doubles
 
 doubles:
 <len 3 bits> - 0 to 7 - 7 means store as it is

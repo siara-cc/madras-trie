@@ -12,7 +12,7 @@ opt: query_mdx
 debug: CXXFLAGS += -g -O0 -fno-inline
 debug: query_mdx
 
-release: CXXFLAGS += -O2 -funroll-loops -DNDEBUG
+release: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
 release: query_mdx
 
 asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer

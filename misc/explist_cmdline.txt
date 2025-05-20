@@ -4,9 +4,11 @@
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
 ./export_sqlite ~/git2/sqlite_dbs/df2016_sales_data.db sd 0 eii5i uuuuu
 
-./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 ittiiiiihhtt tttuuuutdduw
-- key_col 1 not working
+./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 ittiiiiihhtt dwwuuuuddduw
+./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 1 ittiiiiihhtt uwwuuuuddduw
+./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 ittiiiiihhtt vwwvvvvvvvuw - not working hh
 ./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 -----------t tttuuuutttuw
++ key_col 1 not working
 
 ./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 -t--------- uwttuuuuuuu
 ./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
