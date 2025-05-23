@@ -230,6 +230,7 @@ class ptr_groups {
     std::vector<byte_vec> grp_data;
     byte_vec ptrs;
     gen::int_bit_vector flat_ptr_bv;
+    gen::bit_vector<uint64_t> null_bv;
     byte_vec ptr_lookup_tbl;
     byte_vec idx2_ptrs_map;
     int last_byte_bits;
@@ -257,6 +258,7 @@ class ptr_groups {
     uint32_t grp_data_size;
     uint32_t grp_ptrs_loc;
     uint32_t idx2_ptrs_map_loc;
+    uint32_t null_bv_loc;
     uint32_t idx2_ptr_count;
     uint64_t tot_ptr_bit_count;
     uint32_t max_len;
@@ -287,6 +289,7 @@ class ptr_groups {
       inner_tries.resize(0);
       ptrs.clear();
       idx2_ptrs_map.resize(0);
+      null_bv.reset();
       next_idx = 0;
       inner_trie_start_grp = 0;
       last_byte_bits = 64;
@@ -322,6 +325,9 @@ class ptr_groups {
     }
     void set_max_len(uint32_t _max_len) {
       max_len = _max_len;
+    }
+    void set_null(size_t idx) {
+      null_bv.set(idx, true);
     }
     void set_col_sug(uint8_t _sug_width, uint8_t _sug_height) {
       sug_col_width = _sug_width;
@@ -423,7 +429,7 @@ class ptr_groups {
         if (vec != NULL)
           vec->push_back((len & 0x07) | 0x10 | first_byte);
         first_byte = 0;
-        len >>= 3;
+          len >>= 3;
       } while (len > 0);
       return len_len;
     }
@@ -499,10 +505,11 @@ class ptr_groups {
     uint32_t get_total_size() {
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         return gen::size_align8(grp_data_size) + get_ptrs_size() +
+                  null_bv.size_bytes() +
                   gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 20;
       }
       return gen::size_align8(grp_data_size) + get_ptrs_size() +
-        gen::size_align8(idx2_ptrs_map.size()) +
+        null_bv.size_bytes() + gen::size_align8(idx2_ptrs_map.size()) +
         gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 20; // aligned to 8
     }
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
@@ -546,14 +553,15 @@ class ptr_groups {
         }
       }
       grp_ptrs_loc = ptr_lookup_tbl_loc + gen::size_align8(ptr_lookup_tbl_sz);
+      null_bv_loc = grp_ptrs_loc + ptrs.size();
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0) {
         idx2_ptr_count = 0;
-        grp_data_loc = grp_ptrs_loc + ptrs.size();
+        grp_data_loc = null_bv_loc + null_bv.size_bytes();
         grp_data_size = col_trie_size;
         idx2_ptrs_map_loc = grp_data_loc + col_trie_size;
       } else {
         idx2_ptr_count = get_idx2_ptrs_count();
-        idx2_ptrs_map_loc = grp_ptrs_loc + ptrs.size();
+        idx2_ptrs_map_loc = null_bv_loc + null_bv.size_bytes();
         grp_data_loc = idx2_ptrs_map_loc + gen::size_align8(idx2_ptrs_map.size());
         grp_data_size = get_hdr_size() + get_data_size();
       }
@@ -630,6 +638,9 @@ class ptr_groups {
     }
     void write_ptrs(FILE *fp, byte_vec *out_vec) {
       output_bytes(ptrs.data(), ptrs.size(), fp, out_vec);
+    }
+    void write_null_bv(FILE *fp, byte_vec *out_vec) {
+      output_bytes((const uint8_t *) null_bv.raw_data()->data(), null_bv.size_bytes(), fp, out_vec);
     }
     void build_val_ptrs(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, uniq_info_vec& info_vec) {
       ptrs.clear();
@@ -767,7 +778,7 @@ class ptr_groups {
       output_u32(idx2_ptr_count, fp, out_vec);
       output_u32(idx2_ptrs_map_loc, fp, out_vec);
       output_u32(grp_ptrs_loc, fp, out_vec);
-      output_u32(reserved32_1, fp, out_vec); // padding
+      output_u32(null_bv_loc, fp, out_vec);
 
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         write_ptrs(fp, out_vec);
@@ -775,6 +786,7 @@ class ptr_groups {
         if (freq_grp_vec.size() > 2 || enc_type == MSE_STORE || enc_type == MSE_VINTGB)
           write_ptr_lookup_tbl(fp, out_vec);
         write_ptrs(fp, out_vec);
+        write_null_bv(fp, out_vec);
         byte_vec *idx2_ptrs_map = get_idx2_ptrs_map();
         output_bytes(idx2_ptrs_map->data(), idx2_ptrs_map->size(), fp, out_vec);
         output_align8(idx2_ptrs_map->size(), fp, out_vec);
@@ -1671,6 +1683,7 @@ class fast_vint {
     std::vector<int32_t> i32_data;
     std::vector<double> dbl_data;
     std::vector<uint8_t> dbl_exceptions;
+    ptr_groups *ptr_grps;
     byte_vec *block_data;
     int64_t for_val;
     size_t count;
@@ -1706,6 +1719,9 @@ class fast_vint {
     void set_block_data(byte_vec *bd) {
       block_data = bd;
     }
+    void set_ptr_grps(ptr_groups *_ptr_grps) {
+      ptr_grps = _ptr_grps;
+    }
     void remove_neg_bit() {
       if (!is_neg) {
         for_val = INT64_MAX;
@@ -1718,10 +1734,14 @@ class fast_vint {
           i32_data[i] = flavic48::zigzag_decode(i32_data[i]);
       }
     }
-    void add(uint8_t *data_pos, size_t data_len) {
+    void add(uint32_t node_id, uint8_t *data_pos, size_t data_len) {
       int64_t i64;
       if (data_type == MST_DECV) {
         double dbl = *((double *) data_pos);
+        if (dbl == -0.0) {
+          dbl = 0;
+          ptr_grps->set_null(node_id);
+        }
         uint8_t frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
         if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
           dbl_exceptions.push_back(1);
@@ -1738,6 +1758,10 @@ class fast_vint {
       } else {
         flavic48::simple_decode(data_pos, 1, &i64);
         dbl_exceptions.push_back(0);
+        if (i64 == -1) { // null
+          i64 = 0;
+          ptr_grps->set_null(node_id);
+        }
         i64_data.push_back(i64);
         if (i64 > INT32_MAX)
           is64bit = true;
@@ -3054,6 +3078,7 @@ class builder : public builder_fwd {
       size_t data_size = 0;
       ptr_groups *ptr_grps = val_maps.get_grp_ptrs();
       fast_v.set_block_data(&ptr_grps->get_data(1));
+      fast_v.set_ptr_grps(ptr_grps);
       leopard::node_iterator ni(memtrie.all_node_sets, pk_col_count == 0 ? 1 : 0);
       leopard::node n = ni.next();
       leopard::node prev_node = n;
@@ -3159,7 +3184,7 @@ class builder : public builder_fwd {
           } break;
           case MSE_VINTGB: {
             n.set_col_val(0);
-            fast_v.add(data_pos, data_len);
+            fast_v.add(node_id, data_pos, data_len);
             if (max_len < data_len)
               max_len = data_len;
           } break;
@@ -3225,6 +3250,7 @@ class builder : public builder_fwd {
         } break;
         case MSE_VINTGB:
         case MSE_STORE: {
+          ptr_grps->set_null(memtrie.node_count); // todo: set size instead
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
@@ -4495,9 +4521,9 @@ class builder : public builder_fwd {
                 rec.push_back(v64[vi]);
             } else {
               if (*i64_ptr == INT64_MIN) { // null
-                rec.push_back(0xF8);
-                rec.push_back(1);
-                value_len = 2;
+                for (size_t i = 0; i < 9; i++)
+                  rec.push_back(0xFF);
+                value_len = 9;
               } else {
                 int64_t i64 = *i64_ptr;
                 if (type >= MST_DEC0 && type <= MST_DEC9) {

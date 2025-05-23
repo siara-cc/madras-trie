@@ -1893,6 +1893,7 @@ class value_retriever : public ptr_group_map {
     uint32_t node_count;
     uint32_t key_count;
     gen::int_bv_reader *int_ptr_bv = nullptr;
+    gen::bv_reader<uint64_t> null_bv;
     inner_trie_fwd *col_trie = nullptr;
   public:
     __fq1 __fq2 uint32_t scan_ptr_bits_val(val_ctx& vctx) {
@@ -2012,6 +2013,8 @@ class value_retriever : public ptr_group_map {
       init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
       uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 28);
       uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 40);
+      uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint32(val_loc + 44));
+      null_bv.set_bv(null_bv_loc);
       if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         int_ptr_bv = new gen::int_bv_reader();
         int_ptr_bv->init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
@@ -2020,6 +2023,9 @@ class value_retriever : public ptr_group_map {
       if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         col_trie = _dict_obj->new_instance(data_loc);
       }
+    }
+    __fq1 __fq2 bool is_null(uint32_t node_id) {
+      return null_bv[node_id];
     }
     __fq1 __fq2 static_trie *get_col_trie() {
       return (static_trie *) col_trie;
@@ -2251,7 +2257,6 @@ class fast_vint_retriever : public value_retriever {
       switch (data_type) {
         case MST_INT:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          // i64 = flavic48::zigzag_decode(i64);
           *((int64_t *) vctx.val) = i64;
           // printf("%lld\n", i64);
         } break;
@@ -2259,29 +2264,22 @@ class fast_vint_retriever : public value_retriever {
           if (vctx.byts[to_skip] == 7) {
             *((uint64_t *) vctx.val) = i64;
           } else {
-            if (i64 != INT64_MIN) {
-              // i64 = flavic48::zigzag_decode(i64);
-              double dbl = static_cast<double>(i64);
-              dbl /= flavic48::tens[vctx.dec_count];
-              *((double *) vctx.val) = dbl;
-            } else {
-              *((double *) vctx.val) = -0.0;
-            }
+            double dbl = static_cast<double>(i64);
+            dbl /= flavic48::tens[vctx.dec_count];
+            *((double *) vctx.val) = dbl;
             // printf("%.2lf\n", *((double *) vctx.val));
           }
         } break;
         case MST_DEC0 ... MST_DEC9: {
-          if (i64 != INT64_MIN) {
-            // i64 = flavic48::zigzag_decode(i64);
-            double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(data_type - MST_DEC0);
-            *((double *) vctx.val) = dbl;
-          } else {
-            *((double *) vctx.val) = -0.0;
-          }
+          double dbl = static_cast<double>(i64);
+          dbl /= gen::pow10(data_type - MST_DEC0);
+          *((double *) vctx.val) = dbl;
           // printf("%.2lf\n", *((double *) vctx.val));
         } break;
       }
+      i64 = *((int64_t *) vctx.val);
+      if (i64 == 0 && is_null(vctx.node_id))
+        *((int64_t *) vctx.val) = INT64_MIN;
       vctx.node_id++;
       vctx.bm_mask <<= 1;
       return skip_to_next_leaf(vctx);
@@ -2430,20 +2428,16 @@ class uniq_ifp_retriever : public value_retriever {
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       if (!is_repeat(vctx)) {
         uint8_t *val_loc = get_val_loc(vctx);
-        *vctx.val_len = 8;
-        if (*val_loc == 0xF8 && val_loc[1] == 1) {
-          *((int64_t *) vctx.val) = INT64_MIN;
-        } else {
-          int64_t i64;
-          flavic48::simple_decode(val_loc, 1, &i64);
-          i64 = flavic48::zigzag_decode(i64);
-          if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
-            double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(data_type - MST_DEC0);
-            *((double *)vctx.val) = dbl;
-          } else
-            memcpy(vctx.val, &i64, sizeof(int64_t));
-        }
+        int64_t i64;
+        flavic48::simple_decode(val_loc, 1, &i64);
+        i64 = flavic48::zigzag_decode(i64);
+        // printf("i64: %lld\n", i64);
+        if (data_type >= MST_DEC0 && data_type <= MST_DEC9 && i64 != INT64_MIN) {
+          double dbl = static_cast<double>(i64);
+          dbl /= gen::pow10(data_type - MST_DEC0);
+          *((double *)vctx.val) = dbl;
+        } else
+          memcpy(vctx.val, &i64, sizeof(int64_t));
       }
       vctx.node_id++;
       vctx.bm_mask <<= 1;
@@ -2452,6 +2446,7 @@ class uniq_ifp_retriever : public value_retriever {
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
       vctx.init_pbc_vars();
+      *vctx.val_len = 8;
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
