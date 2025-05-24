@@ -765,11 +765,8 @@ class ptr_groups {
       output_byte(step_bits_idx, fp, out_vec);
       output_byte(step_bits_rest, fp, out_vec);
       output_byte(idx_ptr_size, fp, out_vec);
+      output_u32(null_bv.raw_data()->size(), fp, out_vec);
       output_byte(reserved8_1, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
 
       output_u32(max_len, fp, out_vec);
@@ -3250,7 +3247,7 @@ class builder : public builder_fwd {
         } break;
         case MSE_VINTGB:
         case MSE_STORE: {
-          ptr_grps->set_null(memtrie.node_count); // todo: set size instead
+          // ptr_grps->set_null(memtrie.node_count);
           ptr_grps->set_max_len(max_len);
           ptr_grps->build(memtrie.node_count, memtrie.all_node_sets, ptr_groups::get_vals_info_fn, 
               uniq_vals_fwd, false, pk_col_count, get_opts()->dessicate, encoding_type, data_type);
