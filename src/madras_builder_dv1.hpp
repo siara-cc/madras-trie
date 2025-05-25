@@ -619,7 +619,9 @@ class ptr_groups {
         total_data_size += gen::size_align8(grp_data[i].size());
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
-        output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
+        uint32_t grp_data_loc = offset + grp_count * 4 + total_data_size;
+        printf("grp_data_loc: %lu, %u\n", i + inner_trie_start_grp, grp_data_loc);
+        output_u32(grp_data_loc, fp, out_vec);
         total_data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       }
       for (size_t i = 0; i < grp_data.size(); i++) {
@@ -4134,7 +4136,7 @@ class builder : public builder_fwd {
         // }
       }
 
-      //val_table[0] = tp.col_val_loc0;
+      val_table[0] = 0;
       write_names();
       write_col_val_table();
       write_null_empty();

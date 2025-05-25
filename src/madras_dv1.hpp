@@ -2049,7 +2049,7 @@ class value_retriever : public ptr_group_map {
 
 class stored_val_retriever : public value_retriever {
   public:
-    virtual ~stored_val_retriever() {}
+    __fq1 __fq2 virtual ~stored_val_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       size_t len_len;
       *vctx.val_len = cmn::read_vint32(vctx.byts, &len_len);
@@ -2089,7 +2089,7 @@ class stored_val_retriever : public value_retriever {
 
 class col_trie_retriever : public value_retriever {
   public:
-    virtual ~col_trie_retriever() {}
+    __fq1 __fq2 virtual ~col_trie_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       uint32_t ptr_pos = vctx.node_id;
       if (key_count > 0)
@@ -2121,7 +2121,7 @@ class col_trie_retriever : public value_retriever {
 
 class words_retriever : public value_retriever {
   public:
-    virtual ~words_retriever() {}
+    __fq1 __fq2 virtual ~words_retriever() {}
     __fq1 __fq2 uint32_t scan_ptr_bits_words(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
@@ -2207,7 +2207,7 @@ class words_retriever : public value_retriever {
 
 class fast_vint_retriever : public value_retriever {
   public:
-    virtual ~fast_vint_retriever() {}
+    __fq1 __fq2 virtual ~fast_vint_retriever() {}
     __fq1 __fq2 void retrieve_block(uint32_t node_id, val_ctx& vctx) {
       load_bm(node_id, vctx);
       // if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
@@ -2304,7 +2304,7 @@ class fast_vint_retriever : public value_retriever {
 
 class uniq_bin_val_retriever : public value_retriever {
   public:
-    virtual ~uniq_bin_val_retriever() {}
+    __fq1 __fq2 virtual ~uniq_bin_val_retriever() {}
     __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint32_t& bin_len) {
       tail_ptr_flat_map::read_len_bw(val_loc, bin_len);
       return val_loc + 1;
@@ -2335,7 +2335,7 @@ class uniq_bin_val_retriever : public value_retriever {
 
 class uniq_text_retriever : public value_retriever {
   public:
-    virtual ~uniq_text_retriever() {}
+    __fq1 __fq2 virtual ~uniq_text_retriever() {}
     __fq1 __fq2 void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, size_t max_valset_len) {
       uint8_t *val = grp_data[grp_no];
       ret.clear();
@@ -2425,7 +2425,7 @@ class uniq_text_retriever : public value_retriever {
 
 class uniq_ifp_retriever : public value_retriever {
   public:
-    virtual ~uniq_ifp_retriever() {}
+    __fq1 __fq2 virtual ~uniq_ifp_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       if (!is_repeat(vctx)) {
         uint8_t *val_loc = get_val_loc(vctx);
@@ -2460,7 +2460,7 @@ class uniq_ifp_retriever : public value_retriever {
 
 class delta_val_retriever : public value_retriever {
   public:
-    virtual ~delta_val_retriever() {}
+    __fq1 __fq2 virtual ~delta_val_retriever() {}
     __fq1 __fq2 void add_delta(val_ctx& vctx) {
       if (is_repeat(vctx)) {
         vctx.i64 += vctx.i64_delta;
@@ -2554,18 +2554,18 @@ struct rev_nodes_ctx : public input_ctx, public iter_ctx {
   uint32_t prev_node_id;
   uint8_t rev_state;
   uint8_t trie_no;
-  rev_nodes_ctx() {
+  __fq1 __fq2 rev_nodes_ctx() {
     reset();
   }
-  void init() {
+  __fq1 __fq2 void init() {
     reset();
   }
-  void init(static_trie *trie) {
+  __fq1 __fq2 void init(static_trie *trie) {
     if (is_allocated)
       this->close();
     ((iter_ctx *) this)->init((uint16_t) trie->get_max_key_len(), (uint16_t) trie->get_max_level());
   }
-  void reset() {
+  __fq1 __fq2 void reset() {
     rev_node_list = nullptr;
     prev_node_id = 0;
     node_id = 0;
@@ -2729,7 +2729,7 @@ class static_trie_map : public static_trie {
       return val_map[col_val_idx];
     }
 
-    bool read_rev_node_list(uint32_t ct_node_id, rev_nodes_ctx& rev_ctx) {
+    __fq1 __fq2 bool read_rev_node_list(uint32_t ct_node_id, rev_nodes_ctx& rev_ctx) {
       rev_ctx.rev_node_list = get_col_val(ct_node_id, 1, &rev_ctx.rev_nl_len);
       printf("rev_nl_len: %lu\n", rev_ctx.rev_nl_len);
       if (rev_ctx.rev_node_list == nullptr || rev_ctx.rev_nl_len == 0) {
@@ -2744,7 +2744,7 @@ class static_trie_map : public static_trie {
       return true;
     }
 
-    bool get_next_rev_node_id(rev_nodes_ctx& rev_ctx) {
+    __fq1 __fq2 bool get_next_rev_node_id(rev_nodes_ctx& rev_ctx) {
       size_t nid_len;
       uint32_t nid_start = cmn::read_vint32(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos, &nid_len);
       uint32_t nid_end = 0;
