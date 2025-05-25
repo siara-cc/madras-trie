@@ -2270,7 +2270,7 @@ class fast_vint_retriever : public value_retriever {
             *((uint64_t *) vctx.val) = i64;
           } else {
             double dbl = static_cast<double>(i64);
-            dbl /= flavic48::tens[vctx.dec_count];
+            dbl /= flavic48::tens()[vctx.dec_count];
             *((double *) vctx.val) = dbl;
             // printf("%.2lf\n", *((double *) vctx.val));
           }

@@ -1786,10 +1786,10 @@ class fast_vint {
           int64_t i64;
           double dbl = dbl_data[i];
               // printf("dbl: %lu, %lf\n", i, dbl);
-          i64 = static_cast<int64_t>(dbl * flavic48::tens[dec_count]);
+          i64 = static_cast<int64_t>(dbl * flavic48::tens()[dec_count]);
           if (dbl_exceptions[i] == 0) {
             double dbl_back = static_cast<double>(i64);
-            dbl_back /= flavic48::tens[dec_count];
+            dbl_back /= flavic48::tens()[dec_count];
             if (dbl != dbl_back) {
               dbl_exceptions[i] = 1;
               is_dbl_exceptions = true;
