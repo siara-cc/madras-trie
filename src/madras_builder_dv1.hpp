@@ -1298,6 +1298,8 @@ class tail_val_maps {
           uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
           uint8_t rev[ti->len];
           uint8_t *ti_data = uniq_data[ti->pos];
+            if (memcmp(ti_data, "a bad experience with", 21) == 0)
+              int hello = 1;
           for (uint32_t j = 0; j < ti->len; j++)
             rev[j] = ti_data[ti->len - j - 1];
           inner_trie->insert(rev, ti->len, freq_idx);
@@ -1343,6 +1345,9 @@ class tail_val_maps {
           uint32_t col_val_pos = n.get_col_val();
           if (n.get_flags() & NFLAG_LEAF) {
             uniq_info_base *ti = uniq_info_arr_freq[col_val_pos];
+            uint8_t *ti_data = uniq_data[ti->pos];
+            if (memcmp(ti_data, "a bad experience with", 21) == 0)
+              int hello = 1;
             ti->ptr = node_id; //leaf_id++;
           }
           n = ni.next();
@@ -2836,7 +2841,7 @@ class builder : public builder_fwd {
                 flavic48::simple_decode(data_pos, 1, &i64);
                 i64 = flavic48::zigzag_decode(i64);
                 // printf("%lld\n", i64);
-                if (*data_pos == 0xF8 && data_pos[1] == 1) {
+                if (*data_pos == 0xFF && data_len == 9) {
                   data_len = 1;
                   data_pos = num_data;
                   *num_data = 0;
@@ -3138,7 +3143,7 @@ class builder : public builder_fwd {
                 pos += data_len;
                 if (encoding_type != MSE_DICT_DELTA && encoding_type != MSE_VINTGB) {
                   if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-                    if (*data_pos == 0xF8 && data_pos[1] == 1) {
+                    if (*data_pos == 0xFF && data_len == 9) {
                       data_len = 1;
                       *num_data = 0;
                     } else {
@@ -3381,7 +3386,7 @@ class builder : public builder_fwd {
       if (get_opts()->max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
       }
-      builder *ret = new builder(NULL, "inner_trie,key", 1, "*", "u", trie_level + 1, 1, &inner_trie_opts);
+      builder *ret = new builder(NULL, "inner_trie,key", 1, "t", "u", trie_level + 1, 1, &inner_trie_opts);
       ret->fp = fp;
       ret->out_vec = out_vec;
       return ret;
@@ -4202,7 +4207,8 @@ class builder : public builder_fwd {
         is_processing_cols = true;
         write_col_val();
       }
-      //write_final_val_table(to_close, 0);
+      if (to_close) // todo: revisit: only close for trie_level 0?
+        write_final_val_table(to_close);
     }
 
     uint32_t build_and_write_all(bool to_close = true, const char *filename = NULL) {

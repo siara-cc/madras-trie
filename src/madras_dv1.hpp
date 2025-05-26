@@ -3007,6 +3007,8 @@ class static_trie_map : public static_trie {
       for (size_t i = 0; i < val_count; i++) {
         val_map[i] = new_value_retriever(get_column_type(i), get_column_encoding(i));
         uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
+        if (i < pk_col_count) // why can't this be set in the builder?
+          vl64 = 0;
         // printf("Val idx: %lu, %llu\n", i, vl64);
         uint8_t *val_loc = trie_bytes + vl64;
         if (val_loc == trie_bytes)

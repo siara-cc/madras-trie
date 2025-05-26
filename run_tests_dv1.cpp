@@ -200,6 +200,7 @@ int main(int argc, char *argv[]) {
     //   int ret = 1;
 
     val = lines[i].first;
+    val_len = lines[i].second;
     // uint8_t *tab_loc = (uint8_t *) memchr(line, '\t', line_len);
     // if (tab_loc != NULL) {
     //   key_len = tab_loc - line;
