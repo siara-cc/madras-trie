@@ -1942,10 +1942,11 @@ class builder : public builder_fwd {
     uint8_t empty_value[15];
     size_t empty_value_len;
     trie_parts tp;
+    word_split_iface *word_splitter;
     builder(const char *out_file = NULL, const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encodings = "uu", int _trie_level = 0,
         uint16_t _pk_col_count = 1, const bldr_options *_opts = &dflt_opts,
-        const char *_sk_col_positions = "",
+        word_split_iface *_ws = &dflt_word_splitter, const char *_sk_col_positions = "",
         const uint8_t *_null_value = NULL_VALUE, size_t _null_value_len = NULL_VALUE_LEN,
         const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN)
         : memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
@@ -1953,6 +1954,7 @@ class builder : public builder_fwd {
           val_maps (this, uniq_vals, uniq_vals_fwd),
           builder_fwd (_pk_col_count), wm (uniq_vals) {
       opts = new bldr_options[_opts->opts_count];
+      word_splitter = _ws;
       memcpy(opts, _opts, sizeof(bldr_options) * _opts->opts_count);
       is_processing_cols = false;
       tail_maps.init();
@@ -2660,7 +2662,7 @@ class builder : public builder_fwd {
     }
 
     #define MIN_WORD_SIZE 1
-    void add_words(uint32_t node_id, uint8_t *words, uint32_t words_len, std::vector<word_refs>& words_for_sort,
+    void add_words(uint32_t node_id, uint8_t *word_str, uint32_t word_str_len, std::vector<word_refs>& words_for_sort,
             std::vector<uint32_t>& word_ptrs, uint8_t *prev_val, uint32_t prev_val_len,
             uint32_t& max_word_count, uint32_t& total_word_entries, uint32_t& rpt_freq, uint32_t& max_rpts) {
       // first 2 bits of word_count_pos:
@@ -2687,36 +2689,16 @@ class builder : public builder_fwd {
       total_word_entries++;
       uint32_t last_word_len = 0;
       bool is_prev_non_word = false;
-      size_t vint_len = gen::get_vlen_of_uint32(words_len);
-      size_t word_count_pos = word_ptrs.size();
+      size_t vint_len = gen::get_vlen_of_uint32(word_str_len);
+      uint32_t word_count_pos = word_ptrs.size();
       word_ptrs.push_back(0); // initially 0
-      size_t word_count = 0;
+      uint32_t *word_positions = new uint32_t[word_str_len];
+      uint32_t word_count = word_splitter->split_into_words(word_str, word_str_len, word_positions, word_str_len);
       uint32_t ref_id = 0;
-      for (size_t i = 0; i < words_len; i++) {
-        uint8_t c = words[i];
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
-          if (last_word_len >= MIN_WORD_SIZE && is_prev_non_word) {
-            if (words_len - i < MIN_WORD_SIZE) {
-              last_word_len += (words_len - i);
-              break;
-            }
-            ref_id = word_ptrs.size();
-            word_ptrs.push_back(0);
-            words_for_sort.push_back((word_refs) {words + i - last_word_len, last_word_len, ref_id, node_id});
-            word_count++;
-            last_word_len = 0;
-          }
-          is_prev_non_word = false;
-        } else {
-          is_prev_non_word = true;
-        }
-        last_word_len++;
-      }
-      if (last_word_len > 0) {
+      for (size_t i = 0; i < word_count; i++) {
         ref_id = word_ptrs.size();
         word_ptrs.push_back(0);
-        words_for_sort.push_back((word_refs) {words + words_len - last_word_len, last_word_len, ref_id, node_id});
-        word_count++;
+        words_for_sort.push_back((word_refs) {word_str + word_positions[i], word_positions[i + 1] - word_positions[i], ref_id, node_id});
       }
       if (max_word_count < word_count)
         max_word_count = word_count;

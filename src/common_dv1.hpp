@@ -190,6 +190,43 @@ const static bldr_options word_tries_dflt_opts =
 const static bldr_options inner_tries_dflt_opts =
   { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0,  0,  0, 1, 0, 64};
 
+class word_split_iface {
+  public:
+    virtual uint32_t split_into_words(const uint8_t *str, size_t str_len, uint32_t *out_word_positions, uint32_t max_word_count) = 0;
+    virtual ~word_split_iface() {
+    }
+};
+
+class simple_word_splitter : public word_split_iface {
+  private:
+    size_t min_word_len = 1;
+  public:
+    void set_min_word_len(size_t _min_len) {
+      min_word_len = _min_len;
+    }
+    uint32_t split_into_words(const uint8_t *str, size_t str_len, uint32_t *out_word_positions, uint32_t max_word_count) {
+      size_t word_count = 0;
+      size_t last_word_len = 0;
+      bool is_prev_non_word = false;
+      out_word_positions[word_count++] = 0;
+      for (size_t i = 0; i < str_len; i++) {
+        uint8_t c = str[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
+          if (is_prev_non_word && last_word_len >= min_word_len && word_count < max_word_count) {
+            out_word_positions[word_count++] = i;
+            is_prev_non_word = false;
+            last_word_len = 0;
+          }
+        } else
+          is_prev_non_word = true;
+        last_word_len++;
+      }
+      out_word_positions[word_count] = str_len;
+      return word_count;
+    }
+};
+simple_word_splitter dflt_word_splitter;
+
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif
