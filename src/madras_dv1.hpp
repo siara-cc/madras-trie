@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <errno.h>
@@ -14,17 +15,20 @@
 #include <immintrin.h>
 #include <nmmintrin.h>
 #endif
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(ESP32)
 #include <sys/mman.h>
 #endif
 #include <stdint.h>
 
-#include "common_dv1.hpp"
-#include "../../ds_common/src/bv.hpp"
-#include "../../ds_common/src/vint.hpp"
-#include "../../ds_common/src/gen.hpp"
+#include "compiler_util.hpp"
 
-#include "../../flavic48/src/flavic48.hpp"
+BEGIN_IGNORE_UNUSED_FUNCTION
+#include "common_dv1.hpp"
+#include "bv.hpp"
+#include "vint.hpp"
+#include "gen.hpp"
+#include "flavic48.hpp"
+END_IGNORE_UNUSED_FUNCTION
 
 // Function qualifiers
 #ifndef __fq1
@@ -458,7 +462,7 @@ class lt_builder {
             uint32_t val_to_write = node_id / nodes_per_bv_block;
             gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
             if (val_to_write > (1 << 24))
-              printf("WARNING: %u\t%u\n", sel_count, val_to_write);
+              printf("WARNING: %" PRIu32 "\t%" PRIu32 "\n", sel_count, val_to_write);
           }
           sel_count++;
         }
@@ -943,7 +947,7 @@ class ptr_group_map {
       uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 24);
 
       uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 28);
-      uint32_t idx2_ptr_count = cmn::read_uint32(data_loc + 32);
+      // uint32_t idx2_ptr_count = cmn::read_uint32(data_loc + 32);
       // idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       // idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
       uint8_t start_bits = data_loc[10];
@@ -1887,7 +1891,20 @@ class static_trie : public inner_trie {
 
 };
 
-class value_retriever : public ptr_group_map {
+class value_retriever_base : public ptr_group_map {
+  public:
+    __fq1 __fq2 virtual ~value_retriever_base() {}
+    __fq1 __fq2 virtual void load_bm(uint32_t node_id, val_ctx& vctx) = 0;
+    __fq1 __fq2 virtual void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+            uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) = 0;
+    __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
+    __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
+    __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
+    __fq1 __fq2 virtual static_trie *get_col_trie() = 0;
+};
+
+template<char pri_key>
+class value_retriever : public value_retriever_base {
   protected:
     std::vector<uint8_t> prev_val;
     uint32_t node_count;
@@ -1987,28 +2004,37 @@ class value_retriever : public ptr_group_map {
       return grp_data[vctx.grp_no] + vctx.ptr;
     }
 
-    __fq1 __fq2 void load_bm(uint32_t node_id, val_ctx& vctx) {
-      vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
-      vctx.bm_leaf = UINT64_MAX;
-      if (key_count > 0)
+    void load_bm(uint32_t node_id, val_ctx& vctx) {
+      if constexpr (pri_key == 'Y') {
+        vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
+        vctx.bm_leaf = UINT64_MAX;
         vctx.bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
+      }
     }
 
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
-      while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
-        vctx.node_id++;
-        vctx.bm_mask <<= 1;
+      if constexpr (pri_key == 'Y') {
+        while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
+          vctx.node_id++;
+          vctx.bm_mask <<= 1;
+        }
       }
       if (vctx.node_id >= node_count)
         return false;
-      if (vctx.bm_mask != 0)
+      if constexpr (pri_key == 'N') {
         return true;
-      load_bm(vctx.node_id, vctx);
-      return skip_non_leaf_nodes(vctx);
+      } else {
+        if (vctx.bm_mask != 0)
+          return true;
+        load_bm(vctx.node_id, vctx);
+        return skip_non_leaf_nodes(vctx);
+      }
     }
     __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       vctx.node_id++;
-      vctx.bm_mask <<= 1;
+      if constexpr (pri_key == 'Y') {
+        vctx.bm_mask <<= 1;
+      }
       return skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
@@ -2042,13 +2068,12 @@ class value_retriever : public ptr_group_map {
       if (col_trie != nullptr)
         delete col_trie;
     }
-    __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
-    __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
-    __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
 };
 
-class stored_val_retriever : public value_retriever {
+template<char pri_key>
+class stored_val_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~stored_val_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       size_t len_len;
@@ -2056,16 +2081,16 @@ class stored_val_retriever : public value_retriever {
       vctx.val = (vctx.byts + len_len);
       vctx.byts += len_len;
       vctx.byts += *vctx.val_len;
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
-      vctx.ptr_bit_count = ptr_reader.get_ptr_block3(node_id);
-      vctx.byts = grp_data[0] + vctx.ptr_bit_count + 2;
+      vctx.ptr_bit_count = Parent::ptr_reader.get_ptr_block3(node_id);
+      vctx.byts = Parent::grp_data[0] + vctx.ptr_bit_count + 2;
       size_t len_len;
       uint32_t vint_len;
       uint32_t node_id_from = vctx.node_id - (vctx.node_id % nodes_per_ptr_block_n);
-      load_bm(node_id_from, vctx);
+      Parent::load_bm(node_id_from, vctx);
       while (node_id_from < vctx.node_id) {
         if (vctx.bm_leaf & vctx.bm_mask) {
           vint_len = cmn::read_vint32(vctx.byts, &len_len);
@@ -2087,27 +2112,29 @@ class stored_val_retriever : public value_retriever {
     }
 };
 
-class col_trie_retriever : public value_retriever {
+template<char pri_key>
+class col_trie_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~col_trie_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       uint32_t ptr_pos = vctx.node_id;
-      if (key_count > 0)
-        ptr_pos = ((static_trie *) dict_obj)->get_leaf_lt()->rank1(vctx.node_id);
-      uint32_t col_trie_node_id = (*int_ptr_bv)[ptr_pos];
+      if (Parent::key_count > 0)
+        ptr_pos = ((static_trie *) Parent::dict_obj)->get_leaf_lt()->rank1(vctx.node_id);
+      uint32_t col_trie_node_id = (*Parent::int_ptr_bv)[ptr_pos];
       // printf("Col trie node_id: %u\n", col_trie_node_id);
-      ((static_trie *) col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val, true);
-      if (data_type != MST_TEXT && data_type != MST_BIN) {
+      ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val, true);
+      if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
         size_t null_len;
-        uint8_t *null_val = ((static_trie *) dict_obj)->get_null_value(null_len);
-        cmn::convert_back(data_type, vctx.val, vctx.val, *vctx.val_len, null_val, null_len);
+        uint8_t *null_val = ((static_trie *) Parent::dict_obj)->get_null_value(null_len);
+        cmn::convert_back(Parent::data_type, vctx.val, vctx.val, *vctx.val_len, null_val, null_len);
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
-      load_bm(node_id, vctx);
-      skip_non_leaf_nodes(vctx);
+      Parent::load_bm(node_id, vctx);
+      Parent::skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
@@ -2119,35 +2146,37 @@ class col_trie_retriever : public value_retriever {
     }
 };
 
-class words_retriever : public value_retriever {
+template<char pri_key>
+class words_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~words_retriever() {}
     __fq1 __fq2 uint32_t scan_ptr_bits_words(uint32_t node_id, uint32_t ptr_bit_count) {
       uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
       uint64_t bm_leaf = UINT64_MAX;
-      if (key_count > 0)
-        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      if (Parent::key_count > 0)
+        bm_leaf = Parent::ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * Parent::multiplier];
       size_t to_skip = 0;
       uint32_t last_pbc = ptr_bit_count;
       while (node_id_from < node_id) {
         if (bm_leaf & bm_mask) {
           if (to_skip == 0) {
-            uint8_t code = ptr_reader.read8(ptr_bit_count);
-            uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-            if (grp_no != rpt_grp_no && rpt_grp_no > 0)
+            uint8_t code = Parent::ptr_reader.read8(ptr_bit_count);
+            uint8_t grp_no = Parent::code_lt_code_len[code] & 0x0F;
+            if (grp_no != Parent::rpt_grp_no && Parent::rpt_grp_no > 0)
               last_pbc = ptr_bit_count;
-            uint8_t code_len = code_lt_code_len[code] >> 4;
-            uint8_t bit_len = code_lt_bit_len[code];
+            uint8_t code_len = Parent::code_lt_code_len[code] >> 4;
+            uint8_t bit_len = Parent::code_lt_bit_len[code];
             ptr_bit_count += code_len;
-            uint32_t count = ptr_reader.read(ptr_bit_count, bit_len - code_len);
-            if (rpt_grp_no > 0 && grp_no == rpt_grp_no) {
+            uint32_t count = Parent::ptr_reader.read(ptr_bit_count, bit_len - code_len);
+            if (Parent::rpt_grp_no > 0 && grp_no == Parent::rpt_grp_no) {
               to_skip = count - 1; // todo: -1 not needed
               //printf("To skip: %lu\n", to_skip);
             } else {
               while (count--) {
-                code = ptr_reader.read8(ptr_bit_count);
-                ptr_bit_count += code_lt_bit_len[code];
+                code = Parent::ptr_reader.read8(ptr_bit_count);
+                ptr_bit_count += Parent::code_lt_bit_len[code];
               }
             }
           } else
@@ -2156,42 +2185,42 @@ class words_retriever : public value_retriever {
         node_id_from++;
         bm_mask <<= 1;
       }
-      uint8_t code = ptr_reader.read8(ptr_bit_count);
-      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-      if (to_skip > 0 || (grp_no == rpt_grp_no && rpt_grp_no > 0))
+      uint8_t code = Parent::ptr_reader.read8(ptr_bit_count);
+      uint8_t grp_no = Parent::code_lt_code_len[code] & 0x0F;
+      if (to_skip > 0 || (grp_no == Parent::rpt_grp_no && Parent::rpt_grp_no > 0))
         ptr_bit_count = last_pbc;
       return ptr_bit_count;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint8_t code = ptr_reader.read8(vctx.ptr_bit_count);
-      uint8_t bit_len = code_lt_bit_len[code];
-      uint8_t grp_no = code_lt_code_len[code] & 0x0F;
-      uint8_t code_len = code_lt_code_len[code] >> 4;
+      uint8_t code = Parent::ptr_reader.read8(vctx.ptr_bit_count);
+      uint8_t bit_len = Parent::code_lt_bit_len[code];
+      uint8_t grp_no = Parent::code_lt_code_len[code] & 0x0F;
+      uint8_t code_len = Parent::code_lt_code_len[code] >> 4;
       if (grp_no != 0) {
         printf("Group no. ought to be 0: %d\n", grp_no);
       }
       vctx.ptr_bit_count += code_len;
-      uint32_t word_count = ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
+      uint32_t word_count = Parent::ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
       size_t word_len;
       *vctx.val_len = 0;
       for (size_t i = 0; i < word_count; i++) {
-        code = ptr_reader.read8(vctx.ptr_bit_count);
-        bit_len = code_lt_bit_len[code];
-        grp_no = code_lt_code_len[code] & 0x0F;
-        code_len = code_lt_code_len[code] >> 4;
+        code = Parent::ptr_reader.read8(vctx.ptr_bit_count);
+        bit_len = Parent::code_lt_bit_len[code];
+        grp_no = Parent::code_lt_code_len[code] & 0x0F;
+        code_len = Parent::code_lt_code_len[code] >> 4;
         vctx.ptr_bit_count += code_len;
-        uint32_t it_leaf_id = ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
-        ((static_trie *) inner_tries[grp_no])->reverse_lookup(it_leaf_id, &word_len,
+        uint32_t it_leaf_id = Parent::ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
+        ((static_trie *) Parent::inner_tries[grp_no])->reverse_lookup(it_leaf_id, &word_len,
             vctx.val + *vctx.val_len, true);
         *vctx.val_len += word_len;
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
-      load_bm(node_id, vctx);
-      skip_non_leaf_nodes(vctx);
-      uint32_t pbc = ptr_reader.get_ptr_block3(vctx.node_id);
+      Parent::load_bm(node_id, vctx);
+      Parent::skip_non_leaf_nodes(vctx);
+      uint32_t pbc = Parent::ptr_reader.get_ptr_block3(vctx.node_id);
       vctx.ptr_bit_count = scan_ptr_bits_words(vctx.node_id, pbc);
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
@@ -2199,27 +2228,29 @@ class words_retriever : public value_retriever {
       vctx.init(0, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
-      bool is_next = next_val(vctx);
+      next_val(vctx);
       // printf("pbc: %u\n", *p_ptr_bit_count);
       return  (uint8_t *) ret_val;
     }
 };
 
-class fast_vint_retriever : public value_retriever {
+template<char pri_key>
+class fast_vint_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~fast_vint_retriever() {}
     __fq1 __fq2 void retrieve_block(uint32_t node_id, val_ctx& vctx) {
-      load_bm(node_id, vctx);
+      Parent::load_bm(node_id, vctx);
       // if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
       //   return;
       // if (vctx.node_id != UINT32_MAX)
       //   return;
       vctx.node_id = node_id;
-      vctx.ptr_bit_count = ptr_reader.get_ptr_block3(node_id);
-      uint8_t *data = grp_data[0] + vctx.ptr_bit_count + 2;
+      vctx.ptr_bit_count = Parent::ptr_reader.get_ptr_block3(node_id);
+      uint8_t *data = Parent::grp_data[0] + vctx.ptr_bit_count + 2;
       vctx.count = data[1];
       vctx.dec_count = data[2]; // only for data_type MST_DECV
-      size_t offset = (data_type == MST_DECV ? 3 : 2);
+      size_t offset = (Parent::data_type == MST_DECV ? 3 : 2);
       if (*data & 0x80) {
         flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
         if (*data & 0x40) {
@@ -2239,27 +2270,42 @@ class fast_vint_retriever : public value_retriever {
       }
     }
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
-      while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
-        vctx.node_id++;
-        vctx.bm_mask <<= 1;
+      if constexpr (pri_key == 'Y') {
+        while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
+          vctx.node_id++;
+          vctx.bm_mask <<= 1;
+        }
       }
-      if (vctx.node_id >= node_count)
+      if (vctx.node_id >= Parent::node_count)
         return false;
-      if (vctx.bm_mask != 0)
+      if constexpr (pri_key == 'N') {
+        if ((vctx.node_id % nodes_per_bv_block_n) == 0)
+          retrieve_block(vctx.node_id, vctx);
         return true;
-      retrieve_block(vctx.node_id, vctx);
-      return skip_non_leaf_nodes(vctx);
+      } else {
+        if (vctx.bm_mask != 0)
+          return true;
+        retrieve_block(vctx.node_id, vctx);
+        return skip_non_leaf_nodes(vctx);
+      }
     }
     __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       vctx.node_id++;
-      vctx.bm_mask <<= 1;
+      if constexpr (pri_key == 'Y') {
+        vctx.bm_mask <<= 1;
+      }
       return skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       int64_t i64;
-      int to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
+      int to_skip;
+      if constexpr (pri_key == 'N') {
+        to_skip = vctx.node_id % nodes_per_bv_block_n;
+      } else {
+        to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
+      }
       i64 = *(vctx.i64_vals + to_skip);
-      switch (data_type) {
+      switch (Parent::data_type) {
         case MST_INT:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           *((int64_t *) vctx.val) = i64;
@@ -2277,13 +2323,13 @@ class fast_vint_retriever : public value_retriever {
         } break;
         case MST_DEC0 ... MST_DEC9: {
           double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(data_type - MST_DEC0);
+          dbl /= gen::pow10(Parent::data_type - MST_DEC0);
           *((double *) vctx.val) = dbl;
           // printf("%.2lf\n", *((double *) vctx.val));
         } break;
       }
       i64 = *((int64_t *) vctx.val);
-      if (i64 == 0 && is_null(vctx.node_id))
+      if (i64 == 0 && Parent::is_null(vctx.node_id))
         *((int64_t *) vctx.val) = INT64_MIN;
       return skip_to_next_leaf(vctx);
     }
@@ -2302,30 +2348,32 @@ class fast_vint_retriever : public value_retriever {
     }
 };
 
-class uniq_bin_val_retriever : public value_retriever {
+template<char pri_key>
+class uniq_bin_val_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~uniq_bin_val_retriever() {}
     __fq1 __fq2 const uint8_t *get_bin_val(uint8_t *val_loc, uint32_t& bin_len) {
       tail_ptr_flat_map::read_len_bw(val_loc, bin_len);
       return val_loc + 1;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      if (!is_repeat(vctx)) {
-        uint8_t *val_loc = get_val_loc(vctx);
+      if (!Parent::is_repeat(vctx)) {
+        uint8_t *val_loc = Parent::get_val_loc(vctx);
         uint32_t bin_len;
-        const uint8_t *bin_str = get_bin_val(val_loc, bin_len);
+        get_bin_val(val_loc, bin_len);
         *vctx.val_len = bin_len;
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
       vctx.init_pbc_vars();
-      skip_non_leaf_nodes(vctx);
+      Parent::skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
-      vctx.init(max_len, false);
+      vctx.init(Parent::max_len, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
@@ -2333,11 +2381,13 @@ class uniq_bin_val_retriever : public value_retriever {
     }
 };
 
-class uniq_text_retriever : public value_retriever {
+template<char pri_key>
+class uniq_text_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~uniq_text_retriever() {}
     __fq1 __fq2 void get_val_str(gen::byte_str& ret, uint32_t val_ptr, uint8_t grp_no, size_t max_valset_len) {
-      uint8_t *val = grp_data[grp_no];
+      uint8_t *val = Parent::grp_data[grp_no];
       ret.clear();
       uint8_t *t = val + val_ptr;
       if (*t > 15 && *t < 32) {
@@ -2386,14 +2436,14 @@ class uniq_text_retriever : public value_retriever {
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *val_str_buf = new uint8_t[max_len];
       #else
-      uint8_t val_str_buf[max_len];
+      uint8_t val_str_buf[Parent::max_len];
       #endif
-      gen::byte_str val_str(val_str_buf, max_len);
-      uint8_t *val_start = grp_data[grp_no];
+      gen::byte_str val_str(val_str_buf, Parent::max_len);
+      uint8_t *val_start = Parent::grp_data[grp_no];
       if (*val_start != 0)
-        inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
+        Parent::inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
       else
-        get_val_str(val_str, val_loc - val_start, grp_no, max_len);
+        get_val_str(val_str, val_loc - val_start, grp_no, Parent::max_len);
       val_len = val_str.length();
       memcpy(ret_val, val_str.data(), val_len);
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
@@ -2402,20 +2452,20 @@ class uniq_text_retriever : public value_retriever {
       return ret_val;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      if (!is_repeat(vctx)) {
-        uint8_t *val_loc = get_val_loc(vctx);
-        const uint8_t *text_str = get_text_val(val_loc, vctx.grp_no, vctx.val, *vctx.val_len);
+      if (!Parent::is_repeat(vctx)) {
+        uint8_t *val_loc = Parent::get_val_loc(vctx);
+        get_text_val(val_loc, vctx.grp_no, vctx.val, *vctx.val_len);
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
       vctx.init_pbc_vars();
-      skip_non_leaf_nodes(vctx);
+      Parent::skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
-      vctx.init(max_len, false);
+      vctx.init(Parent::max_len, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
@@ -2423,34 +2473,36 @@ class uniq_text_retriever : public value_retriever {
     }
 };
 
-class uniq_ifp_retriever : public value_retriever {
+template<char pri_key>
+class uniq_ifp_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~uniq_ifp_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      if (!is_repeat(vctx)) {
-        uint8_t *val_loc = get_val_loc(vctx);
+      if (!Parent::is_repeat(vctx)) {
+        uint8_t *val_loc = Parent::get_val_loc(vctx);
         int64_t i64;
         flavic48::simple_decode(val_loc, 1, &i64);
         i64 = flavic48::zigzag_decode(i64);
         // printf("i64: %lld\n", i64);
-        if (data_type >= MST_DEC0 && data_type <= MST_DEC9 && i64 != INT64_MIN) {
+        if (Parent::data_type >= MST_DEC0 && Parent::data_type <= MST_DEC9 && i64 != INT64_MIN) {
           double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(data_type - MST_DEC0);
+          dbl /= gen::pow10(Parent::data_type - MST_DEC0);
           *((double *)vctx.val) = dbl;
         } else
           memcpy(vctx.val, &i64, sizeof(int64_t));
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.node_id = node_id;
       vctx.init_pbc_vars();
       *vctx.val_len = 8;
-      skip_non_leaf_nodes(vctx);
+      Parent::skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
-      vctx.init(max_len, false);
+      vctx.init(Parent::max_len, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
@@ -2458,15 +2510,17 @@ class uniq_ifp_retriever : public value_retriever {
     }
 };
 
-class delta_val_retriever : public value_retriever {
+template<char pri_key>
+class delta_val_retriever : public value_retriever<pri_key> {
   public:
+    using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~delta_val_retriever() {}
     __fq1 __fq2 void add_delta(val_ctx& vctx) {
-      if (is_repeat(vctx)) {
+      if (Parent::is_repeat(vctx)) {
         vctx.i64 += vctx.i64_delta;
         return;
       }
-      uint8_t *val_loc = get_val_loc(vctx);
+      uint8_t *val_loc = Parent::get_val_loc(vctx);
       int64_t i64;
       if (val_loc != nullptr) {
         if (*val_loc == 0xF8 && val_loc[1] == 1) {
@@ -2484,21 +2538,20 @@ class delta_val_retriever : public value_retriever {
       if ((vctx.node_id % nodes_per_bv_block_n) == 0)
         vctx.i64 = 0;
       add_delta(vctx);
-      if (data_type == MST_INT || (data_type >= MST_DATE_US && data_type <= MST_DATETIME_ISOT_MS)) {
+      if (Parent::data_type == MST_INT || (Parent::data_type >= MST_DATE_US && Parent::data_type <= MST_DATETIME_ISOT_MS)) {
         *((int64_t *) vctx.val) = vctx.i64;
       } else {
         double dbl = static_cast<double>(vctx.i64);
-        dbl /= gen::pow10(data_type - MST_DEC0);
+        dbl /= gen::pow10(Parent::data_type - MST_DEC0);
         *((double *) vctx.val) = dbl;
       }
-      return skip_to_next_leaf(vctx);
+      return Parent::skip_to_next_leaf(vctx);
     }
     __fq1 __fq2 void fill_val_ctx(uint32_t node_id, val_ctx& vctx) {
       vctx.init_pbc_vars();
-      uint8_t *val_loc;
       vctx.node_id = node_id / nodes_per_bv_block_n;
       vctx.node_id *= nodes_per_bv_block_n;
-      load_bm(vctx.node_id, vctx);
+      Parent::load_bm(vctx.node_id, vctx);
       vctx.i64 = 0;
       while (vctx.node_id < node_id) {
         // printf("Delta Node-id: %u\n", delta_node_id);
@@ -2511,7 +2564,7 @@ class delta_val_retriever : public value_retriever {
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
       val_ctx vctx;
-      vctx.init(max_len, false);
+      vctx.init(Parent::max_len, false);
       vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
@@ -2578,7 +2631,7 @@ class static_trie_map : public static_trie {
   private:
     // __fq1 __fq2 static_trie_map(static_trie_map const&); // todo: restore? can't return because of this
     // __fq1 __fq2 static_trie_map& operator=(static_trie_map const&);
-    value_retriever **val_map;
+    value_retriever_base **val_map;
     uint16_t val_count;
     uint16_t pk_col_count;
     size_t max_val_len;
@@ -2595,8 +2648,10 @@ class static_trie_map : public static_trie {
       cleanup_object = nullptr;
     }
     __fq1 __fq2 ~static_trie_map() {
+#if !defined(ESP32)
       if (is_mmapped)
         map_unmap();
+#endif
       if (trie_bytes != nullptr) {
         if (cleanup_object != nullptr) {
           cleanup_object->release();
@@ -2725,13 +2780,13 @@ class static_trie_map : public static_trie {
       return pk_col_count;
     }
 
-    __fq1 __fq2 value_retriever *get_value_retriever(int col_val_idx) {
+    __fq1 __fq2 value_retriever_base *get_value_retriever(int col_val_idx) {
       return val_map[col_val_idx];
     }
 
     __fq1 __fq2 bool read_rev_node_list(uint32_t ct_node_id, rev_nodes_ctx& rev_ctx) {
       rev_ctx.rev_node_list = get_col_val(ct_node_id, 1, &rev_ctx.rev_nl_len);
-      printf("rev_nl_len: %lu\n", rev_ctx.rev_nl_len);
+      printf("rev_nl_len: %zu\n", rev_ctx.rev_nl_len);
       if (rev_ctx.rev_node_list == nullptr || rev_ctx.rev_nl_len == 0) {
         rev_ctx.rev_state = MDX_REV_ST_END;
         return false;
@@ -2739,7 +2794,7 @@ class static_trie_map : public static_trie {
       size_t nid_len;
       rev_ctx.rev_nl_pos = 0;
       rev_ctx.node_id = cmn::read_vint32(rev_ctx.rev_node_list, &nid_len) >> 1;
-      printf("rev_node id: %u\n", rev_ctx.node_id);
+      printf("rev_node id: %" PRIu32 "\n", rev_ctx.node_id);
       rev_ctx.prev_node_id = 0;
       return true;
     }
@@ -2758,14 +2813,14 @@ class static_trie_map : public static_trie {
         nid_len += nid_end_len;
       } else
         nid_end = nid_start;
-      printf("nid_start: %u, nid_end: %u, prev_nid: %u, nid: %u\n", nid_start, nid_end, rev_ctx.prev_node_id, rev_ctx.node_id);
+      printf("nid_start: %" PRIu32 ", nid_end: %" PRIu32 ", prev_nid: %" PRIu32 ", nid: %" PRIu32 "\n", nid_start, nid_end, rev_ctx.prev_node_id, rev_ctx.node_id);
       rev_ctx.node_id++;
       if (rev_ctx.node_id > nid_end) {
         rev_ctx.rev_nl_pos += nid_len;
         rev_ctx.prev_node_id = nid_start + 1;
         if (has_end)
           rev_ctx.prev_node_id = nid_end + 1;
-        printf("rev_nl_len: %lu, pos: %u\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
+        printf("rev_nl_len: %zu, pos: %" PRIu32 "\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
         if (rev_ctx.rev_nl_pos >= rev_ctx.rev_nl_len) {
           rev_ctx.node_id = UINT32_MAX;
           return false;
@@ -2783,9 +2838,9 @@ class static_trie_map : public static_trie {
         rev_ctx.init(this);
         rev_ctx.rev_state = MDX_REV_ST_NEXT;
         input_ctx *in_ctx = &rev_ctx;
-        printf("key: %u, [%.*s]\n", in_ctx->key_len, (int) in_ctx->key_len, in_ctx->key);
+        printf("key: %" PRIu32 ", [%.*s]\n", in_ctx->key_len, (int) in_ctx->key_len, in_ctx->key);
         uint32_t ct_node_id = find_first(in_ctx->key, in_ctx->key_len, rev_ctx, true);
-        printf("ct node id: %u\n", ct_node_id);
+        printf("ct node id: %" PRIu32 "\n", ct_node_id);
         if (ct_node_id == 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
@@ -2797,36 +2852,36 @@ class static_trie_map : public static_trie {
           return false;
         }
         iter_ctx *it_ctx = &rev_ctx;
-        printf("found first: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
+        printf("found first: %d, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
         if (it_ctx->key_len < in_ctx->key_len ||
             cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
         ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
-        printf("ct node id: %u\n", ct_node_id);
+        printf("ct node id: %" PRIu32 "\n", ct_node_id);
         if (get_column_count() == 1)
           return true;
         if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
-        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
         return true;
       } else {
-        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
         if (get_column_count() == 2) {
           if (get_next_rev_node_id(rev_ctx))
             return true;
         }
-        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
         int res = next(rev_ctx);
         if (res == -2) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
-        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
         input_ctx *in_ctx = &rev_ctx;
         iter_ctx *it_ctx = &rev_ctx;
-        printf("found next: %u, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
+        printf("found next: %d, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
         if (it_ctx->key_len < in_ctx->key_len ||
             cmn::memcmp(in_ctx->key, it_ctx->key, cmn::min(it_ctx->key_len, in_ctx->key_len)) != 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
@@ -2835,7 +2890,7 @@ class static_trie_map : public static_trie {
         uint32_t ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
         if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
-        printf("rev_ctx node_id: %u\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
         return true;
       }
       return false;
@@ -2849,6 +2904,7 @@ class static_trie_map : public static_trie {
       gen::is_gen_print_enabled = to_print_messages;
     }
 
+#if !defined(ESP32)
     __fq1 __fq2 uint8_t *map_file(const char *filename, off_t& sz) {
 #ifdef _WIN32
       load(filename);
@@ -2898,6 +2954,7 @@ class static_trie_map : public static_trie {
       trie_bytes = nullptr;
       is_mmapped = false;
     }
+#endif
 
     __fq1 __fq2 void load_from_mem(uint8_t *mem, size_t sz) {
       trie_bytes = mem;
@@ -2931,7 +2988,7 @@ class static_trie_map : public static_trie {
       }
       size_t bytes_read = fread(trie_bytes, 1, file_stat.st_size, fp);
       if (bytes_read != file_stat.st_size) {
-        printf("Read error: [%s], %lu, %lu\n", filename, (size_t) file_stat.st_size, bytes_read);
+        printf("Read error: [%s], %zu, %zu\n", filename, (size_t) file_stat.st_size, bytes_read);
         #ifdef __CUDA_ARCH__
         return;
         #else
@@ -2952,41 +3009,64 @@ class static_trie_map : public static_trie {
 
     }
 
-    value_retriever *new_value_retriever(char data_type, char encoding_type) {
-      value_retriever *val_retriever = nullptr;
+    value_retriever_base *new_value_retriever(char data_type, char encoding_type) {
+      value_retriever_base *val_retriever = nullptr;
       switch (encoding_type) {
         case MSE_TRIE: case MSE_TRIE_2WAY:
-          val_retriever = new col_trie_retriever();
+          if (pk_col_count > 0)
+            val_retriever = new col_trie_retriever<'Y'>();
+          else
+            val_retriever = new col_trie_retriever<'N'>();
           break;
         case MSE_WORDS: case MSE_WORDS_2WAY:
-          val_retriever = new words_retriever();
+          if (pk_col_count > 0)
+            val_retriever = new words_retriever<'Y'>();
+          else
+            val_retriever = new words_retriever<'N'>();
           break;
         case MSE_VINTGB:
-          val_retriever = new fast_vint_retriever();
+          if (pk_col_count > 0)
+            val_retriever = new fast_vint_retriever<'Y'>();
+          else
+            val_retriever = new fast_vint_retriever<'N'>();
           break;
         case MSE_STORE:
-          val_retriever = new stored_val_retriever();
+          if (pk_col_count > 0)
+            val_retriever = new stored_val_retriever<'Y'>();
+          else
+            val_retriever = new stored_val_retriever<'N'>();
           break;
         default:
           switch (data_type) {
             case MST_BIN:
-              val_retriever = new uniq_bin_val_retriever();
+              if (pk_col_count > 0)
+                val_retriever = new uniq_bin_val_retriever<'Y'>();
+              else
+                val_retriever = new uniq_bin_val_retriever<'N'>();
               break;
             case MST_TEXT:
-              val_retriever = new uniq_text_retriever();
+              if (pk_col_count > 0)
+                val_retriever = new uniq_text_retriever<'Y'>();
+              else
+                val_retriever = new uniq_text_retriever<'N'>();
               break;
             case MST_INT:
             case MST_DECV ... MST_DEC9:
             case MST_DATE_US ... MST_DATETIME_ISOT_MS:
-              if (encoding_type == MSE_DICT_DELTA)
-                val_retriever = new delta_val_retriever();
-              else
-                val_retriever = new uniq_ifp_retriever();
+              if (encoding_type == MSE_DICT_DELTA) {
+                if (pk_col_count > 0)
+                  val_retriever = new delta_val_retriever<'Y'>();
+                else
+                  val_retriever = new delta_val_retriever<'N'>();
+              } else {
+                if (pk_col_count > 0)
+                  val_retriever = new uniq_ifp_retriever<'Y'>();
+                else
+                  val_retriever = new uniq_ifp_retriever<'N'>();
+              }
               break;
         }
       }
-      if (val_retriever == nullptr)
-        val_retriever = new uniq_text_retriever(); // does not matter which
       return val_retriever;
     }
     __fq1 __fq2 void load_into_vars() {
@@ -3003,7 +3083,7 @@ class static_trie_map : public static_trie {
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
 
-      val_map = new value_retriever*[val_count]();
+      val_map = new value_retriever_base*[val_count]();
       for (size_t i = 0; i < val_count; i++) {
         val_map[i] = new_value_retriever(get_column_type(i), get_column_encoding(i));
         uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));

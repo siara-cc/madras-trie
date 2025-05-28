@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -pthread -std=c++11 -march=native
-INCLUDES = -I./src
+CXXFLAGS = -pthread -std=c++17 -march=native
+INCLUDES = -I./src -I../ds_common/src -I../flavic48/src
 L_FLAGS = -lsqlite3
 #-lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd -lcds
 M_FLAGS = -mbmi2 -mpopcnt

@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -pthread -std=c++11 -march=native
-INCLUDES = -I./src
+CXXFLAGS = -pthread -std=c++17 -march=native
+INCLUDES = -I./src -I../../ds_common/src -I../../flavic48/src
 L_FLAGS = 
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
@@ -23,4 +23,4 @@ clean:
 	rm -rf query_mdx.dSYM
 
 query_mdx: query_mdx.cpp ../src/common_dv1.hpp ../src/madras_dv1.hpp ../src/madras_builder_dv1.hpp ../../leopard-trie/src/leopard.hpp ../../ds_common/src/*.hpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++11 query_mdx.cpp -o query_mdx $(L_FLAGS) $(M_FLAGS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) query_mdx.cpp -o query_mdx $(L_FLAGS) $(M_FLAGS)

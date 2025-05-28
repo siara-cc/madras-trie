@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
   printf("Row count: %d, Node count: %u, Col size: %lu\n", row_count, node_count, col_size);
   printf("Data type: %c, Enc_type: %c, Name: %s\n", data_type, enc_type, col_name);
   size_t val_len;
-  madras_dv1::value_retriever *val_retriever = dict_reader.get_value_retriever(column_idx);
+  madras_dv1::value_retriever_base *val_retriever = dict_reader.get_value_retriever(column_idx);
   madras_dv1::val_ctx vctx;
   if (data_type == MST_TEXT || data_type == MST_BIN) {
     vctx.init(dict_reader.get_max_val_len(column_idx) + 1, true, false);
