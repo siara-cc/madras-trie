@@ -712,7 +712,7 @@ class ptr_groups {
             std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_count4 << std::endl;
           // printf("nid: %u, bit count: %u\n", node_id, bit_count4);
           if (encoding_type == MSE_VINTGB && (bit_count4 == 0 || (pos4 > 0 && (bit_count4 - bit_counts[pos4 - 1] == 0))))
-            bit_count4 += (data_type == MST_INT ? 2 : 3);
+            bit_count4 += (data_type == MST_INT ? 3 : 4);
           bit_counts[pos4] = bit_count4;
           pos4++;
         }
@@ -1692,7 +1692,6 @@ class fast_vint {
     int64_t for_val;
     size_t count;
     bool is64bit;
-    bool is_neg;
     bool is_dbl_exceptions;
   public:
     fast_vint(char _data_type) {
@@ -1702,7 +1701,6 @@ class fast_vint {
       for_val = INT64_MAX;
       count = 0;
       is64bit = false;
-      is_neg = false;
       is_dbl_exceptions = false;
       block_data = nullptr;
     }
@@ -1713,7 +1711,6 @@ class fast_vint {
       count = 0;
       dec_count = 0;
       is64bit = false;
-      is_neg = false;
       is_dbl_exceptions = false;
       i64_data.clear();
       i32_data.clear();
@@ -1725,18 +1722,6 @@ class fast_vint {
     }
     void set_ptr_grps(ptr_groups *_ptr_grps) {
       ptr_grps = _ptr_grps;
-    }
-    void remove_neg_bit() {
-      if (!is_neg) {
-        for_val = INT64_MAX;
-        for (size_t i = 0; i < i64_data.size(); i++) {
-          i64_data[i] = flavic48::zigzag_decode(i64_data[i]);
-          if (for_val > i64_data[i])
-            for_val = i64_data[i];
-        }
-        for (size_t i = 0; i < i32_data.size(); i++)
-          i32_data[i] = flavic48::zigzag_decode(i32_data[i]);
-      }
     }
     void add(uint32_t node_id, uint8_t *data_pos, size_t data_len) {
       int64_t i64;
@@ -1755,8 +1740,6 @@ class fast_vint {
           if (dec_count < frac_width)
             dec_count = frac_width;
           dbl_exceptions.push_back(0);
-          if (dbl < 0)
-            is_neg = true;
         }
         dbl_data.push_back(dbl);
       } else {
@@ -1771,8 +1754,6 @@ class fast_vint {
           is64bit = true;
         else
           i32_data.push_back(i64);
-        if (i64 & 1)
-          is_neg = true;
       }
       if (for_val > i64)
         for_val = i64;
@@ -1804,8 +1785,6 @@ class fast_vint {
           }
           if (dbl_exceptions[i] == 0) {
             i64 = flavic48::zigzag_encode(i64);
-            if (i64 & 1)
-              is_neg = true;
             i64_data.push_back(i64);
             if (i64 > INT32_MAX)
               is64bit = true;
@@ -1817,7 +1796,6 @@ class fast_vint {
             i64 = flavic48::zigzag_encode(i64);
             i64_data.push_back(i64);
             is64bit = true;
-            is_neg = true;
           }
           // if (is_dbl_exceptions)
           //   print_bits(static_cast<uint64_t>(i64));
@@ -1826,8 +1804,7 @@ class fast_vint {
             for_val = i64;
         }
       }
-      remove_neg_bit();
-      if (is_dbl_exceptions)
+      if (is_dbl_exceptions || for_val == INT64_MAX || i64_data.size() == 0)
         for_val = 0;
       for (size_t i = 0; i < i64_data.size(); i++) {
         i64_data[i] -= for_val;
@@ -1838,7 +1815,7 @@ class fast_vint {
         // printf("data32: %u\n", i32_data[i]);
       }
       // printf("for val: %lld\n", for_val);
-      uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00) | (is_neg ? 0x40 : 0x00);
+      uint8_t hdr_b1 = (is64bit ? 0x80 : 0x00);
       size_t last_size = block_data->size();
       block_data->resize(block_data->size() + i64_data.size() * 9 + hdr_size + 2);
       block_data->at(last_size + 0) = hdr_b1;
@@ -3072,7 +3049,7 @@ class builder : public builder_fwd {
         if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
           if (encoding_type == MSE_VINTGB) {
             size_t blk_size = fast_v.build_block();
-            if (blk_size > (data_type == MST_DECV ? 3 : 2))
+            if (blk_size > (data_type == MST_DECV ? 4 : 3))
               prev_node.set_col_val(blk_size);
             fast_v.reset_block();
             data_size += blk_size;
@@ -3211,7 +3188,7 @@ class builder : public builder_fwd {
       }
       if (encoding_type == MSE_VINTGB) {
         size_t blk_size = fast_v.build_block();
-        if (blk_size > (data_type == MST_DECV ? 3 : 2))
+        if (blk_size > (data_type == MST_DECV ? 4 : 3))
           prev_node.set_col_val(blk_size);
         data_size += blk_size;
       }

@@ -5,10 +5,10 @@ namespace madras_dv1 {
 
 #define MDX_HEADER_SIZE (4 + 12 + 30 * 4)
 
-// const static uint8_t *NULL_VALUE =  (const uint8_t *) " ";
-// const static size_t NULL_VALUE_LEN = 1;
-// const static uint8_t *EMPTY_VALUE = (const uint8_t *) "!";
-// const static size_t EMPTY_VALUE_LEN = 1;
+const static uint8_t *NULL_VALUE =  (const uint8_t *) " ";
+const static size_t NULL_VALUE_LEN = 1;
+const static uint8_t *EMPTY_VALUE = (const uint8_t *) "!";
+const static size_t EMPTY_VALUE_LEN = 1;
 
 #if defined(__GNUC__) || defined(__clang__)
 #define PACKED_STRUCT __attribute__((packed))

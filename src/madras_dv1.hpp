@@ -2251,22 +2251,15 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       vctx.count = data[1];
       vctx.dec_count = data[2]; // only for data_type MST_DECV
       size_t offset = (Parent::data_type == MST_DECV ? 3 : 2);
-      if (*data & 0x80) {
-        flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
-        if (*data & 0x40) {
-          for (size_t i = 0; i < vctx.count; i++)
-            vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i64_vals[i]);
-        }
-      } else {
+      if ((*data & 0x80) == 0) {
         flavic48::decode(data + offset, vctx.count, vctx.i32_vals);
-        if (*data & 0x40) {
-          for (size_t i = 0; i < vctx.count; i++)
-            vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i32_vals[i]);
-        } else {
-          for (size_t i = 0; i < vctx.count; i++)
-            vctx.i64_vals[i] = vctx.i32_vals[i];
-        }
+        for (size_t i = 0; i < vctx.count; i++)
+          vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i32_vals[i]);
         memset(vctx.byts, '\0', vctx.count); // not setting lens, just 0s
+      } else {
+        flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
+        for (size_t i = 0; i < vctx.count; i++)
+          vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i64_vals[i]);
       }
     }
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
