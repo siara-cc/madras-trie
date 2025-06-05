@@ -9,6 +9,8 @@ cuda_bench/mt_bench*
 !cuda_bench/cuda_bench_dv1.cu
 prgs/query_mdx*
 !prgs/query_mdx.cpp
+prgs/lookup*
+!prgs/lookup.cpp
 a.out*
 *.txt*
 *.log
@@ -20,6 +22,7 @@ a.out*
 *.mdx
 *.ods#
 *.trace
+*.dSYM
 tex/*.pdf
 tex/*.log
 tex/*.gz
