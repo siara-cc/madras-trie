@@ -203,29 +203,37 @@ int main(int argc, char *argv[]) {
     printf("Sum: %lld\n", sum);
   } else
   if (data_type == MST_INT) {
-    vctx.init(32, true, true);
     int64_t sum = 0;
-    bool has_next = true;
-    val_retriever->fill_val_ctx(0, vctx);
-    do {
-      has_next = val_retriever->next_val(vctx);
-      if (*vctx.val_len != -1)
-        sum += *((int64_t *) vctx.val);
-    } while (has_next);
+    if (enc_type == MSE_VINTGB) {
+      sum += (*((madras_dv1::fast_vint_retriever<'N'> *) val_retriever)).sum_int(0, node_count);
+    } else {
+      vctx.init(32, true, true);
+      bool has_next = true;
+      val_retriever->fill_val_ctx(0, vctx);
+      do {
+        has_next = val_retriever->next_val(vctx);
+        if (*vctx.val_len != -1)
+          sum += *((int64_t *) vctx.val);
+      } while (has_next);
+    }
     printf("Sum: %lld\n", sum);
   } else {
-    vctx.init(32, true, true);
     double sum = 0;
-    bool has_next = true;
-    val_retriever->fill_val_ctx(0, vctx);
-    size_t count = 0;
-    do {
-      count++;
-      has_next = val_retriever->next_val(vctx);
-      if (*vctx.val_len != -1)
-        sum += *((double *) vctx.val);
-    } while (has_next);
-    printf("Sum: %lf, count: %lu\n", sum, count);
+    if (enc_type == MSE_VINTGB) {
+      sum += (*((madras_dv1::fast_vint_retriever<'N'> *) val_retriever)).sum_dbl(0, node_count);
+    } else {
+      vctx.init(32, true, true);
+      bool has_next = true;
+      val_retriever->fill_val_ctx(0, vctx);
+      size_t count = 0;
+      do {
+        count++;
+        has_next = val_retriever->next_val(vctx);
+        if (*vctx.val_len != -1)
+          sum += *((double *) vctx.val);
+      } while (has_next);
+    }
+    printf("Sum: %lf\n", sum);
   }
   printf("vctx.node_id: %u\n", vctx.node_id);
   printf("eps: %lf, ", row_count / time_taken_in_secs(t) / 1000);

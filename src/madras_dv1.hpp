@@ -1901,6 +1901,10 @@ class value_retriever_base : public ptr_group_map {
     __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
     __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
     __fq1 __fq2 virtual static_trie *get_col_trie() = 0;
+    __fq1 __fq2 virtual size_t decode_all(int64_t *out, uint32_t node_id, size_t len) = 0;
+    __fq1 __fq2 virtual size_t decode_all(int32_t *out, uint32_t node_id, size_t len) = 0;
+    __fq1 __fq2 virtual int64_t sum_int(uint32_t node_id, size_t len) = 0;
+    __fq1 __fq2 virtual double sum_dbl(uint32_t node_id, size_t len) = 0;
 };
 
 template<char pri_key>
@@ -2061,6 +2065,18 @@ class value_retriever : public value_retriever_base {
     }
     __fq1 __fq2 static_trie *get_col_trie() {
       return (static_trie *) col_trie;
+    }
+    __fq1 __fq2 size_t decode_all(int64_t *out, uint32_t node_id, size_t len) {
+      return 0;
+    }
+    __fq1 __fq2 size_t decode_all(int32_t *out, uint32_t node_id, size_t len) {
+      return 0;
+    }
+    __fq1 __fq2 int64_t sum_int(uint32_t node_id, size_t len) {
+      return 0;
+    }
+    __fq1 __fq2 double sum_dbl(uint32_t node_id, size_t len) {
+      return 0;
     }
     __fq1 __fq2 virtual ~value_retriever() {
       if (int_ptr_bv != nullptr)
@@ -2234,11 +2250,69 @@ class words_retriever : public value_retriever<pri_key> {
     }
 };
 
+class fast_vint_helper_base {
+  public:
+    __fq1 __fq2 virtual ~fast_vint_helper_base() {}
+    __fq1 __fq2 virtual size_t decode_block(const uint8_t *data, int32_t *i32_vals, int64_t *i64_vals, uint8_t *byts = nullptr) = 0;
+};
+
+template<char i_or_d>
+class fast_vint_helper : public fast_vint_helper_base {
+  public:
+    __fq1 __fq2 fast_vint_helper() {}
+    __fq1 __fq2 virtual ~fast_vint_helper() {}
+    __fq1 __fq2 size_t decode_block(const uint8_t *data, int32_t *i32_vals, int64_t *i64_vals, uint8_t *byts = nullptr) {
+      size_t offset = 2;
+      size_t block_size;
+      if constexpr (i_or_d != 'i')
+        offset = 3;
+      if ((*data & 0x80) == 0) {
+        block_size = flavic48::decode(data + offset, data[1], i32_vals);
+        for (size_t i = 0; i < data[1]; i++)
+          i64_vals[i] = flavic48::zigzag_decode(i32_vals[i]);
+      } else {
+        block_size = flavic48::decode(data + offset, data[1], i64_vals, byts);
+        for (size_t i = 0; i < data[1]; i++)
+          i64_vals[i] = flavic48::zigzag_decode(i64_vals[i]);
+      }
+      if constexpr (i_or_d == '.') {
+        for (size_t i = 0; i < data[1]; i++) {
+          if (byts[i] < 7) {
+            double dbl = static_cast<double>(i64_vals[i]);
+            dbl /= flavic48::tens()[data[2]];
+            memcpy(i64_vals + i, &dbl, 8);
+          }
+        }
+        memset(byts, '\0', 64);
+      }
+      return offset + block_size;
+    }
+};
+
 template<char pri_key>
 class fast_vint_retriever : public value_retriever<pri_key> {
+  private:
+    fast_vint_helper_base *fvi_helper = nullptr;
   public:
     using Parent = value_retriever<pri_key>;
-    __fq1 __fq2 virtual ~fast_vint_retriever() {}
+    __fq1 __fq2 fast_vint_retriever(char data_type) {
+      switch (data_type) {
+        case MST_INT:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS:
+          fvi_helper = new fast_vint_helper<'i'>();
+        break;
+        case MST_DECV:
+          fvi_helper = new fast_vint_helper<'.'>();
+        break;
+        case MST_DEC0 ... MST_DEC9:
+          fvi_helper = new fast_vint_helper<'d'>();
+        break;
+      }
+    }
+    __fq1 __fq2 virtual ~fast_vint_retriever() {
+      if (fvi_helper == nullptr)
+        delete fvi_helper;
+    }
     __fq1 __fq2 void retrieve_block(uint32_t node_id, val_ctx& vctx) {
       Parent::load_bm(node_id, vctx);
       // if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
@@ -2338,6 +2412,43 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
       return (uint8_t *) ret_val;
+    }
+    __fq1 __fq2 size_t decode_all(int64_t *out, uint32_t node_id, size_t len) {
+      return 0;
+    }
+    __fq1 __fq2 int64_t sum_int(uint32_t node_id, int len) {
+      int64_t sum = 0;
+      int32_t *i32_vals = new int32_t[64];
+      int64_t *i64_vals = new int64_t[64];
+      uint8_t *data = Parent::grp_data[0] + Parent::ptr_reader.get_ptr_block3(node_id) + 2;
+      while (len > 0) {
+        size_t block_size = fvi_helper->decode_block(data, i32_vals, i64_vals);
+        for (size_t i = 0; i < data[1]; i++)
+          sum += i64_vals[i];
+        len -= data[1];
+        data += block_size;
+      }
+      delete [] i32_vals;
+      delete [] i64_vals;
+      return sum;
+    }
+    __fq1 __fq2 double sum_dbl(uint32_t node_id, size_t len) {
+      double sum = 0;
+      int32_t *i32_vals = new int32_t[64];
+      int64_t *i64_vals = new int64_t[64];
+      uint8_t *byts = new uint8_t[64]();
+      uint8_t *data = Parent::grp_data[0] + Parent::ptr_reader.get_ptr_block3(node_id) + 2;
+      while (len > 0) {
+        size_t block_size = fvi_helper->decode_block(data, i32_vals, i64_vals, byts);
+        for (size_t i = 0; i < data[1]; i++)
+          sum += *((double *) i64_vals + i); // todo: review
+        len -= data[1];
+        data += block_size;
+      }
+      delete [] i32_vals;
+      delete [] i64_vals;
+      delete [] byts;
+      return sum;
     }
 };
 
@@ -3019,9 +3130,9 @@ class static_trie_map : public static_trie {
           break;
         case MSE_VINTGB:
           if (pk_col_count > 0)
-            val_retriever = new fast_vint_retriever<'Y'>();
+            val_retriever = new fast_vint_retriever<'Y'>(data_type);
           else
-            val_retriever = new fast_vint_retriever<'N'>();
+            val_retriever = new fast_vint_retriever<'N'>(data_type);
           break;
         case MSE_STORE:
           if (pk_col_count > 0)
