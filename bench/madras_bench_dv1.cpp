@@ -48,7 +48,8 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   bldr_opts.max_groups = max_groups;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
   bldr_opts.leap_frog = leapfrog > 0 ? true : false;
-  sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, false, bldr_opts);
+  sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
+
   sb->set_print_enabled(false);
 
   int64_t ival;
@@ -68,10 +69,10 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   //t = print_time_taken(t, "Time taken for insert/append: ");
 
   sb->set_out_vec(&output_buf);
-  sb->write_all(0);
+  sb->build_and_write_all(true);
 
   uint32_t seq_idx = 0;
-  nodes_sorted_on_freq = sb->opts.sort_nodes_on_freq;
+  nodes_sorted_on_freq = sb->get_opts()->sort_nodes_on_freq;
   // if (nodes_sorted_on_freq) {
   //   sb->set_leaf_seq(1, seq_idx, [&lines](uint32_t arr_idx, uint32_t leaf_seq) -> void {
   //     key_ctx *kc = &lines[arr_idx];

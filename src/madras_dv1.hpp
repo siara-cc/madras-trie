@@ -2008,7 +2008,7 @@ class value_retriever : public value_retriever_base {
       return grp_data[vctx.grp_no] + vctx.ptr;
     }
 
-    void load_bm(uint32_t node_id, val_ctx& vctx) {
+    __fq1 __fq2 void load_bm(uint32_t node_id, val_ctx& vctx) {
       if constexpr (pri_key == 'Y') {
         vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
         vctx.bm_leaf = UINT64_MAX;
@@ -2511,7 +2511,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
     __fq1 __fq2 const uint8_t *get_text_val(uint8_t *val_loc, uint8_t grp_no, uint8_t *ret_val, size_t& val_len) {
 
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-      uint8_t *val_str_buf = new uint8_t[max_len];
+      uint8_t *val_str_buf = new uint8_t[Parent::max_len];
       #else
       uint8_t val_str_buf[Parent::max_len];
       #endif

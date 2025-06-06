@@ -769,10 +769,10 @@ class static_trie : public inner_trie {
       in_ctx.node_id = 1;
       trie_flags *tf;
       uint64_t bm_mask;
-//printf("Node id0: %u\n", in_ctx.node_id);
+printf("Node id0: %u\n", in_ctx.node_id);
       do {
         int ret = fwd_cache.try_find(in_ctx);
-//printf("Node id1: %u\n", in_ctx.node_id);
+printf("Node id1: %u\n", in_ctx.node_id);
         bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
         tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
         if (ret == 0)
@@ -802,7 +802,7 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
           }
-//printf("Node id2: %u\n", in_ctx.node_id);
+printf("Node id2: %u\n", in_ctx.node_id);
           if (bm_mask & tf->bm_term)
             return false;
           in_ctx.node_id++;
@@ -813,13 +813,13 @@ class static_trie : public inner_trie {
           }
         } while (1);
         if (in_ctx.key_pos == in_ctx.key_len) {
-//printf("Node id3: %u\n", in_ctx.node_id);
+printf("Node id3: %u\n", in_ctx.node_id);
           return 0 != (bm_mask & tf->bm_leaf);
         }
         if ((bm_mask & tf->bm_child) == 0)
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
-//printf("Node id4: %u\n", in_ctx.node_id);
+printf("Node id4: %u\n", in_ctx.node_id);
       } while (1);
       return false;
     }

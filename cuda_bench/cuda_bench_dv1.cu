@@ -9,7 +9,7 @@
 // Device-compatible madras_cuda_wrapper class
 class madras_cuda_wrapper {
   public:
-    madras_dv1::static_trie *st;
+    madras_dv1::static_trie st;
     key_ctx *lines;
     uint8_t *file_buf_lines;
     size_t file_size;
@@ -24,12 +24,12 @@ class madras_cuda_wrapper {
       query_status = _q_status;
       file_buf_lines = _file_buf_lines;
       file_size = _file_size;
-      st = new madras_dv1::static_trie();
-      st->load_static_trie(_file_buf_mdx);
+      //st = new madras_dv1::static_trie();
+      st.load_static_trie(_file_buf_mdx);
       memset(query_status, '\0', line_count);
     }
     __device__ madras_dv1::static_trie *get_trie_inst() const {
-      return st;
+      return 0; //st;
     }
 };
 
@@ -51,11 +51,11 @@ __global__ void lookup_1x1_kernel(madras_cuda_wrapper *d_cw, uint32_t num_querie
     key_ctx *ctx = &d_cw->lines[idx];
     in_ctx.key = d_cw->file_buf_lines + ctx->key_loc;
     in_ctx.key_len = ctx->key_len;
-    bool is_success = d_cw->get_trie_inst()->lookup(in_ctx);
-    ctx->leaf_id = d_cw->get_trie_inst()->leaf_rank1(in_ctx.node_id);
-    d_cw->get_trie_inst()->reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
-    if (out_key_len == in_ctx.key_len && madras_dv1::cmn::memcmp(in_ctx.key, key_buf, out_key_len) == 0)
-      d_cw->query_status[idx] = is_success;
+    // bool is_success = d_cw->get_trie_inst()->lookup(in_ctx);
+    // ctx->leaf_id = d_cw->get_trie_inst()->leaf_rank1(in_ctx.node_id);
+    // d_cw->get_trie_inst()->reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
+    // if (out_key_len == in_ctx.key_len && madras_dv1::cmn::memcmp(in_ctx.key, key_buf, out_key_len) == 0)
+    //   d_cw->query_status[idx] = is_success;
     // printf("Is success: %d\n", is_success);
     // printf("Node id: %u\n", in_ctx.node_id);
   }
@@ -70,11 +70,11 @@ __global__ void lookup_kernel(madras_cuda_wrapper *d_cw, uint32_t start_idx, uin
     key_ctx *ctx = &d_cw->lines[idx];
     in_ctx.key = d_cw->file_buf_lines + ctx->key_loc;
     in_ctx.key_len = ctx->key_len;
-    bool is_success = d_cw->get_trie_inst()->lookup(in_ctx);
-    ctx->leaf_id = d_cw->get_trie_inst()->leaf_rank1(in_ctx.node_id);
+    bool is_success = d_cw->st.lookup(in_ctx);
+    ctx->leaf_id = d_cw->st.leaf_rank1(in_ctx.node_id);
     uint8_t key_buf[256];
     size_t out_key_len;
-    d_cw->get_trie_inst()->reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
+    d_cw->st.reverse_lookup(ctx->leaf_id, &out_key_len, key_buf);
     if (out_key_len == in_ctx.key_len && madras_dv1::cmn::memcmp(in_ctx.key, key_buf, out_key_len) == 0)
       d_cw->query_status[idx] = is_success;
     // printf("Is success: %d\n", is_success);
@@ -155,7 +155,7 @@ int main(int argc, const char *argv[]) {
     size_t query_count = capacity;
     if (i == (iter_count - 1) && (lines.size() % capacity) > 0)
       query_count = (lines.size() % capacity);
-    lookup_kernel<<<blocks, threads_per_block>>>(d_cw, i * capacity, query_count);
+      lookup_kernel<<<blocks, threads_per_block>>>(d_cw, i * capacity, query_count);
     cudaDeviceSynchronize();
   }
 

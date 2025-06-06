@@ -567,7 +567,7 @@ class ptr_groups {
       }
       if (dessicate)
         ptr_lookup_tbl_loc = 0;
-      printf("Ptr sz: %lu, Data sz: %u, lt size: %lu, lt sz: %u\n", ptrs.size(), grp_data_size, ptr_lookup_tbl.size(), ptr_lookup_tbl_sz);
+      //printf("Ptr sz: %lu, Data sz: %u, lt size: %lu, lt sz: %u\n", ptrs.size(), grp_data_size, ptr_lookup_tbl.size(), ptr_lookup_tbl_sz);
     }
     #define CODE_LT_BIT_LEN 0
     #define CODE_LT_CODE_LEN 1
@@ -1278,7 +1278,7 @@ class tail_val_maps {
       }
       gen::gen_printf("Savings full: %u, %u\nSavings Partial: %u, %u / Sfx set: %u, %u\n", savings_full, savings_count_full, savings_partial, savings_count_partial, sfx_set_tot_len, sfx_set_tot_cnt);
 
-      printf("rpt_ui.pos: %u\n", ptr_grps.rpt_ui.pos);
+      gen::gen_printf("rpt_ui.pos: %u\n", ptr_grps.rpt_ui.pos);
       if (ptr_grps.rpt_ui.pos == UINT32_MAX) { // repeats
         ptr_grps.rpt_ui.freq_count = ptr_grps.rpt_ui.repeat_freq;
         max_repeats++;
