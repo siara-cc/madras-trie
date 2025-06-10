@@ -279,7 +279,7 @@ class cmn {
           int64_t i64 = gen::read_svint60(val_loc);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
-            dbl /= gen::pow10(data_type - MST_DEC0);
+            dbl /= flavic48::tens()[data_type - MST_DEC0];
             *((double *)ret_val) = dbl;
           } else
             memcpy(ret_val, &i64, sizeof(int64_t));
@@ -908,6 +908,14 @@ class ptr_group_map {
     uint32_t max_len;
     inner_trie_fwd *dict_obj;
     inner_trie_fwd **inner_tries;
+
+    ptr_bits_reader *get_ptr_reader() {
+      return &ptr_reader;
+    }
+
+    uint8_t *get_grp_data(size_t grp_no) {
+      return grp_data[grp_no];
+    }
 
     __fq1 __fq2 ptr_group_map() {
       trie_loc = nullptr;
@@ -1901,10 +1909,6 @@ class value_retriever_base : public ptr_group_map {
     __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
     __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
     __fq1 __fq2 virtual static_trie *get_col_trie() = 0;
-    __fq1 __fq2 virtual size_t decode_all(int64_t *out, uint32_t node_id, size_t len) = 0;
-    __fq1 __fq2 virtual size_t decode_all(int32_t *out, uint32_t node_id, size_t len) = 0;
-    __fq1 __fq2 virtual int64_t sum_int(uint32_t node_id, size_t len) = 0;
-    __fq1 __fq2 virtual double sum_dbl(uint32_t node_id, size_t len) = 0;
 };
 
 template<char pri_key>
@@ -2008,7 +2012,7 @@ class value_retriever : public value_retriever_base {
       return grp_data[vctx.grp_no] + vctx.ptr;
     }
 
-    __fq1 __fq2 void load_bm(uint32_t node_id, val_ctx& vctx) {
+    void load_bm(uint32_t node_id, val_ctx& vctx) {
       if constexpr (pri_key == 'Y') {
         vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
         vctx.bm_leaf = UINT64_MAX;
@@ -2065,18 +2069,6 @@ class value_retriever : public value_retriever_base {
     }
     __fq1 __fq2 static_trie *get_col_trie() {
       return (static_trie *) col_trie;
-    }
-    __fq1 __fq2 size_t decode_all(int64_t *out, uint32_t node_id, size_t len) {
-      return 0;
-    }
-    __fq1 __fq2 size_t decode_all(int32_t *out, uint32_t node_id, size_t len) {
-      return 0;
-    }
-    __fq1 __fq2 int64_t sum_int(uint32_t node_id, size_t len) {
-      return 0;
-    }
-    __fq1 __fq2 double sum_dbl(uint32_t node_id, size_t len) {
-      return 0;
     }
     __fq1 __fq2 virtual ~value_retriever() {
       if (int_ptr_bv != nullptr)
@@ -2250,6 +2242,107 @@ class words_retriever : public value_retriever<pri_key> {
     }
 };
 
+class block_retriever_base {
+  public:
+    __fq1 __fq2 virtual ~block_retriever_base() {}
+    __fq1 __fq2 virtual void block_operation(uint32_t node_id, int len, void *sum_out, int64_t *out = nullptr) = 0;
+};
+
+template <char type_id, typename T, char operation>
+class fast_vint_block_retriever : public block_retriever_base {
+  private:
+    value_retriever_base *val_retriever;
+  public:
+    __fq1 __fq2 fast_vint_block_retriever(value_retriever_base *_val_retriever) {
+      val_retriever = _val_retriever;
+    }
+    __fq1 __fq2 void block_operation(uint32_t node_id, int len, void *sum_out, int64_t *out = nullptr) {
+      int64_t sum_int = 0;
+      double sum_dbl = 0;
+      int64_t i64;
+      int32_t *i32_vals = new int32_t[64];
+      int64_t *i64_vals = new int64_t[64];
+      uint8_t *byts;
+      if constexpr (type_id == '.')
+        byts = new uint8_t[64];
+      uint8_t *data = val_retriever->get_grp_data(0) + val_retriever->get_ptr_reader()->get_ptr_block3(node_id) + 2;
+      size_t out_pos = 0;
+      size_t offset;
+      if constexpr (type_id == '.')
+        offset = 3;
+      else
+        offset = 2;
+      size_t block_size;
+      while (len > 0) {
+        if ((*data & 0x80) == 0) {
+          block_size = flavic48::decode(data + offset, data[1], i32_vals);
+          for (size_t i = 0; i < data[1]; i++) {
+            i64 = flavic48::zigzag_decode(i32_vals[i]);
+            if constexpr (operation == 'D')
+               out[out_pos++] = i64;
+            else {
+              if constexpr (type_id != 'i')
+                i64_vals[i] = i64;
+              if constexpr (type_id == 'i')
+                sum_int += i64;
+            }
+          }
+          if constexpr (type_id == '.')
+            memset(byts, '\0', 64);
+        } else {
+          if constexpr (type_id == '.')
+            block_size = flavic48::decode(data + offset, data[1], i64_vals, byts);
+          else
+            block_size = flavic48::decode(data + offset, data[1], i64_vals);
+          for (size_t i = 0; i < data[1]; i++) {
+            i64 = flavic48::zigzag_decode(i64_vals[i]);
+            if constexpr (operation == 'D')
+               out[out_pos++] = i64;
+            else {
+              if constexpr (type_id != 'i')
+                i64_vals[i] = i64;
+              if constexpr (type_id == 'i')
+                sum_int += i64;
+            }
+          }
+        }
+        if constexpr (type_id != 'i') {
+          double dbl;
+          for (size_t i = 0; i < data[1]; i++) {
+            if constexpr (type_id == '.') {
+              if (byts[i] == 7) {
+                memcpy(&dbl, i64_vals + i, 8);
+              } else {
+                dbl = static_cast<double>(i64_vals[i]);
+                dbl /= flavic48::tens()[data[2]];
+              }
+            } else {
+              dbl = static_cast<double>(i64_vals[i]);
+              dbl /= flavic48::tens()[val_retriever->data_type - MST_DEC0];
+            }
+            if constexpr (operation == 'S')
+              sum_dbl += dbl;
+            if constexpr (operation == 'D')
+              memcpy(i64_vals + i, &dbl, 8);
+          }
+        }
+        len -= data[1];
+        data += block_size;
+        data += offset;
+      }
+      delete [] i32_vals;
+      delete [] i64_vals;
+      if constexpr (type_id == '.')
+        delete[] byts;
+      if constexpr (operation == 'S') {
+        if constexpr (type_id == 'i')
+          memcpy(sum_out, &sum_int, 8);
+        else
+          memcpy(sum_out, &sum_dbl, 8);
+      }
+    }
+};
+
 template<char pri_key>
 class fast_vint_retriever : public value_retriever<pri_key> {
   public:
@@ -2332,7 +2425,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
         } break;
         case MST_DEC0 ... MST_DEC9: {
           double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(Parent::data_type - MST_DEC0);
+          dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
           *((double *) vctx.val) = dbl;
           // printf("%.2lf\n", *((double *) vctx.val));
         } break;
@@ -2354,74 +2447,6 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
       return (uint8_t *) ret_val;
-    }
-    __fq1 __fq2 size_t decode_all(int64_t *out, uint32_t node_id, size_t len) {
-      return 0;
-    }
-    __fq1 __fq2 int64_t sum_int(uint32_t node_id, int len) {
-      int64_t sum = 0;
-      int32_t *i32_vals = new int32_t[64];
-      int64_t *i64_vals = new int64_t[64];
-      uint32_t data_pos = Parent::ptr_reader.get_ptr_block3(node_id);
-      uint8_t *data = Parent::grp_data[0] + data_pos + 2;
-      size_t offset = 2;
-      size_t chunk_size;
-      while (len > 0) {
-        if ((*data & 0x80) == 0) {
-          chunk_size = flavic48::decode(data + offset, data[1], i32_vals);
-          for (size_t i = 0; i < data[1]; i++)
-            sum += flavic48::zigzag_decode(i32_vals[i]);
-        } else {
-          chunk_size = flavic48::decode(data + offset, data[1], i64_vals);
-          for (size_t i = 0; i < data[1]; i++)
-            sum += flavic48::zigzag_decode(i64_vals[i]);
-        }
-        len -= data[1];
-        data += chunk_size;
-        data += offset;
-      }
-      delete [] i32_vals;
-      delete [] i64_vals;
-      return sum;
-    }
-    __fq1 __fq2 double sum_dbl(uint32_t node_id, size_t len) {
-      double sum = 0;
-      int32_t *i32_vals = new int32_t[64];
-      int64_t *i64_vals = new int64_t[64];
-      uint8_t *byts = new uint8_t[64];
-      uint32_t data_pos = Parent::ptr_reader.get_ptr_block3(node_id);
-      uint8_t *data = Parent::grp_data[0] + data_pos + 2;
-      size_t offset = 3;
-      size_t chunk_size;
-      while (len > 0) {
-        if ((*data & 0x80) == 0) {
-          chunk_size = flavic48::decode(data + offset, data[1], i32_vals);
-          for (size_t i = 0; i < data[1]; i++)
-            i64_vals[i] = flavic48::zigzag_decode(i32_vals[i]);
-          memset(byts, '\0', data[1]); // not setting lens, just 0s
-        } else {
-          chunk_size = flavic48::decode(data + offset, data[1], i64_vals, byts);
-          for (size_t i = 0; i < data[1]; i++)
-            i64_vals[i] = flavic48::zigzag_decode(i64_vals[i]);
-        }
-        for (size_t i = 0; i < data[1]; i++) {
-          double dbl;
-          if (byts[i] == 7) {
-            memcpy(&dbl, i64_vals + i, 8);
-          } else {
-            dbl = static_cast<double>(i64_vals[i]);
-            dbl /= flavic48::tens()[data[2]];
-          }
-          sum += dbl;
-        }
-        len -= data[1];
-        data += chunk_size;
-        data += offset;
-      }
-      delete [] i32_vals;
-      delete [] i64_vals;
-      delete [] byts;
-      return sum;
     }
 };
 
@@ -2511,7 +2536,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
     __fq1 __fq2 const uint8_t *get_text_val(uint8_t *val_loc, uint8_t grp_no, uint8_t *ret_val, size_t& val_len) {
 
       #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-      uint8_t *val_str_buf = new uint8_t[Parent::max_len];
+      uint8_t *val_str_buf = new uint8_t[max_len];
       #else
       uint8_t val_str_buf[Parent::max_len];
       #endif
@@ -2564,7 +2589,7 @@ class uniq_ifp_retriever : public value_retriever<pri_key> {
         // printf("i64: %lld\n", i64);
         if (Parent::data_type >= MST_DEC0 && Parent::data_type <= MST_DEC9 && i64 != INT64_MIN) {
           double dbl = static_cast<double>(i64);
-          dbl /= gen::pow10(Parent::data_type - MST_DEC0);
+          dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
           *((double *)vctx.val) = dbl;
         } else
           memcpy(vctx.val, &i64, sizeof(int64_t));
@@ -2619,7 +2644,7 @@ class delta_val_retriever : public value_retriever<pri_key> {
         *((int64_t *) vctx.val) = vctx.i64;
       } else {
         double dbl = static_cast<double>(vctx.i64);
-        dbl /= gen::pow10(Parent::data_type - MST_DEC0);
+        dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
         *((double *) vctx.val) = dbl;
       }
       return Parent::skip_to_next_leaf(vctx);
@@ -2859,6 +2884,27 @@ class static_trie_map : public static_trie {
 
     __fq1 __fq2 value_retriever_base *get_value_retriever(int col_val_idx) {
       return val_map[col_val_idx];
+    }
+
+    template <char operation>
+    __fq1 __fq2 block_retriever_base *get_block_retriever(int col_val_idx) {
+      if (get_column_encoding(col_val_idx) != MSE_VINTGB)
+        return nullptr;
+      value_retriever_base *val_retriever = val_map[col_val_idx];
+      block_retriever_base *inst;
+      switch (val_retriever->data_type) {
+        case MST_INT:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+          inst = new fast_vint_block_retriever<'i', int64_t, operation>(val_retriever);
+        } break;
+        case MST_DECV: {
+          inst = new fast_vint_block_retriever<'.', double, operation>(val_retriever);
+        } break;
+        case MST_DEC0 ... MST_DEC9: {
+          inst = new fast_vint_block_retriever<'x', double, operation>(val_retriever);
+        } break;
+      }
+      return inst;
     }
 
     __fq1 __fq2 bool read_rev_node_list(uint32_t ct_node_id, rev_nodes_ctx& rev_ctx) {
