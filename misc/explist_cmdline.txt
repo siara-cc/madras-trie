@@ -1,5 +1,4 @@
-./export_sqlite ~/git2/sqlite_dbs/daily_weather.db dw 0 ItttffffffffffI uutuuuuuuuuuuuu
-- encoding t for date field not working
+./export_sqlite ~/git2/sqlite_dbs/daily_weather.db dw 0 itet..........i uutuvvvvvvvvvvu
 
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
 ./export_sqlite ~/git2/sqlite_dbs/df2016_sales_data.db sd 0 eii5i uuuuu
@@ -18,6 +17,7 @@
 ~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
+./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 1 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
 
 ./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 uudddduuuuuu

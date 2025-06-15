@@ -180,6 +180,7 @@ x ODBC driver
 - composite primary index get_col_val()
 - Dont use svint60 for u and d encodings
 - 1 file for each column
+- Separate null bitmap as option
 - Fix CUDA demo
 - GUI crashing on linux
 - so_users sum incorrect Id (d)
@@ -240,9 +241,9 @@ madras_flutter todos
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit
-- isNeg and ~
-- VInt + FOR
-- Repeats
+x isNeg and ~
++ VInt + FOR
+x Repeats
 - . and v
 - Xor and doubles
 

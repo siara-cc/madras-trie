@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <float.h>
 #include <math.h>
 #include <time.h>
 #include <functional> // for std::function
@@ -251,6 +252,7 @@ class ptr_groups {
     uint8_t idx_ptr_size;
     uint8_t reserved8_1;
     uint8_t reserved8_2;
+    uint8_t flags;
     uint32_t next_idx;
     uint32_t ptr_lookup_tbl_sz;
     uint32_t ptr_lookup_tbl_loc;
@@ -263,6 +265,9 @@ class ptr_groups {
     uint64_t tot_ptr_bit_count;
     uint32_t max_len;
     uint32_t reserved32_1;
+    uint32_t null_count;
+    int64_t min_val;
+    int64_t max_val;
   public:
     std::vector<builder_fwd *> inner_tries;
     size_t inner_trie_start_grp;
@@ -328,6 +333,12 @@ class ptr_groups {
     }
     void set_null(size_t idx) {
       null_bv.set(idx, true);
+    }
+    void set_stats(uint8_t _flags, uint32_t _null_ct, int64_t _min_val, int64_t _max_val) {
+      flags = _flags;
+      null_count = _null_ct;
+      min_val = _min_val;
+      max_val = _max_val;
     }
     void set_col_sug(uint8_t _sug_width, uint8_t _sug_height) {
       sug_col_width = _sug_width;
@@ -506,11 +517,11 @@ class ptr_groups {
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         return gen::size_align8(grp_data_size) + get_ptrs_size() +
                   null_bv.size_bytes() +
-                  gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 20;
+                  gen::size_align8(ptr_lookup_tbl_sz) + 8 * 4 + 2 * 8 + 24;
       }
       return gen::size_align8(grp_data_size) + get_ptrs_size() +
         null_bv.size_bytes() + gen::size_align8(idx2_ptrs_map.size()) +
-        gen::size_align8(ptr_lookup_tbl_sz) + 7 * 4 + 20; // aligned to 8
+        gen::size_align8(ptr_lookup_tbl_sz) + 8 * 4 + 2 * 8 + 24; // aligned to 8
     }
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
       ptr_lkup_tbl_ptr_width = width;
@@ -540,7 +551,7 @@ class ptr_groups {
       }
       if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB)
         build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
-      ptr_lookup_tbl_loc = 7 * 4 + 20;
+      ptr_lookup_tbl_loc = 8 * 4 + 2 * 8 + 24;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB))
         ptr_lookup_tbl_sz = 0;
       else {
@@ -751,7 +762,7 @@ class ptr_groups {
       append_plt_count(bit_count);
       append_plt_count16(bit_counts, u16_arr_count, encoding_type);
     }
-    void write_ptrs_data(uint8_t flags, bool is_tail, FILE *fp, byte_vec *out_vec) {
+    void write_ptrs_data(bool is_tail, FILE *fp, byte_vec *out_vec) {
       //size_t ftell_start = ftell(fp);
       output_byte(ptr_lkup_tbl_ptr_width, fp, out_vec);
       output_byte(data_type, fp, out_vec);
@@ -770,6 +781,10 @@ class ptr_groups {
       output_u32(null_bv.raw_data()->size(), fp, out_vec);
       output_byte(reserved8_1, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
+      output_byte(reserved8_2, fp, out_vec);
+      output_byte(reserved8_2, fp, out_vec);
+      output_byte(reserved8_2, fp, out_vec);
+      output_byte(reserved8_2, fp, out_vec);
 
       output_u32(max_len, fp, out_vec);
       output_u32(ptr_lookup_tbl_loc, fp, out_vec);
@@ -778,6 +793,14 @@ class ptr_groups {
       output_u32(idx2_ptrs_map_loc, fp, out_vec);
       output_u32(grp_ptrs_loc, fp, out_vec);
       output_u32(null_bv_loc, fp, out_vec);
+      output_u32(null_count, fp, out_vec);
+      output_u64(min_val, fp, out_vec);
+      output_u64(max_val, fp, out_vec);
+
+
+      gen::gen_printf("\nflags: %d, null_count: %u\n", flags, null_count);
+      gen::gen_printf("min_val: %lld\n", min_val);
+      gen::gen_printf("max_val: %lld\n\n", max_val);
 
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         write_ptrs(fp, out_vec);
@@ -1694,6 +1717,7 @@ class fast_vint {
     bool is64bit;
     bool is_dbl_exceptions;
   public:
+    bool isAll32bit;
     fast_vint(char _data_type) {
       data_type = _data_type;
       hdr_size = data_type == MST_DECV ? 3 : 2;
@@ -1701,6 +1725,7 @@ class fast_vint {
       for_val = INT64_MAX;
       count = 0;
       is64bit = false;
+      isAll32bit = true;
       is_dbl_exceptions = false;
       block_data = nullptr;
     }
@@ -1727,7 +1752,7 @@ class fast_vint {
       int64_t i64;
       if (data_type == MST_DECV) {
         double dbl = *((double *) data_pos);
-        if (dbl == -0.0) {
+        if (gen::is_negative_zero(dbl)) {
           dbl = 0;
           ptr_grps->set_null(node_id);
         }
@@ -1736,6 +1761,7 @@ class fast_vint {
           dbl_exceptions.push_back(1);
           is_dbl_exceptions = true;
           is64bit = true;
+          isAll32bit = false;
         } else {
           if (dec_count < frac_width)
             dec_count = frac_width;
@@ -1750,9 +1776,10 @@ class fast_vint {
           ptr_grps->set_null(node_id);
         }
         i64_data.push_back(i64);
-        if (i64 > INT32_MAX)
+        if (i64 > INT32_MAX) {
           is64bit = true;
-        else
+          isAll32bit = false;
+        } else
           i32_data.push_back(i64);
       }
       if (for_val > i64)
@@ -1786,9 +1813,10 @@ class fast_vint {
           if (dbl_exceptions[i] == 0) {
             i64 = flavic48::zigzag_encode(i64);
             i64_data.push_back(i64);
-            if (i64 > INT32_MAX)
+            if (i64 > INT32_MAX) {
               is64bit = true;
-            else
+              isAll32bit = false;
+            } else
               i32_data.push_back(i64);
           } else {
             // printf("Exception: %lf\n", dbl);
@@ -1796,6 +1824,7 @@ class fast_vint {
             i64 = flavic48::zigzag_encode(i64);
             i64_data.push_back(i64);
             is64bit = true;
+            isAll32bit = false;
           }
           // if (is_dbl_exceptions)
           //   print_bits(static_cast<uint64_t>(i64));
@@ -2997,6 +3026,28 @@ class builder : public builder_fwd {
       return tot_rpt_count;
     }
 
+    void set_min_max(double dbl_val, double &min_dbl, double &max_dbl, uint32_t &null_count) {
+      if (gen::is_negative_zero(dbl_val))
+        null_count++;
+      else {
+        if (min_dbl > dbl_val)
+          min_dbl = dbl_val;
+        if (max_dbl < dbl_val)
+          max_dbl = dbl_val;
+      }
+    }
+
+    void set_min_max(int64_t int_val, int64_t &min_int, int64_t &max_int, uint32_t &null_count) {
+      if (int_val == INT64_MIN)
+        null_count++;
+      else {
+        if (min_int > int_val)
+          min_int = int_val;
+        if (max_int < int_val)
+          max_int = int_val;
+      }
+    }
+
     // FILE *col_trie_fp;
     uint32_t build_col_val() {
       clock_t t = clock();
@@ -3020,6 +3071,11 @@ class builder : public builder_fwd {
       rec_pos_vec[0] = UINT32_MAX;
       // bool delta_next_block = true;
       node_data_vec nodes_for_sort;
+      int64_t min_int = INT64_MAX;
+      int64_t max_int = 0;
+      double min_dbl = DBL_MAX;
+      double max_dbl = 0;
+      uint32_t null_count = 0;
       uint32_t max_len = 0;
       uint32_t rpt_freq = 0;
       uint32_t max_rpt_count = 0;
@@ -3089,10 +3145,14 @@ class builder : public builder_fwd {
                 data_pos += len_len;
                 pos += len_len;
                 pos += data_len;
+                if (cur_col_idx == col_idx)
+                  set_min_max(memcmp(data_pos, null_value, null_value_len) == 0 ? INT64_MIN : data_len, min_int, max_int, null_count);
               } break;
               case MST_DECV: {
                 data_len = 8;
                 pos += data_len;
+                if (cur_col_idx == col_idx)
+                  set_min_max(*((double *) data_pos), min_dbl, max_dbl, null_count);
               } break;
               case MST_INT:
               case MST_DEC0 ... MST_DEC9:
@@ -3100,15 +3160,27 @@ class builder : public builder_fwd {
                 data_len = *data_pos & 0x07;
                 data_len += 2;
                 pos += data_len;
+                int64_t i64;
+                if (*data_pos == 0xFF && data_len == 9) {
+                  i64 = INT64_MIN;
+                } else {
+                  flavic48::simple_decode(data_pos, 1, &i64);
+                  i64 = flavic48::zigzag_decode(i64);
+                }
+                if (cur_col_idx == col_idx) {
+                  if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
+                    double dbl = static_cast<double>(i64);
+                    dbl /= flavic48::tens()[data_type - MST_DEC0];
+                    set_min_max(dbl, min_dbl, max_dbl, null_count);
+                  } else
+                    set_min_max(i64, min_int, max_int, null_count);
+                }
                 if (encoding_type != MSE_DICT_DELTA && encoding_type != MSE_VINTGB) {
                   if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
                     if (*data_pos == 0xFF && data_len == 9) {
                       data_len = 1;
                       *num_data = 0;
                     } else {
-                      int64_t i64;
-                      flavic48::simple_decode(data_pos, 1, &i64);
-                      i64 = flavic48::zigzag_decode(i64);
                       data_len = gen::get_svint60_len(i64);
                       gen::copy_svint60(i64, num_data, data_len);
                     }
@@ -3126,8 +3198,6 @@ class builder : public builder_fwd {
         switch (encoding_type) {
           case MSE_WORDS:
           case MSE_WORDS_2WAY: {
-            if (max_len < data_len)
-              max_len = data_len;
             add_words(node_id, data_pos, data_len, words_for_sort, word_ptrs, prev_val, prev_val_len,
                         max_word_count, total_word_entries, rpt_freq, max_rpt_count);
             prev_val = data_pos;
@@ -3135,8 +3205,6 @@ class builder : public builder_fwd {
           } break;
           case MSE_TRIE:
           case MSE_TRIE_2WAY: {
-            if (max_len < data_len)
-              max_len = data_len;
             uint32_t nid_shifted = node_id >> get_opts()->sec_idx_nid_shift_bits;
             // printf("Data: [%.*s]\n", data_len, data_pos);
             leopard::node_set_vars nsv = col_trie_builder->insert(data_pos, data_len);
@@ -3148,15 +3216,11 @@ class builder : public builder_fwd {
           case MSE_VINTGB: {
             n.set_col_val(0);
             fast_v.add(node_id, data_pos, data_len);
-            if (max_len < data_len)
-              max_len = data_len;
           } break;
           case MSE_STORE: {
             uint32_t ptr = ptr_grps->append_bin_to_grp_data(1, data_pos, data_len, data_type);
             byte_vec& data = ptr_grps->get_data(1);
             n.set_col_val(data.size() - ptr);
-            if (max_len < data_len)
-              max_len = data_len;
           } break;
           case MSE_DICT_DELTA: {
             int64_t i64;
@@ -3181,6 +3245,13 @@ class builder : public builder_fwd {
             nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
           // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
         }
+        if (max_len < data_len)
+          max_len = data_len;
+        if (data_type >= MST_DECV && data_type <= MST_DEC9) {
+          memcpy(&min_int, &min_dbl, 8);
+          memcpy(&max_int, &max_dbl, 8);
+        }
+        ptr_grps->set_stats(fast_v.isAll32bit ? 1 : 0, null_count, min_int, max_int);
         leaf_id++;
         node_id++;
         prev_node = n;
@@ -3262,7 +3333,7 @@ class builder : public builder_fwd {
       printf("trie level: %d, col idx: %d\n", trie_level, cur_col_idx);
       char data_type = column_types[cur_col_idx];
       char encoding_type = column_encodings[cur_col_idx];
-      write_val_ptrs_data(data_type, encoding_type, 1, fp, out_vec); // TODO: fix flags
+      write_val_ptrs_data(data_type, encoding_type, fp, out_vec); // TODO: fix flags
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         col_trie_builder->write_kv(false, nullptr);
       }
@@ -3551,7 +3622,7 @@ class builder : public builder_fwd {
       output_u32(tail_size, fp, out_vec);
       output_u32(trie_flags.size(), fp, out_vec);
       gen::gen_printf("Tail stats - ");
-      tail_maps.get_grp_ptrs()->write_ptrs_data(1, true, fp, out_vec);
+      tail_maps.get_grp_ptrs()->write_ptrs_data(true, fp, out_vec);
       if (get_opts()->inner_tries && tail_trie_builder != nullptr) {
         tail_trie_builder->fp = fp;
         tail_trie_builder->out_vec = out_vec;
@@ -3562,11 +3633,11 @@ class builder : public builder_fwd {
       output_align8(trie.size(), fp, out_vec);
       return trie_data_ptr_size();
     }
-    uint32_t write_val_ptrs_data(char data_type, char encoding_type, uint8_t flags, FILE *fp_val, byte_vec *out_vec) {
+    uint32_t write_val_ptrs_data(char data_type, char encoding_type, FILE *fp_val, byte_vec *out_vec) {
       uint32_t val_fp_offset = 0;
       if (get_uniq_val_count() > 0 || encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
         gen::gen_printf("Stats - %c - ", encoding_type);
-        val_maps.get_grp_ptrs()->write_ptrs_data(flags, false, fp, out_vec);
+        val_maps.get_grp_ptrs()->write_ptrs_data(false, fp, out_vec);
         val_fp_offset += val_maps.get_grp_ptrs()->get_total_size();
       }
       return val_fp_offset;

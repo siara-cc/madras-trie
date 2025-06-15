@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     int64_t sum = 0;
     if (enc_type == MSE_VINTGB) {
       madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever<'S'>(column_idx);
-      block_retriever->block_operation(0, node_count, &sum);
+      block_retriever->block_operation32(0, node_count, &sum);
     } else {
       vctx.init(32, true, true);
       bool has_next = true;

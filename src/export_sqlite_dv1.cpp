@@ -2,6 +2,7 @@
 #include <cstring>
 #include <time.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <limits.h>
 #include <sqlite3.h>
@@ -15,6 +16,66 @@
 
 const static char *dt_formats[] = {"%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y %I:%M %p", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"};
 const static size_t dt_format_lens[] = {8, 8, 8, 19, 19, 19, 19, 19, 19};
+#include <stdint.h>
+#include <string.h>
+#include <time.h>
+
+#define SECONDS_PER_DAY 86400
+
+int64_t days_from_civil(int y, int m, int d) {
+    y -= m <= 2;
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const int yoe = y - era * 400;                       // [0, 399]
+    const int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; // [0, 365]
+    const int doe = yoe * 365 + yoe / 4 - yoe / 100 + yoe / 400 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+int64_t tm_to_epoch_seconds(const struct tm *tm) {
+    int64_t days = days_from_civil(tm->tm_year + 1900,
+                                    tm->tm_mon + 1,
+                                    tm->tm_mday);
+    return days * SECONDS_PER_DAY +
+           tm->tm_hour * 3600 +
+           tm->tm_min * 60 +
+           tm->tm_sec;
+}
+
+void civil_from_days(int64_t z, int *y, int *m, int *d) {
+    z += 719468;
+    const int era = (z >= 0 ? z : z - 146096) / 146097;
+    const int doe = z - era * 146097;                    // [0, 146096]
+    const int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const int y1 = yoe + era * 400;
+    const int doy = doe - (365 * yoe + yoe / 4 - yoe / 100 + yoe / 400);
+    const int mp = (5 * doy + 2) / 153;
+    *d = doy - (153 * mp + 2) / 5 + 1;
+    *m = mp + (mp < 10 ? 3 : -9);
+    *y = y1 + (*m <= 2 ? 1 : 0);
+}
+
+void epoch_seconds_to_tm(int64_t seconds, struct tm *out_tm) {
+    memset(out_tm, 0, sizeof(*out_tm));
+
+    int64_t days = seconds / SECONDS_PER_DAY;
+    int64_t rem = seconds % SECONDS_PER_DAY;
+    if (rem < 0) {
+        rem += SECONDS_PER_DAY;
+        days -= 1;
+    }
+
+    int y, m, d;
+    civil_from_days(days, &y, &m, &d);
+
+    out_tm->tm_year = y - 1900;
+    out_tm->tm_mon  = m - 1;
+    out_tm->tm_mday = d;
+    out_tm->tm_hour = rem / 3600;
+    rem %= 3600;
+    out_tm->tm_min  = rem / 60;
+    out_tm->tm_sec  = rem % 60;
+}
+
 
 double time_taken_in_secs(struct timespec t) {
   struct timespec t_end;
@@ -66,7 +127,9 @@ void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, 
       printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
       values[exp_col_idx] = INT64_MIN;
     } else {
-      uint64_t dt_val = (uint64_t) mktime(&tm);
+      int64_t dt_val = tm_to_epoch_seconds(&tm);
+      // if (tm.tm_year < 0)
+      //   printf("time_val: %lld, %s, %d-%d-%d\n", dt_val, dt_txt, tm.tm_mday, tm.tm_mon, tm.tm_year);
       if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
         dt_val /= 86400;
       if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
@@ -75,7 +138,6 @@ void reduce_sql_value(uint64_t *values, double *values_dbl, size_t *value_lens, 
         if (dot_pos != nullptr)
           dt_val += atoi(dot_pos + 1);
       }
-      // printf("dt_val: %llu\n", dt_val);
       values[exp_col_idx] = dt_val;
     }
     value_lens[exp_col_idx] = 8;
@@ -444,14 +506,16 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[16];
         size_t val_len = 8;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, val_buf); // , &ptr_count[col_val_idx]);
-        time_t original_epoch = *((int64_t *) ret_buf);
-        // printf("orig epoch: %llu\n", original_epoch);
+        int64_t original_epoch = *((int64_t *) val_buf);
+        // printf("orig epoch: %lld\n", original_epoch);
         if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
           original_epoch *= 86400;
         if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS)
           original_epoch /= 1000;
         char dt_txt[50];
-        strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], localtime(&original_epoch));
+        struct tm out_tm;
+        epoch_seconds_to_tm(original_epoch, &out_tm);
+        strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], &out_tm);
         val_len = strlen(dt_txt);
         if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
           original_epoch = *((int64_t *) ret_buf);
