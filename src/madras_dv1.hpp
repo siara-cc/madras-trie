@@ -557,17 +557,7 @@ __gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 }};
 
-class leapfrog {
-  private:
-    // __fq1 __fq2 leapfrog(leapfrog const&);
-    // __fq1 __fq2 leapfrog& operator=(leapfrog const&);
-  public:
-    __fq1 __fq2 leapfrog() {};
-    __fq1 __fq2 virtual ~leapfrog() {};
-    __fq1 __fq2 virtual void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) = 0;
-};
-
-class leapfrog_asc : public leapfrog {
+class leapfrog_asc {
   private:
     // __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
     // __fq1 __fq2 leapfrog_asc& operator=(leapfrog_asc const&);
@@ -583,51 +573,6 @@ class leapfrog_asc : public leapfrog {
     __fq1 __fq2 void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
-    }
-};
-
-class leapfrog_rnd : public leapfrog {
-  private:
-    // __fq1 __fq2 leapfrog_rnd(leapfrog_rnd const&);
-    // __fq1 __fq2 leapfrog_rnd& operator=(leapfrog_rnd const&);
-  public:
-    __fq1 __fq2 void find_pos(uint32_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
-        int len = trie_loc[node_id++];
-      #if defined(__SSE4_2__)
-        __m128i to_locate = _mm_set1_epi8(key_byte);
-        node_id -= 16;
-        do {
-          node_id += 16;
-          __m128i segment = _mm_loadu_si128((__m128i *)(trie_loc + node_id));
-          int pos = _mm_cmpestri(to_locate, 16, segment, 16, _SIDD_CMP_EQUAL_EACH);
-          if (pos < (len < 16 ? len : 16)) {
-            node_id += pos;
-            return;
-          }
-          len -= 16;
-        } while (len > 0);
-        // node_id -= 32;
-        // do {
-        //   node_id += 32;
-        //   int bitfield = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_set1_epi8(key_byte),
-        //                           _mm256_loadu_si256((__m256i *)(trie_loc + node_id))));
-        //   if (bitfield) {
-        //     int pos = __builtin_ctz(bitfield);
-        //     if (pos < len) {
-        //       node_id += pos;
-        //       return;
-        //     }
-        //   }
-        //   len -= 32;
-        // } while (len > 0);
-      #else
-        while (len-- && trie_loc[node_id] != key_byte)
-            node_id++;
-      #endif
-    }
-    __fq1 __fq2 leapfrog_rnd() {
-    }
-    __fq1 __fq2 void init() {
     }
 };
 
@@ -700,9 +645,9 @@ class inner_trie_fwd {
     }
     __fq1 __fq2 virtual ~inner_trie_fwd() {
     }
-    __fq1 __fq2 virtual bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) = 0;
-    __fq1 __fq2 virtual bool copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str) = 0;
-    __fq1 __fq2 virtual inner_trie_fwd *new_instance(uint8_t *mem) = 0;
+    __fq1 __fq2 bool (*compare_trie_tail)(inner_trie_fwd* self, uint32_t node_id, input_ctx& in_ctx);
+    __fq1 __fq2 bool (*copy_trie_tail)(inner_trie_fwd* self, uint32_t node_id, gen::byte_str& tail_str);
+    __fq1 __fq2 inner_trie_fwd* (*new_instance)(inner_trie_fwd* self, uint8_t* mem);
 };
 
 class ptr_bits_reader {
@@ -772,8 +717,8 @@ class tail_ptr_map {
     }
     __fq1 __fq2 virtual ~tail_ptr_map() {
     }
-    __fq1 __fq2 virtual bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) = 0;
-    __fq1 __fq2 virtual void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) = 0;
+    __fq1 __fq2 bool (*compare_tail)(tail_ptr_map *self, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count);
+    __fq1 __fq2 void (*get_tail_str)(tail_ptr_map *self, uint32_t node_id, gen::byte_str& tail_str);
     __fq1 __fq2 static uint32_t read_len(uint8_t *t) {
       while (*t > 15 && *t < 32)
         t++;
@@ -981,7 +926,7 @@ class ptr_group_map {
           grp_data[i] = data_loc;
           grp_data[i] += cmn::read_uint32(grp_data_idx_start + i * 4);
           if (*(grp_data[i]) != 0)
-            inner_tries[i] = dict_obj->new_instance(grp_data[i]);
+            inner_tries[i] = dict_obj->new_instance(dict_obj, grp_data[i]);
         }
         int _start_bits = start_bits;
         idx_map_arr = new uint32_t[grp_idx_limit + 1]();
@@ -1037,27 +982,31 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       // printf("Grp: %u, ptr: %u\n", grp_no, ptr);
       return ptr;
     }
-    __fq1 __fq2 bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
+    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
       uint8_t grp_no;
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count, grp_no);
-      uint8_t *tail = grp_data[grp_no];
+      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
+      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count, grp_no);
+      uint8_t *tail = tpm->grp_data[grp_no];
       if (*tail != 0)
-        return inner_tries[grp_no]->compare_trie_tail(tail_ptr, in_ctx);
-      return compare_tail_data(tail, tail_ptr, in_ctx);
+        return tpm->inner_tries[grp_no]->compare_trie_tail(tpm->inner_tries[grp_no], tail_ptr, in_ctx);
+      return tpm->compare_tail_data(tail, tail_ptr, in_ctx);
     }
-    __fq1 __fq2 void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
       //ptr_bit_count = UINT32_MAX;
       uint8_t grp_no;
+      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
       uint32_t tail_ptr = UINT32_MAX; // avoid a stack entry
-      tail_ptr = get_tail_ptr(node_id, tail_ptr, grp_no);
-      uint8_t *tail = grp_data[grp_no];
+      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr, grp_no);
+      uint8_t *tail = tpm->grp_data[grp_no];
       if (*tail != 0) {
-        inner_tries[grp_no]->copy_trie_tail(tail_ptr, tail_str);
+        tpm->inner_tries[grp_no]->copy_trie_tail(tpm->inner_tries[grp_no], tail_ptr, tail_str);
         return;
       }
-      get_tail_data(tail, tail_ptr, tail_str);
+      tpm->get_tail_data(tail, tail_ptr, tail_str);
     }
     __fq1 __fq2 tail_ptr_group_map() {
+      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_group_map::compare_tail;
+      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_group_map::get_tail_str;
     }
 };
 
@@ -1072,6 +1021,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
     inner_trie_fwd *inner_trie;
     uint8_t *data;
     __fq1 __fq2 tail_ptr_flat_map() {
+      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_flat_map::compare_tail;
+      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_flat_map::get_tail_str;
       inner_trie = nullptr;
     }
     __fq1 __fq2 virtual ~tail_ptr_flat_map() {
@@ -1088,7 +1039,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
       uint8_t ptr_lt_ptr_width = tail_loc[0];
       inner_trie = nullptr;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-        inner_trie = _dict_obj->new_instance(data_loc);
+        inner_trie = _dict_obj->new_instance(_dict_obj, data_loc);
         int_ptr_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
         uint8_t group_count = *data_loc;
@@ -1103,20 +1054,22 @@ class tail_ptr_flat_map : public tail_ptr_map {
         ptr_bit_count = tail_lt->rank1(node_id);
       return (int_ptr_bv[ptr_bit_count++] << 8) | trie_loc[node_id];
     }
-    __fq1 __fq2 bool compare_tail(uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
-      uint32_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count);
-      if (inner_trie != nullptr)
-        return inner_trie->compare_trie_tail(tail_ptr, in_ctx);
-      return compare_tail_data(data, tail_ptr, in_ctx);
+    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
+      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
+      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count);
+      if (tpm->inner_trie != nullptr)
+        return tpm->inner_trie->compare_trie_tail(tpm->inner_trie, tail_ptr, in_ctx);
+      return tpm->compare_tail_data(tpm->data, tail_ptr, in_ctx);
     }
-    __fq1 __fq2 void get_tail_str(uint32_t node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
+      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
       uint32_t tail_ptr = UINT32_MAX;
-      tail_ptr = get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
-      if (inner_trie != nullptr) {
-        inner_trie->copy_trie_tail(tail_ptr, tail_str);
+      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
+      if (tpm->inner_trie != nullptr) {
+        tpm->inner_trie->copy_trie_tail(tpm->inner_trie, tail_ptr, tail_str);
         return;
       }
-      get_tail_data(data, tail_ptr, tail_str);
+      tpm->get_tail_data(tpm->data, tail_ptr, tail_str);
     }
 };
 
@@ -1316,36 +1269,41 @@ class inner_trie : public inner_trie_fwd {
     GCFC_rev_cache rev_cache;
 
   public:
-    __fq1 __fq2 bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) {
+    __fq1 __fq2 static bool compare_trie_tail(inner_trie_fwd *itf, uint32_t node_id, input_ctx& in_ctx) {
+      inner_trie *it = (inner_trie *) itf;
       do {
-        if (tail_lt.is_set1(node_id)) {
+        if (it->tail_lt.is_set1(node_id)) {
           uint32_t ptr_bit_count = UINT32_MAX;
-          if (!tail_map->compare_tail(node_id, in_ctx, ptr_bit_count))
+          if (!it->tail_map->compare_tail(it->tail_map, node_id, in_ctx, ptr_bit_count))
             return false;
         } else {
-          if (in_ctx.key_pos >= in_ctx.key_len || trie_loc[node_id] != in_ctx.key[in_ctx.key_pos])
+          if (in_ctx.key_pos >= in_ctx.key_len || it->trie_loc[node_id] != in_ctx.key[in_ctx.key_pos])
             return false;
           in_ctx.key_pos++;
         }
-        if (!rev_cache.try_find(node_id, in_ctx))
-          node_id = child_lt.select1(node_id + 1) - node_id - 2;
+        if (!it->rev_cache.try_find(node_id, in_ctx))
+          node_id = it->child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
-    __fq1 __fq2 bool copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 static bool copy_trie_tail(inner_trie_fwd *itf, uint32_t node_id, gen::byte_str& tail_str) {
+      inner_trie *it = (inner_trie *) itf;
       do {
-        if (tail_lt.is_set1(node_id)) {
-          tail_map->get_tail_str(node_id, tail_str);
+        if (it->tail_lt.is_set1(node_id)) {
+          it->tail_map->get_tail_str(it->tail_map, node_id, tail_str);
         } else
-          tail_str.append(trie_loc[node_id]);
-        if (!rev_cache.try_find(node_id, tail_str))
-          node_id = child_lt.select1(node_id + 1) - node_id - 2;
+          tail_str.append(it->trie_loc[node_id]);
+        if (!it->rev_cache.try_find(node_id, tail_str))
+          node_id = it->child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
     __fq1 __fq2 inner_trie() {
+      ((inner_trie_fwd *) this)->compare_trie_tail = &inner_trie::compare_trie_tail;
+      ((inner_trie_fwd *) this)->copy_trie_tail = &inner_trie::copy_trie_tail;
+      ((inner_trie_fwd *) this)->new_instance = &inner_trie::new_instance;
     }
-    __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
+    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
       // Where is this released?
       inner_trie *it = new inner_trie();
       it->trie_level = mem[3];
@@ -1487,7 +1445,7 @@ class static_trie : public inner_trie {
     bvlt_select *leaf_lt;
     GCFC_fwd_cache fwd_cache;
     trie_flags *trie_flags_loc;
-    leapfrog *leaper;
+    leapfrog_asc *leaper;
     uint32_t key_count;
     uint8_t *trie_bytes;
     uint16_t max_tail_len;
@@ -1531,7 +1489,7 @@ class static_trie : public inner_trie {
             #endif
           } else {
             uint32_t prev_key_pos = in_ctx.key_pos;
-            if (tail_map->compare_tail(in_ctx.node_id, in_ctx, ptr_bit_count))
+            if (tail_map->compare_tail(tail_map, in_ctx.node_id, in_ctx, ptr_bit_count))
               break;
             if (prev_key_pos != in_ctx.key_pos)
               return false;
@@ -1566,7 +1524,7 @@ class static_trie : public inner_trie {
       do {
         if (tail_lt[node_id]) {
           size_t prev_len = tail.length();
-          tail_map->get_tail_str(node_id, tail);
+          tail_map->get_tail_str(tail_map, node_id, tail);
           reverse_byte_str(tail.data() + prev_len, tail.length() - prev_len);
         } else {
           tail.append(trie_loc[node_id]);
@@ -1678,7 +1636,7 @@ class static_trie : public inner_trie {
           } else {
             tail.clear();
             if (tail_lt[node_id])
-              tail_map->get_tail_str(node_id, tail);
+              tail_map->get_tail_str(tail_map, node_id, tail);
             else
               tail.append(trie_loc[node_id]);
             update_ctx(ctx, tail, node_id);
@@ -1695,7 +1653,7 @@ class static_trie : public inner_trie {
         if (child_lt[node_id]) {
           tail.clear();
           if (tail_lt[node_id])
-            tail_map->get_tail_str(node_id, tail);
+            tail_map->get_tail_str(tail_map, node_id, tail);
           else
             tail.append(trie_loc[node_id]);
           update_ctx(ctx, tail, node_id);
@@ -1739,7 +1697,7 @@ class static_trie : public inner_trie {
       ctx.cur_idx++;
     }
 
-    __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
+    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
       // Where is this released?
       static_trie *it = new static_trie();
       it->trie_level = mem[3];
@@ -1763,7 +1721,7 @@ class static_trie : public inner_trie {
       uint32_t node_id = in_ctx.node_id;
       do {
         if (tail_lt[node_id])
-          tail_map->get_tail_str(node_id, tail);
+          tail_map->get_tail_str(tail_map, node_id, tail);
         else
           tail.append(trie_loc[node_id]);
         insert_into_ctx(ctx, tail, node_id);
@@ -1855,11 +1813,9 @@ class static_trie : public inner_trie {
         if (min_pos_loc == trie_bytes)
           min_pos_loc = nullptr;
         if (min_pos_loc != nullptr) {
-          if (opts->sort_nodes_on_freq)
-            leaper = new leapfrog_rnd();
-          else {
+          if (!opts->sort_nodes_on_freq) {
             leaper = new leapfrog_asc();
-            ((leapfrog_asc *) leaper)->init(min_stats, min_pos_loc);
+            leaper->init(min_stats, min_pos_loc);
           }
         }
 
@@ -1868,6 +1824,7 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 static_trie() {
+    ((inner_trie_fwd *) this)->new_instance = &static_trie::new_instance;
       init_vars();
       trie_level = 0;
     }
@@ -2061,7 +2018,7 @@ class value_retriever : public value_retriever_base {
       }
       col_trie = nullptr;
       if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
-        col_trie = _dict_obj->new_instance(data_loc);
+        col_trie = _dict_obj->new_instance(_dict_obj, data_loc);
       }
     }
     __fq1 __fq2 bool is_null(uint32_t node_id) {
@@ -2598,7 +2555,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
       gen::byte_str val_str(val_str_buf, Parent::max_len);
       uint8_t *val_start = Parent::grp_data[grp_no];
       if (*val_start != 0)
-        Parent::inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
+        Parent::inner_tries[grp_no]->copy_trie_tail(Parent::inner_tries[grp_no], val_loc - val_start, val_str);
       else
         get_val_str(val_str, val_loc - val_start, grp_no, Parent::max_len);
       val_len = val_str.length();
@@ -2800,6 +2757,7 @@ class static_trie_map : public static_trie {
     size_t trie_size;
   public:
     __fq1 __fq2 static_trie_map() {
+    ((inner_trie_fwd *) this)->new_instance = &static_trie_map::new_instance;
       val_map = nullptr;
       is_mmapped = false;
       cleanup_object = nullptr;
@@ -2828,7 +2786,7 @@ class static_trie_map : public static_trie {
       cleanup_object = _cleanup_obj;
     }
 
-    __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
+    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
       // Where is this released?
       static_trie_map *it = new static_trie_map();
       it->trie_level = mem[3];

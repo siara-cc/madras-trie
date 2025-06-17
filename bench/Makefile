@@ -2,7 +2,7 @@ C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++17 -march=native
 INCLUDES = -I../src -I../../ds_common/src -I../../flavic48/src
-L_FLAGS = -lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lcds
+L_FLAGS =
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
 
