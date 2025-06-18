@@ -205,7 +205,7 @@ class builder_fwd {
   public:
     FILE *fp;
     byte_vec *out_vec;
-    bldr_options *opts;
+    bldr_options *opts = nullptr;
     uint16_t pk_col_count;
     uint16_t trie_level;
     builder_fwd(uint16_t _pk_col_count)
@@ -631,7 +631,7 @@ class ptr_groups {
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
         uint32_t grp_data_loc = offset + grp_count * 4 + total_data_size;
-        printf("grp_data_loc: %lu, %u\n", i + inner_trie_start_grp, grp_data_loc);
+        //printf("grp_data_loc: %lu, %u\n", i + inner_trie_start_grp, grp_data_loc);
         output_u32(grp_data_loc, fp, out_vec);
         total_data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       }
@@ -2031,6 +2031,8 @@ class builder : public builder_fwd {
         delete [] r_cache_freq;
       if (all_vals != NULL)
         delete all_vals;
+      if (opts != nullptr)
+        delete [] opts;
       //close_file(); // TODO: Close for nested tries?
     }
 

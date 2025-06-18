@@ -557,6 +557,14 @@ __gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 }};
 
+struct input_ctx {
+  const uint8_t *key;
+  uint32_t key_len;
+  uint32_t key_pos;
+  uint32_t node_id;
+  int32_t cmp;
+};
+
 class leapfrog_asc {
   private:
     // __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
@@ -573,503 +581,6 @@ class leapfrog_asc {
     __fq1 __fq2 void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
-    }
-};
-
-class bvlt_rank {
-  private:
-    // __fq1 __fq2 bvlt_rank(bvlt_rank const&);
-    // __fq1 __fq2 bvlt_rank& operator=(bvlt_rank const&);
-  protected:
-    uint64_t *bm_loc;
-    uint8_t *lt_rank_loc;
-    uint8_t multiplier;
-    uint8_t lt_width;
-  public:
-    __fq1 __fq2 bool operator[](size_t pos) {
-      return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
-    }
-    __fq1 __fq2 bool is_set1(size_t pos) {
-      return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
-    }
-    __fq1 __fq2 uint32_t rank1(uint32_t bv_pos) {
-      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
-      uint32_t rank = cmn::read_uint32(rank_ptr);
-      #if nodes_per_bv_block == 512
-      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
-      if (pos > 0) {
-        rank_ptr += 4;
-        //while (pos--)
-        //  rank += *rank_ptr++;
-        rank += (rank_ptr[pos] + (((uint32_t)(*rank_ptr) << pos) & 0x100));
-      }
-      #else
-      int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
-      if (pos > 0)
-        rank += rank_ptr[4 + pos - 1];
-      #endif
-      uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
-      uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n) * multiplier];
-      // return rank + __popcountdi2(bm & (mask - 1));
-      return rank + static_cast<uint32_t>(__builtin_popcountll(bm & mask));
-    }
-    __fq1 __fq2 uint8_t *get_rank_loc() {
-      return lt_rank_loc;
-    }
-    __fq1 __fq2 bvlt_rank() {
-    }
-    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
-      lt_rank_loc = _lt_rank_loc;
-      bm_loc = _bm_loc;
-      multiplier = _multiplier;
-      lt_width = _lt_unit_count * width_of_bv_block;
-    }
-};
-
-struct input_ctx {
-  const uint8_t *key;
-  uint32_t key_len;
-  uint32_t key_pos;
-  uint32_t node_id;
-  int32_t cmp;
-};
-
-class inner_trie_fwd {
-  private:
-    // __fq1 __fq2 inner_trie_fwd(inner_trie_fwd const&);
-    // __fq1 __fq2 inner_trie_fwd& operator=(inner_trie_fwd const&);
-  public:
-    bvlt_rank tail_lt;
-    uint8_t trie_level;
-    __fq1 __fq2 inner_trie_fwd() {
-    }
-    __fq1 __fq2 virtual ~inner_trie_fwd() {
-    }
-    __fq1 __fq2 bool (*compare_trie_tail)(inner_trie_fwd* self, uint32_t node_id, input_ctx& in_ctx);
-    __fq1 __fq2 bool (*copy_trie_tail)(inner_trie_fwd* self, uint32_t node_id, gen::byte_str& tail_str);
-    __fq1 __fq2 inner_trie_fwd* (*new_instance)(inner_trie_fwd* self, uint8_t* mem);
-};
-
-class ptr_bits_reader {
-  protected:
-    // __fq1 __fq2 ptr_bits_reader(ptr_bits_reader const&);
-    // __fq1 __fq2 ptr_bits_reader& operator=(ptr_bits_reader const&);
-    uint8_t *ptrs_loc;
-    uint8_t *ptr_lt_loc;
-    bool release_lt_loc;
-  public:
-    __fq1 __fq2 uint32_t read(uint32_t& ptr_bit_count, int bits_to_read) {
-      uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
-      int bit_pos = (ptr_bit_count % 64);
-      uint64_t ret = (*ptr_loc++ << bit_pos);
-      ptr_bit_count += static_cast<int>(bits_to_read);
-      if (bit_pos + bits_to_read <= 64)
-        return ret >> (64 - bits_to_read);
-      return (ret | (*ptr_loc >> (64 - bit_pos))) >> (64 - bits_to_read);
-    }
-    __fq1 __fq2 uint8_t read8(uint32_t ptr_bit_count) {
-      uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
-      int bit_pos = (ptr_bit_count % 64);
-      if (bit_pos <= 56)
-        return *ptr_loc >> (56 - bit_pos);
-      uint8_t ret = *ptr_loc++ << (bit_pos - 56);
-      return ret | (*ptr_loc >> (64 - (bit_pos % 8)));
-    }
-    __fq1 __fq2 uint32_t get_ptr_block2(uint32_t node_id) {
-      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width2;
-      uint32_t ptr_bit_count = cmn::read_uint32(block_ptr);
-      uint32_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
-      if (pos)
-        ptr_bit_count += cmn::read_uint16(block_ptr + 4 + --pos * 2);
-      return ptr_bit_count;
-    }
-    __fq1 __fq2 uint32_t get_ptr_block3(uint32_t node_id) {
-      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width3;
-      uint32_t ptr_bit_count = cmn::read_uint32(block_ptr);
-      uint32_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
-      if (pos)
-        ptr_bit_count += cmn::read_uint24(block_ptr + 4 + --pos * 3);
-      return ptr_bit_count;
-    }
-    __fq1 __fq2 ptr_bits_reader() {
-      release_lt_loc = false;
-    }
-    __fq1 __fq2 ~ptr_bits_reader() {
-      if (release_lt_loc)
-        delete [] ptr_lt_loc;
-    }
-    __fq1 __fq2 void init(uint8_t *_ptrs_loc, uint8_t *_lt_loc, uint32_t _lt_ptr_width, bool _release_lt_loc) {
-      ptrs_loc = _ptrs_loc;
-      ptr_lt_loc = _lt_loc;
-      release_lt_loc = _release_lt_loc;
-    }
-    __fq1 __fq2 uint8_t *get_ptrs_loc() {
-      return ptrs_loc;
-    }
-};
-
-class tail_ptr_map {
-  private:
-    // __fq1 __fq2 tail_ptr_map(tail_ptr_map const&);
-    // __fq1 __fq2 tail_ptr_map& operator=(tail_ptr_map const&);
-  public:
-    __fq1 __fq2 tail_ptr_map() {
-    }
-    __fq1 __fq2 virtual ~tail_ptr_map() {
-    }
-    __fq1 __fq2 bool (*compare_tail)(tail_ptr_map *self, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count);
-    __fq1 __fq2 void (*get_tail_str)(tail_ptr_map *self, uint32_t node_id, gen::byte_str& tail_str);
-    __fq1 __fq2 static uint32_t read_len(uint8_t *t) {
-      while (*t > 15 && *t < 32)
-        t++;
-      t--;
-      uint32_t ret;
-      read_len_bw(t, ret);
-      return ret;
-    }
-    __fq1 __fq2 static uint8_t *read_len_bw(uint8_t *t, uint32_t& out_len) {
-      out_len = 0;
-      while (*t > 15 && *t < 32) {
-        out_len <<= 3;
-        out_len += (*t & 0x07);
-        if (*t-- & 0x08)
-          break;
-      }
-      return t;
-    }
-    __fq1 __fq2 void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
-      while (*t < 15 || *t > 31)
-        t--;
-      while (*t != 15) {
-        uint32_t prev_sfx_len;
-        t = read_len_bw(t, prev_sfx_len);
-        while (sfx_len > prev_sfx_len) {
-          sfx_len--;
-          *out_str++ = *(t + prev_sfx_len - sfx_len);
-        }
-        while (*t < 15 || *t > 31)
-          t--;
-      }
-      while (sfx_len > 0) {
-        *out_str++ = *(t - sfx_len);
-        sfx_len--;
-      }
-    }
-    inline __fq1 __fq2 bool compare_tail_data(uint8_t *data, uint32_t tail_ptr, input_ctx& in_ctx) {
-      uint8_t *tail = data + tail_ptr;
-      if (*tail < 15 || *tail > 31) {
-        do {
-          if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
-            return false;
-          tail++;
-          in_ctx.key_pos++;
-        } while (*tail < 15 || *tail > 31);
-        if (*tail == 15)
-          return true;
-        uint32_t sfx_len = read_len(tail);
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-        uint8_t *sfx_buf = new uint8_t[sfx_len];
-        #else
-        uint8_t sfx_buf[sfx_len];
-        #endif
-        read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
-        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
-          in_ctx.key_pos += sfx_len;
-          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-          delete [] sfx_buf;
-          #endif
-          return true;
-        }
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
-        delete [] sfx_buf;
-        #endif
-      } else {
-        uint32_t bin_len;
-        read_len_bw(tail++, bin_len);
-        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
-          if (*tail == in_ctx.key[in_ctx.key_pos])
-            in_ctx.key_pos++;
-          return false;
-        }
-        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
-          in_ctx.key_pos += bin_len;
-          return true;
-        }
-        if (*tail == in_ctx.key[in_ctx.key_pos])
-          in_ctx.key_pos++;
-        return false;
-      }
-      return false;
-    }
-    __fq1 __fq2 void get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str) {
-      uint8_t *t = data + tail_ptr;
-      if (*t < 15 || *t > 31) {
-        uint8_t byt = *t;
-        while (byt < 15 || byt > 31) {
-          t++;
-          tail_str.append(byt);
-          byt = *t;
-        }
-        if (byt == 15)
-          return;
-        uint32_t sfx_len = read_len(t);
-        read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
-        tail_str.set_length(tail_str.length() + sfx_len);
-      } else {
-        uint32_t bin_len;
-        read_len_bw(t++, bin_len);
-        while (bin_len--)
-          tail_str.append(*t++);
-      }
-    }
-};
-
-class ptr_group_map {
-  protected:
-    uint8_t *code_lt_bit_len;
-    uint8_t *code_lt_code_len;
-    uint8_t **grp_data;
-    ptr_bits_reader ptr_reader;
-
-    uint8_t *trie_loc;
-    uint64_t *ptr_bm_loc;
-
-    uint32_t *idx_map_arr = nullptr;
-    uint8_t *idx2_ptrs_map_loc;
-    __fq1 __fq2 uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
-      return cmn::read_uint24(idx2_ptrs_map_loc + idx_map_arr[grp_no] + ptr * 3);
-      //ptr = cmn::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
-    }
-
-  public:
-    uint8_t data_type;
-    uint8_t encoding_type;
-    uint8_t flags;
-    uint8_t inner_trie_start_grp;
-    uint8_t multiplier;
-    uint8_t group_count;
-    uint8_t rpt_grp_no;
-    int8_t grp_idx_limit;
-    uint32_t max_len;
-    inner_trie_fwd *dict_obj;
-    inner_trie_fwd **inner_tries;
-
-    ptr_bits_reader *get_ptr_reader() {
-      return &ptr_reader;
-    }
-
-    uint8_t *get_grp_data(size_t grp_no) {
-      return grp_data[grp_no];
-    }
-
-    __fq1 __fq2 ptr_group_map() {
-      trie_loc = nullptr;
-      grp_data = nullptr;
-      inner_tries = nullptr;
-      max_len = 0;
-    }
-
-    __fq1 __fq2 virtual ~ptr_group_map() {
-      if (grp_data != nullptr)
-        delete [] grp_data;
-      if (inner_tries != nullptr) {
-        for (int i = inner_trie_start_grp; i < group_count; i++) {
-          if (inner_tries[i] != nullptr)
-            delete inner_tries[i];
-        }
-        delete [] inner_tries;
-      }
-      if (idx_map_arr != nullptr)
-        delete [] idx_map_arr;
-    }
-
-    __fq1 __fq2 void init_ptr_grp_map(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint64_t *_tf_ptr_loc,
-                uint8_t *data_loc, uint32_t _key_count, uint32_t _node_count, bool is_tail) {
-
-      dict_obj = _dict_obj;
-      trie_loc = _trie_loc;
-
-      ptr_bm_loc = _multiplier == 1 ? _tf_ptr_loc : _bm_loc;
-      multiplier = _multiplier;
-
-      data_type = data_loc[1];
-      encoding_type = data_loc[2];
-      rpt_grp_no = data_loc[5];
-      flags = data_loc[3];
-      max_len = cmn::read_uint32(data_loc + 24);
-      uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 28);
-
-      uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 32);
-      // uint32_t idx2_ptr_count = cmn::read_uint32(data_loc + 32);
-      // idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
-      // idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
-      uint8_t start_bits = data_loc[10];
-      grp_idx_limit = data_loc[9];
-      uint8_t idx_step_bits = data_loc[11];
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 40);
-
-      uint8_t *ptrs_loc = data_loc + cmn::read_uint32(data_loc + 44);
-
-      uint8_t ptr_lt_ptr_width = data_loc[0];
-      bool release_ptr_lt = false;
-      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY) {
-        group_count = *grp_data_loc;
-        if (*grp_data_loc == 0xA5)
-          group_count = 1;
-        inner_trie_start_grp = grp_data_loc[1];
-        code_lt_bit_len = grp_data_loc + 8;
-        code_lt_code_len = code_lt_bit_len + 256;
-        uint8_t *grp_data_idx_start = code_lt_bit_len + 512;
-        grp_data = new uint8_t*[group_count]();
-        inner_tries = new inner_trie_fwd*[group_count]();
-        for (int i = 0; i < group_count; i++) {
-          grp_data[i] = data_loc;
-          grp_data[i] += cmn::read_uint32(grp_data_idx_start + i * 4);
-          if (*(grp_data[i]) != 0)
-            inner_tries[i] = dict_obj->new_instance(dict_obj, grp_data[i]);
-        }
-        int _start_bits = start_bits;
-        idx_map_arr = new uint32_t[grp_idx_limit + 1]();
-        for (int i = 1; i <= grp_idx_limit; i++) {
-          idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * 3;
-          _start_bits += idx_step_bits;
-        }
-        if (ptr_lt_loc == data_loc && group_count > 1) {
-          ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, _bm_loc, _multiplier, _tf_ptr_loc, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width, _dict_obj->trie_level);
-          release_ptr_lt = true;
-        }
-        ptr_reader.init(ptrs_loc, ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);
-      }
-
-    }
-
-};
-
-class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
-  private:
-    // __fq1 __fq2 tail_ptr_group_map(tail_ptr_group_map const&);
-    // __fq1 __fq2 tail_ptr_group_map& operator=(tail_ptr_group_map const&);
-  public:
-    __fq1 __fq2 void scan_ptr_bits_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
-      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
-      uint64_t bm_ptr = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
-      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
-      while (node_id_from < node_id) {
-        if (bm_mask & bm_ptr)
-          ptr_bit_count += code_lt_bit_len[trie_loc[node_id_from]];
-        node_id_from++;
-        bm_mask <<= 1;
-      }
-    }
-    __fq1 __fq2 void get_ptr_bit_count_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
-      ptr_bit_count = ptr_reader.get_ptr_block2(node_id);
-      scan_ptr_bits_tail(node_id, ptr_bit_count);
-    }
-    __fq1 __fq2 uint32_t get_tail_ptr(uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
-      uint8_t node_byte = trie_loc[node_id];
-      uint8_t code_len = code_lt_code_len[node_byte];
-      grp_no = code_len & 0x0F;
-      code_len >>= 4;
-      uint32_t ptr = node_byte & (0xFF >> code_len);
-      uint8_t bit_len = code_lt_bit_len[node_byte];
-      if (bit_len > 0) {
-        if (ptr_bit_count == UINT32_MAX)
-          get_ptr_bit_count_tail(node_id, ptr_bit_count);
-        ptr |= (ptr_reader.read(ptr_bit_count, bit_len) << (8 - code_len));
-      }
-      if (grp_no < grp_idx_limit)
-        ptr = read_ptr_from_idx(grp_no, ptr);
-      // printf("Grp: %u, ptr: %u\n", grp_no, ptr);
-      return ptr;
-    }
-    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
-      uint8_t grp_no;
-      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
-      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count, grp_no);
-      uint8_t *tail = tpm->grp_data[grp_no];
-      if (*tail != 0)
-        return tpm->inner_tries[grp_no]->compare_trie_tail(tpm->inner_tries[grp_no], tail_ptr, in_ctx);
-      return tpm->compare_tail_data(tail, tail_ptr, in_ctx);
-    }
-    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
-      //ptr_bit_count = UINT32_MAX;
-      uint8_t grp_no;
-      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
-      uint32_t tail_ptr = UINT32_MAX; // avoid a stack entry
-      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr, grp_no);
-      uint8_t *tail = tpm->grp_data[grp_no];
-      if (*tail != 0) {
-        tpm->inner_tries[grp_no]->copy_trie_tail(tpm->inner_tries[grp_no], tail_ptr, tail_str);
-        return;
-      }
-      tpm->get_tail_data(tail, tail_ptr, tail_str);
-    }
-    __fq1 __fq2 tail_ptr_group_map() {
-      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_group_map::compare_tail;
-      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_group_map::get_tail_str;
-    }
-};
-
-class tail_ptr_flat_map : public tail_ptr_map {
-  private:
-    // __fq1 __fq2 tail_ptr_flat_map(tail_ptr_flat_map const&);
-    // __fq1 __fq2 tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
-  public:
-    gen::int_bv_reader int_ptr_bv;
-    bvlt_rank *tail_lt;
-    uint8_t *trie_loc;
-    inner_trie_fwd *inner_trie;
-    uint8_t *data;
-    __fq1 __fq2 tail_ptr_flat_map() {
-      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_flat_map::compare_tail;
-      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_flat_map::get_tail_str;
-      inner_trie = nullptr;
-    }
-    __fq1 __fq2 virtual ~tail_ptr_flat_map() {
-      if (inner_trie != nullptr)
-        delete inner_trie;
-    }
-    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, bvlt_rank *_tail_lt, uint8_t *_trie_loc, uint8_t *tail_loc) {
-      tail_lt = _tail_lt;
-      trie_loc = _trie_loc;
-      uint8_t encoding_type = tail_loc[2];
-      uint8_t *data_loc = tail_loc + cmn::read_uint32(tail_loc + 32);
-      uint8_t *ptrs_loc = tail_loc + cmn::read_uint32(tail_loc + 44);
-
-      uint8_t ptr_lt_ptr_width = tail_loc[0];
-      inner_trie = nullptr;
-      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
-        inner_trie = _dict_obj->new_instance(_dict_obj, data_loc);
-        int_ptr_bv.init(ptrs_loc, ptr_lt_ptr_width);
-      } else {
-        uint8_t group_count = *data_loc;
-        if (group_count == 1)
-          int_ptr_bv.init(ptrs_loc, data_loc[1]);
-        uint8_t *data_idx_start = data_loc + 8 + 512;
-        data = tail_loc + cmn::read_uint32(data_idx_start);
-      }
-    }
-    __fq1 __fq2 uint32_t get_tail_ptr(uint32_t node_id, uint32_t& ptr_bit_count) {
-      if (ptr_bit_count == UINT32_MAX)
-        ptr_bit_count = tail_lt->rank1(node_id);
-      return (int_ptr_bv[ptr_bit_count++] << 8) | trie_loc[node_id];
-    }
-    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
-      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
-      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count);
-      if (tpm->inner_trie != nullptr)
-        return tpm->inner_trie->compare_trie_tail(tpm->inner_trie, tail_ptr, in_ctx);
-      return tpm->compare_tail_data(tpm->data, tail_ptr, in_ctx);
-    }
-    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
-      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
-      uint32_t tail_ptr = UINT32_MAX;
-      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
-      if (tpm->inner_trie != nullptr) {
-        tpm->inner_trie->copy_trie_tail(tpm->inner_trie, tail_ptr, tail_str);
-        return;
-      }
-      tpm->get_tail_data(tpm->data, tail_ptr, tail_str);
     }
 };
 
@@ -1121,6 +632,56 @@ class GCFC_rev_cache {
       cche0 = (nid_cache *) _loc;
       max_node_id = _max_node_id;
       cache_mask = _count - 1;
+    }
+};
+
+class bvlt_rank {
+  private:
+    // __fq1 __fq2 bvlt_rank(bvlt_rank const&);
+    // __fq1 __fq2 bvlt_rank& operator=(bvlt_rank const&);
+  protected:
+    uint64_t *bm_loc;
+    uint8_t *lt_rank_loc;
+    uint8_t multiplier;
+    uint8_t lt_width;
+  public:
+    __fq1 __fq2 bool operator[](size_t pos) {
+      return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
+    }
+    __fq1 __fq2 bool is_set1(size_t pos) {
+      return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
+    }
+    __fq1 __fq2 uint32_t rank1(uint32_t bv_pos) {
+      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
+      uint32_t rank = cmn::read_uint32(rank_ptr);
+      #if nodes_per_bv_block == 512
+      int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
+      if (pos > 0) {
+        rank_ptr += 4;
+        //while (pos--)
+        //  rank += *rank_ptr++;
+        rank += (rank_ptr[pos] + (((uint32_t)(*rank_ptr) << pos) & 0x100));
+      }
+      #else
+      int pos = (bv_pos / nodes_per_bv_block_n) % (width_of_bv_block_n + 1);
+      if (pos > 0)
+        rank += rank_ptr[4 + pos - 1];
+      #endif
+      uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
+      uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n) * multiplier];
+      // return rank + __popcountdi2(bm & (mask - 1));
+      return rank + static_cast<uint32_t>(__builtin_popcountll(bm & mask));
+    }
+    __fq1 __fq2 uint8_t *get_rank_loc() {
+      return lt_rank_loc;
+    }
+    __fq1 __fq2 bvlt_rank() {
+    }
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
+      lt_rank_loc = _lt_rank_loc;
+      bm_loc = _bm_loc;
+      multiplier = _multiplier;
+      lt_width = _lt_unit_count * width_of_bv_block;
     }
 };
 
@@ -1247,18 +808,28 @@ class bvlt_select : public bvlt_rank {
 
 };
 
-struct trie_flags {
-  uint64_t bm_ptr;
-  uint64_t bm_term;
-  uint64_t bm_child;
-  uint64_t bm_leaf;
+class tail_ptr_map {
+  private:
+    // __fq1 __fq2 tail_ptr_map(tail_ptr_map const&);
+    // __fq1 __fq2 tail_ptr_map& operator=(tail_ptr_map const&);
+  public:
+    __fq1 __fq2 tail_ptr_map();
+    __fq1 __fq2 ~tail_ptr_map();
+    __fq1 __fq2 bool (*compare_tail)(tail_ptr_map *self, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count);
+    __fq1 __fq2 void (*get_tail_str)(tail_ptr_map *self, uint32_t node_id, gen::byte_str& tail_str);
+    __fq1 __fq2 static uint32_t read_len(uint8_t *t);
+    __fq1 __fq2 static uint8_t *read_len_bw(uint8_t *t, uint32_t& out_len);
+    __fq1 __fq2 void read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len);
+    __fq1 __fq2 bool compare_tail_data(uint8_t *data, uint32_t tail_ptr, input_ctx& in_ctx);
+    __fq1 __fq2 void get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str);
 };
 
-class inner_trie : public inner_trie_fwd {
+class inner_trie {
   private:
     // __fq1 __fq2 inner_trie(inner_trie const&);
     // __fq1 __fq2 inner_trie& operator=(inner_trie const&);
   protected:
+    bvlt_rank tail_lt;
     uint32_t node_count;
 
     uint8_t lt_not_given;
@@ -1269,48 +840,467 @@ class inner_trie : public inner_trie_fwd {
     GCFC_rev_cache rev_cache;
 
   public:
-    __fq1 __fq2 static bool compare_trie_tail(inner_trie_fwd *itf, uint32_t node_id, input_ctx& in_ctx) {
-      inner_trie *it = (inner_trie *) itf;
+    uint8_t trie_level;
+    __fq1 __fq2 inner_trie();
+    __fq1 __fq2 ~inner_trie();
+    __fq1 __fq2 bool compare_trie_tail(uint32_t node_id, input_ctx& in_ctx);
+    __fq1 __fq2 bool copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str);
+    __fq1 __fq2 inner_trie *new_instance(uint8_t *mem, char inst_type);
+    __fq1 __fq2 void load_inner_trie(uint8_t *trie_bytes);
+};
+
+class ptr_bits_reader {
+  protected:
+    // __fq1 __fq2 ptr_bits_reader(ptr_bits_reader const&);
+    // __fq1 __fq2 ptr_bits_reader& operator=(ptr_bits_reader const&);
+    uint8_t *ptrs_loc;
+    uint8_t *ptr_lt_loc;
+    bool release_lt_loc;
+  public:
+    __fq1 __fq2 uint32_t read(uint32_t& ptr_bit_count, int bits_to_read) {
+      uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
+      int bit_pos = (ptr_bit_count % 64);
+      uint64_t ret = (*ptr_loc++ << bit_pos);
+      ptr_bit_count += static_cast<int>(bits_to_read);
+      if (bit_pos + bits_to_read <= 64)
+        return ret >> (64 - bits_to_read);
+      return (ret | (*ptr_loc >> (64 - bit_pos))) >> (64 - bits_to_read);
+    }
+    __fq1 __fq2 uint8_t read8(uint32_t ptr_bit_count) {
+      uint64_t *ptr_loc = (uint64_t *) ptrs_loc + ptr_bit_count / 64;
+      int bit_pos = (ptr_bit_count % 64);
+      if (bit_pos <= 56)
+        return *ptr_loc >> (56 - bit_pos);
+      uint8_t ret = *ptr_loc++ << (bit_pos - 56);
+      return ret | (*ptr_loc >> (64 - (bit_pos % 8)));
+    }
+    __fq1 __fq2 uint32_t get_ptr_block2(uint32_t node_id) {
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width2;
+      uint32_t ptr_bit_count = cmn::read_uint32(block_ptr);
+      uint32_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
+      if (pos)
+        ptr_bit_count += cmn::read_uint16(block_ptr + 4 + --pos * 2);
+      return ptr_bit_count;
+    }
+    __fq1 __fq2 uint32_t get_ptr_block3(uint32_t node_id) {
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width3;
+      uint32_t ptr_bit_count = cmn::read_uint32(block_ptr);
+      uint32_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
+      if (pos)
+        ptr_bit_count += cmn::read_uint24(block_ptr + 4 + --pos * 3);
+      return ptr_bit_count;
+    }
+    __fq1 __fq2 ptr_bits_reader() {
+      release_lt_loc = false;
+    }
+    __fq1 __fq2 ~ptr_bits_reader() {
+      if (release_lt_loc)
+        delete [] ptr_lt_loc;
+    }
+    __fq1 __fq2 void init(uint8_t *_ptrs_loc, uint8_t *_lt_loc, uint32_t _lt_ptr_width, bool _release_lt_loc) {
+      ptrs_loc = _ptrs_loc;
+      ptr_lt_loc = _lt_loc;
+      release_lt_loc = _release_lt_loc;
+    }
+    __fq1 __fq2 uint8_t *get_ptrs_loc() {
+      return ptrs_loc;
+    }
+};
+
+    __fq1 __fq2 inline tail_ptr_map::tail_ptr_map() {
+    }
+    __fq1 __fq2 inline tail_ptr_map::~tail_ptr_map() {
+    }
+    __fq1 __fq2 inline uint32_t tail_ptr_map::read_len(uint8_t *t) {
+      while (*t > 15 && *t < 32)
+        t++;
+      t--;
+      uint32_t ret;
+      read_len_bw(t, ret);
+      return ret;
+    }
+    __fq1 __fq2 inline uint8_t *tail_ptr_map::read_len_bw(uint8_t *t, uint32_t& out_len) {
+      out_len = 0;
+      while (*t > 15 && *t < 32) {
+        out_len <<= 3;
+        out_len += (*t & 0x07);
+        if (*t-- & 0x08)
+          break;
+      }
+      return t;
+    }
+    __fq1 __fq2 inline void tail_ptr_map::read_suffix(uint8_t *out_str, uint8_t *t, uint32_t sfx_len) {
+      while (*t < 15 || *t > 31)
+        t--;
+      while (*t != 15) {
+        uint32_t prev_sfx_len;
+        t = read_len_bw(t, prev_sfx_len);
+        while (sfx_len > prev_sfx_len) {
+          sfx_len--;
+          *out_str++ = *(t + prev_sfx_len - sfx_len);
+        }
+        while (*t < 15 || *t > 31)
+          t--;
+      }
+      while (sfx_len > 0) {
+        *out_str++ = *(t - sfx_len);
+        sfx_len--;
+      }
+    }
+    inline __fq1 __fq2 bool tail_ptr_map::compare_tail_data(uint8_t *data, uint32_t tail_ptr, input_ctx& in_ctx) {
+      uint8_t *tail = data + tail_ptr;
+      if (*tail < 15 || *tail > 31) {
+        do {
+          if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
+            return false;
+          tail++;
+          in_ctx.key_pos++;
+        } while (*tail < 15 || *tail > 31);
+        if (*tail == 15)
+          return true;
+        uint32_t sfx_len = read_len(tail);
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+        uint8_t *sfx_buf = new uint8_t[sfx_len];
+        #else
+        uint8_t sfx_buf[sfx_len];
+        #endif
+        read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
+        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
+          in_ctx.key_pos += sfx_len;
+          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+          delete [] sfx_buf;
+          #endif
+          return true;
+        }
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+        delete [] sfx_buf;
+        #endif
+      } else {
+        uint32_t bin_len;
+        read_len_bw(tail++, bin_len);
+        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
+          if (*tail == in_ctx.key[in_ctx.key_pos])
+            in_ctx.key_pos++;
+          return false;
+        }
+        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+          in_ctx.key_pos += bin_len;
+          return true;
+        }
+        if (*tail == in_ctx.key[in_ctx.key_pos])
+          in_ctx.key_pos++;
+        return false;
+      }
+      return false;
+    }
+    __fq1 __fq2 inline void tail_ptr_map::get_tail_data(uint8_t *data, uint32_t tail_ptr, gen::byte_str& tail_str) {
+      uint8_t *t = data + tail_ptr;
+      if (*t < 15 || *t > 31) {
+        uint8_t byt = *t;
+        while (byt < 15 || byt > 31) {
+          t++;
+          tail_str.append(byt);
+          byt = *t;
+        }
+        if (byt == 15)
+          return;
+        uint32_t sfx_len = read_len(t);
+        read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
+        tail_str.set_length(tail_str.length() + sfx_len);
+      } else {
+        uint32_t bin_len;
+        read_len_bw(t++, bin_len);
+        while (bin_len--)
+          tail_str.append(*t++);
+      }
+    }
+
+class ptr_group_map {
+  protected:
+    uint8_t *code_lt_bit_len;
+    uint8_t *code_lt_code_len;
+    uint8_t **grp_data;
+    ptr_bits_reader ptr_reader;
+
+    uint8_t *trie_loc;
+    uint64_t *ptr_bm_loc;
+
+    uint32_t *idx_map_arr = nullptr;
+    uint8_t *idx2_ptrs_map_loc;
+    __fq1 __fq2 uint32_t read_ptr_from_idx(uint32_t grp_no, uint32_t ptr) {
+      return cmn::read_uint24(idx2_ptrs_map_loc + idx_map_arr[grp_no] + ptr * 3);
+      //ptr = cmn::read_uintx(idx2_ptrs_map_loc + idx_map_start + ptr * idx2_ptr_size, idx_ptr_mask);
+    }
+
+  public:
+    uint8_t data_type;
+    uint8_t encoding_type;
+    uint8_t flags;
+    uint8_t inner_trie_start_grp;
+    uint8_t multiplier;
+    uint8_t group_count;
+    uint8_t rpt_grp_no;
+    int8_t grp_idx_limit;
+    uint32_t max_len;
+    inner_trie *dict_obj;
+    inner_trie **inner_tries;
+
+    ptr_bits_reader *get_ptr_reader() {
+      return &ptr_reader;
+    }
+
+    uint8_t *get_grp_data(size_t grp_no) {
+      return grp_data[grp_no];
+    }
+
+    __fq1 __fq2 ptr_group_map() {
+      trie_loc = nullptr;
+      grp_data = nullptr;
+      inner_tries = nullptr;
+      max_len = 0;
+    }
+
+    __fq1 __fq2 ~ptr_group_map() {
+      if (grp_data != nullptr)
+        delete [] grp_data;
+      if (inner_tries != nullptr) {
+        for (int i = inner_trie_start_grp; i < group_count; i++) {
+          if (inner_tries[i] != nullptr)
+            delete inner_tries[i];
+        }
+        delete [] inner_tries;
+      }
+      if (idx_map_arr != nullptr)
+        delete [] idx_map_arr;
+    }
+
+    __fq1 __fq2 void init_ptr_grp_map(inner_trie *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint64_t *_tf_ptr_loc,
+                uint8_t *data_loc, uint32_t _key_count, uint32_t _node_count, bool is_tail) {
+
+      dict_obj = _dict_obj;
+      trie_loc = _trie_loc;
+
+      ptr_bm_loc = _multiplier == 1 ? _tf_ptr_loc : _bm_loc;
+      multiplier = _multiplier;
+
+      data_type = data_loc[1];
+      encoding_type = data_loc[2];
+      rpt_grp_no = data_loc[5];
+      flags = data_loc[3];
+      max_len = cmn::read_uint32(data_loc + 24);
+      uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 28);
+
+      uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 32);
+      // uint32_t idx2_ptr_count = cmn::read_uint32(data_loc + 32);
+      // idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
+      // idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
+      uint8_t start_bits = data_loc[10];
+      grp_idx_limit = data_loc[9];
+      uint8_t idx_step_bits = data_loc[11];
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 40);
+
+      uint8_t *ptrs_loc = data_loc + cmn::read_uint32(data_loc + 44);
+
+      uint8_t ptr_lt_ptr_width = data_loc[0];
+      bool release_ptr_lt = false;
+      if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY) {
+        group_count = *grp_data_loc;
+        if (*grp_data_loc == 0xA5)
+          group_count = 1;
+        inner_trie_start_grp = grp_data_loc[1];
+        code_lt_bit_len = grp_data_loc + 8;
+        code_lt_code_len = code_lt_bit_len + 256;
+        uint8_t *grp_data_idx_start = code_lt_bit_len + 512;
+        grp_data = new uint8_t*[group_count]();
+        inner_tries = new inner_trie*[group_count]();
+        for (int i = 0; i < group_count; i++) {
+          grp_data[i] = data_loc;
+          grp_data[i] += cmn::read_uint32(grp_data_idx_start + i * 4);
+          if (*(grp_data[i]) != 0)
+            inner_tries[i] = dict_obj->new_instance(grp_data[i], 'g');
+        }
+        int _start_bits = start_bits;
+        idx_map_arr = new uint32_t[grp_idx_limit + 1]();
+        for (int i = 1; i <= grp_idx_limit; i++) {
+          idx_map_arr[i] = idx_map_arr[i - 1] + (1 << _start_bits) * 3;
+          _start_bits += idx_step_bits;
+        }
+        if (ptr_lt_loc == data_loc && group_count > 1) {
+          ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, _bm_loc, _multiplier, _tf_ptr_loc, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width, _dict_obj->trie_level);
+          release_ptr_lt = true;
+        }
+        ptr_reader.init(ptrs_loc, ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);
+      }
+
+    }
+
+};
+
+class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
+  private:
+    // __fq1 __fq2 tail_ptr_group_map(tail_ptr_group_map const&);
+    // __fq1 __fq2 tail_ptr_group_map& operator=(tail_ptr_group_map const&);
+  public:
+    __fq1 __fq2 void scan_ptr_bits_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
+      uint32_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
+      uint64_t bm_ptr = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
+      while (node_id_from < node_id) {
+        if (bm_mask & bm_ptr)
+          ptr_bit_count += code_lt_bit_len[trie_loc[node_id_from]];
+        node_id_from++;
+        bm_mask <<= 1;
+      }
+    }
+    __fq1 __fq2 void get_ptr_bit_count_tail(uint32_t node_id, uint32_t& ptr_bit_count) {
+      ptr_bit_count = ptr_reader.get_ptr_block2(node_id);
+      scan_ptr_bits_tail(node_id, ptr_bit_count);
+    }
+    __fq1 __fq2 uint32_t get_tail_ptr(uint32_t node_id, uint32_t& ptr_bit_count, uint8_t& grp_no) {
+      uint8_t node_byte = trie_loc[node_id];
+      uint8_t code_len = code_lt_code_len[node_byte];
+      grp_no = code_len & 0x0F;
+      code_len >>= 4;
+      uint32_t ptr = node_byte & (0xFF >> code_len);
+      uint8_t bit_len = code_lt_bit_len[node_byte];
+      if (bit_len > 0) {
+        if (ptr_bit_count == UINT32_MAX)
+          get_ptr_bit_count_tail(node_id, ptr_bit_count);
+        ptr |= (ptr_reader.read(ptr_bit_count, bit_len) << (8 - code_len));
+      }
+      if (grp_no < grp_idx_limit)
+        ptr = read_ptr_from_idx(grp_no, ptr);
+      // printf("Grp: %u, ptr: %u\n", grp_no, ptr);
+      return ptr;
+    }
+    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
+      uint8_t grp_no;
+      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
+      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count, grp_no);
+      uint8_t *tail = tpm->grp_data[grp_no];
+      if (*tail != 0)
+        return tpm->inner_tries[grp_no]->compare_trie_tail(tail_ptr, in_ctx);
+      return tpm->compare_tail_data(tail, tail_ptr, in_ctx);
+    }
+    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
+      //ptr_bit_count = UINT32_MAX;
+      uint8_t grp_no;
+      tail_ptr_group_map *tpm = (tail_ptr_group_map *) tpmi;
+      uint32_t tail_ptr = UINT32_MAX; // avoid a stack entry
+      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr, grp_no);
+      uint8_t *tail = tpm->grp_data[grp_no];
+      if (*tail != 0) {
+        tpm->inner_tries[grp_no]->copy_trie_tail(tail_ptr, tail_str);
+        return;
+      }
+      tpm->get_tail_data(tail, tail_ptr, tail_str);
+    }
+    __fq1 __fq2 tail_ptr_group_map() {
+      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_group_map::compare_tail;
+      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_group_map::get_tail_str;
+    }
+};
+
+class tail_ptr_flat_map : public tail_ptr_map {
+  private:
+    // __fq1 __fq2 tail_ptr_flat_map(tail_ptr_flat_map const&);
+    // __fq1 __fq2 tail_ptr_flat_map& operator=(tail_ptr_flat_map const&);
+  public:
+    gen::int_bv_reader int_ptr_bv;
+    bvlt_rank *tail_lt;
+    uint8_t *trie_loc;
+    inner_trie *it;
+    uint8_t *data;
+    __fq1 __fq2 tail_ptr_flat_map() {
+      ((tail_ptr_map *) this)->compare_tail = &tail_ptr_flat_map::compare_tail;
+      ((tail_ptr_map *) this)->get_tail_str = &tail_ptr_flat_map::get_tail_str;
+      it = nullptr;
+    }
+    __fq1 __fq2 ~tail_ptr_flat_map() {
+      if (it != nullptr)
+        delete it;
+    }
+    __fq1 __fq2 void init(inner_trie *_dict_obj, bvlt_rank *_tail_lt, uint8_t *_trie_loc, uint8_t *tail_loc) {
+      tail_lt = _tail_lt;
+      trie_loc = _trie_loc;
+      uint8_t encoding_type = tail_loc[2];
+      uint8_t *data_loc = tail_loc + cmn::read_uint32(tail_loc + 32);
+      uint8_t *ptrs_loc = tail_loc + cmn::read_uint32(tail_loc + 44);
+
+      uint8_t ptr_lt_ptr_width = tail_loc[0];
+      it = nullptr;
+      if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
+        it = _dict_obj->new_instance(data_loc, 'i');
+        int_ptr_bv.init(ptrs_loc, ptr_lt_ptr_width);
+      } else {
+        uint8_t group_count = *data_loc;
+        if (group_count == 1)
+          int_ptr_bv.init(ptrs_loc, data_loc[1]);
+        uint8_t *data_idx_start = data_loc + 8 + 512;
+        data = tail_loc + cmn::read_uint32(data_idx_start);
+      }
+    }
+    __fq1 __fq2 uint32_t get_tail_ptr(uint32_t node_id, uint32_t& ptr_bit_count) {
+      if (ptr_bit_count == UINT32_MAX)
+        ptr_bit_count = tail_lt->rank1(node_id);
+      return (int_ptr_bv[ptr_bit_count++] << 8) | trie_loc[node_id];
+    }
+    __fq1 __fq2 static bool compare_tail(tail_ptr_map *tpmi, uint32_t node_id, input_ctx& in_ctx, uint32_t& ptr_bit_count) {
+      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
+      uint32_t tail_ptr = tpm->get_tail_ptr(node_id, ptr_bit_count);
+      if (tpm->it != nullptr)
+        return tpm->it->compare_trie_tail(tail_ptr, in_ctx);
+      return tpm->compare_tail_data(tpm->data, tail_ptr, in_ctx);
+    }
+    __fq1 __fq2 static void get_tail_str(tail_ptr_map *tpmi, uint32_t node_id, gen::byte_str& tail_str) {
+      tail_ptr_flat_map *tpm = (tail_ptr_flat_map *) tpmi;
+      uint32_t tail_ptr = UINT32_MAX;
+      tail_ptr = tpm->get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
+      if (tpm->it != nullptr) {
+        tpm->it->copy_trie_tail(tail_ptr, tail_str);
+        return;
+      }
+      tpm->get_tail_data(tpm->data, tail_ptr, tail_str);
+    }
+};
+
+struct trie_flags {
+  uint64_t bm_ptr;
+  uint64_t bm_term;
+  uint64_t bm_child;
+  uint64_t bm_leaf;
+};
+
+    __fq1 __fq2 inline bool inner_trie::compare_trie_tail(uint32_t node_id, input_ctx& in_ctx) {
       do {
-        if (it->tail_lt.is_set1(node_id)) {
+        if (tail_lt.is_set1(node_id)) {
           uint32_t ptr_bit_count = UINT32_MAX;
-          if (!it->tail_map->compare_tail(it->tail_map, node_id, in_ctx, ptr_bit_count))
+          if (!tail_map->compare_tail(tail_map, node_id, in_ctx, ptr_bit_count))
             return false;
         } else {
-          if (in_ctx.key_pos >= in_ctx.key_len || it->trie_loc[node_id] != in_ctx.key[in_ctx.key_pos])
+          if (in_ctx.key_pos >= in_ctx.key_len || trie_loc[node_id] != in_ctx.key[in_ctx.key_pos])
             return false;
           in_ctx.key_pos++;
         }
-        if (!it->rev_cache.try_find(node_id, in_ctx))
-          node_id = it->child_lt.select1(node_id + 1) - node_id - 2;
+        if (!rev_cache.try_find(node_id, in_ctx))
+          node_id = child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
-    __fq1 __fq2 static bool copy_trie_tail(inner_trie_fwd *itf, uint32_t node_id, gen::byte_str& tail_str) {
-      inner_trie *it = (inner_trie *) itf;
+    __fq1 __fq2 inline bool inner_trie::copy_trie_tail(uint32_t node_id, gen::byte_str& tail_str) {
       do {
-        if (it->tail_lt.is_set1(node_id)) {
-          it->tail_map->get_tail_str(it->tail_map, node_id, tail_str);
+        if (tail_lt.is_set1(node_id)) {
+          tail_map->get_tail_str(tail_map, node_id, tail_str);
         } else
-          tail_str.append(it->trie_loc[node_id]);
-        if (!it->rev_cache.try_find(node_id, tail_str))
-          node_id = it->child_lt.select1(node_id + 1) - node_id - 2;
+          tail_str.append(trie_loc[node_id]);
+        if (!rev_cache.try_find(node_id, tail_str))
+          node_id = child_lt.select1(node_id + 1) - node_id - 2;
       } while (node_id != 0);
       return true;
     }
-    __fq1 __fq2 inner_trie() {
-      ((inner_trie_fwd *) this)->compare_trie_tail = &inner_trie::compare_trie_tail;
-      ((inner_trie_fwd *) this)->copy_trie_tail = &inner_trie::copy_trie_tail;
-      ((inner_trie_fwd *) this)->new_instance = &inner_trie::new_instance;
+    __fq1 __fq2 inline inner_trie::inner_trie() {
     }
-    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
-      // Where is this released?
-      inner_trie *it = new inner_trie();
-      it->trie_level = mem[3];
-      it->load_inner_trie(mem);
-      return it;
-    }
-    __fq1 __fq2 void load_inner_trie(uint8_t *trie_bytes) {
+    __fq1 __fq2 inline void inner_trie::load_inner_trie(uint8_t *trie_bytes) {
 
       tail_map = nullptr;
       trie_loc = nullptr;
@@ -1384,7 +1374,7 @@ class inner_trie : public inner_trie_fwd {
 
     }
 
-    __fq1 __fq2 virtual ~inner_trie() {
+    __fq1 __fq2 inline inner_trie::~inner_trie() {
       if (tail_map != nullptr) {
         delete tail_map;
       }
@@ -1397,8 +1387,6 @@ class inner_trie : public inner_trie_fwd {
         delete [] term_lt.get_select_loc1();
       }
     }
-
-};
 
 class GCFC_fwd_cache {
   private:
@@ -1697,7 +1685,7 @@ class static_trie : public inner_trie {
       ctx.cur_idx++;
     }
 
-    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
+    __fq1 __fq2 static static_trie *new_static_trie(uint8_t *mem) {
       // Where is this released?
       static_trie *it = new static_trie();
       it->trie_level = mem[3];
@@ -1824,7 +1812,6 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 static_trie() {
-    ((inner_trie_fwd *) this)->new_instance = &static_trie::new_instance;
       init_vars();
       trie_level = 0;
     }
@@ -1843,7 +1830,7 @@ class static_trie : public inner_trie {
 
     }
 
-    __fq1 __fq2 virtual ~static_trie() {
+    __fq1 __fq2 ~static_trie() {
       if (leaper != nullptr)
         delete leaper;
       if (lt_not_given & BV_LT_TYPE_LEAF) {
@@ -1860,7 +1847,7 @@ class value_retriever_base : public ptr_group_map {
   public:
     __fq1 __fq2 virtual ~value_retriever_base() {}
     __fq1 __fq2 virtual void load_bm(uint32_t node_id, val_ctx& vctx) = 0;
-    __fq1 __fq2 virtual void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+    __fq1 __fq2 virtual void init(inner_trie *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
             uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) = 0;
     __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
     __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
@@ -1876,7 +1863,7 @@ class value_retriever : public value_retriever_base {
     uint32_t key_count;
     gen::int_bv_reader *int_ptr_bv = nullptr;
     gen::bv_reader<uint64_t> null_bv;
-    inner_trie_fwd *col_trie = nullptr;
+    inner_trie *col_trie = nullptr;
   public:
     __fq1 __fq2 uint32_t scan_ptr_bits_val(val_ctx& vctx) {
       uint32_t node_id_from = vctx.node_id - (vctx.node_id % nodes_per_ptr_block_n);
@@ -2002,7 +1989,7 @@ class value_retriever : public value_retriever_base {
       }
       return skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+    __fq1 __fq2 void init(inner_trie *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
                 uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) {
       key_count = _key_count;
       node_count = _node_count;
@@ -2017,8 +2004,11 @@ class value_retriever : public value_retriever_base {
         int_ptr_bv->init(ptrs_loc, val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY ? val_loc[0] : data_loc[1]);
       }
       col_trie = nullptr;
-      if (val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
-        col_trie = _dict_obj->new_instance(_dict_obj, data_loc);
+      if (val_loc[2] == MSE_TRIE) {
+        col_trie = _dict_obj->new_instance(data_loc, 'c');
+      }
+      if (val_loc[2] == MSE_TRIE_2WAY) {
+        col_trie = _dict_obj->new_instance(data_loc, 'C');
       }
     }
     __fq1 __fq2 bool is_null(uint32_t node_id) {
@@ -2555,7 +2545,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
       gen::byte_str val_str(val_str_buf, Parent::max_len);
       uint8_t *val_start = Parent::grp_data[grp_no];
       if (*val_start != 0)
-        Parent::inner_tries[grp_no]->copy_trie_tail(Parent::inner_tries[grp_no], val_loc - val_start, val_str);
+        Parent::inner_tries[grp_no]->copy_trie_tail(val_loc - val_start, val_str);
       else
         get_val_str(val_str, val_loc - val_start, grp_no, Parent::max_len);
       val_len = val_str.length();
@@ -2757,7 +2747,6 @@ class static_trie_map : public static_trie {
     size_t trie_size;
   public:
     __fq1 __fq2 static_trie_map() {
-    ((inner_trie_fwd *) this)->new_instance = &static_trie_map::new_instance;
       val_map = nullptr;
       is_mmapped = false;
       cleanup_object = nullptr;
@@ -2786,7 +2775,7 @@ class static_trie_map : public static_trie {
       cleanup_object = _cleanup_obj;
     }
 
-    __fq1 __fq2 static inner_trie_fwd *new_instance(inner_trie_fwd *itf, uint8_t *mem) {
+    __fq1 __fq2 static static_trie_map *new_static_trie_map(uint8_t *mem) {
       // Where is this released?
       static_trie_map *it = new static_trie_map();
       it->trie_level = mem[3];
@@ -2875,7 +2864,7 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 static_trie_map **get_trie_groups(int col_val_idx) {
-      inner_trie_fwd **inner_tries = val_map[col_val_idx]->inner_tries;
+      inner_trie **inner_tries = val_map[col_val_idx]->inner_tries;
       return (static_trie_map **) inner_tries;
     }
 
@@ -3233,6 +3222,30 @@ class static_trie_map : public static_trie {
       }
     }
 };
+
+__fq1 __fq2 inline inner_trie *inner_trie::new_instance(uint8_t *mem, char inst_type) {
+  // Where is this released?
+  inner_trie *it;
+  if (inst_type == 'i') {
+    it = new inner_trie();
+    it->trie_level = mem[3];
+    it->load_inner_trie(mem);
+  } else {
+    uint32_t col_count = cmn::read_uint32(mem + 4);
+    if (col_count == 1) {
+      static_trie *st = new static_trie();
+      st->trie_level = mem[3];
+      st->load_static_trie(mem);
+      it = st;
+    } else {
+      static_trie_map *stm = new static_trie_map();
+      stm->trie_level = mem[3];
+      stm->load_from_mem(mem, 0);
+      it = stm;
+    }
+  }
+  return it;
+}
 
 }
 #endif
