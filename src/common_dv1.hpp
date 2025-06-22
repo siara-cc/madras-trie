@@ -231,6 +231,24 @@ simple_word_splitter dflt_word_splitter;
 #pragma pack(pop)
 #endif
 
+typedef struct {
+  union {
+    double dbl;
+    int64_t i64;
+    uint8_t *txt_bin;
+    bool bool_val;
+  };
+} mdx_val;
+
+typedef struct {
+  union {
+    double dbl;
+    int64_t i64;
+    const uint8_t *txt_bin;
+    bool bool_val;
+  };
+} mdx_val_in;
+
 #undef PACKED_STRUCT
 
 }

@@ -4525,25 +4525,23 @@ class builder : public builder_fwd {
     #define APPEND_REC_NOKEY 0
     #define APPEND_REC_KEY_MIDDLE 1
     #define APPEND_REC_KEY_LAST 2
-    size_t append_rec_value(char type, char encoding_type, void *void_value, const uint8_t *byte_arr, size_t value_len, byte_vec& rec, int val_type) {
-      int64_t *i64_ptr = (int64_t *) void_value;
-      double *dbl_ptr = (double *) void_value;
+    size_t append_rec_value(char type, char encoding_type, mdx_val_in value, size_t value_len, byte_vec& rec, int val_type) {
       switch (type) {
         case MST_TEXT:
         case MST_BIN: {
-          const uint8_t *value = byte_arr;
-          if (*i64_ptr == 0) {
-            value = null_value;
+          const uint8_t *txt_bin = value.txt_bin;
+          if (value.i64 == 0) {
+            txt_bin = null_value;
             value_len = null_value_len;
           }
           if (value_len == 0) {
-            value = empty_value;
+            txt_bin = empty_value;
             value_len = empty_value_len;
           }
           if (val_type == APPEND_REC_NOKEY)
             gen::append_vint32(rec, value_len);
           for (size_t j = 0; j < value_len; j++)
-            rec.push_back(value[j]);
+            rec.push_back(txt_bin[j]);
           if (val_type == APPEND_REC_KEY_MIDDLE)
             rec.push_back(0);
         } break;
@@ -4552,19 +4550,19 @@ class builder : public builder_fwd {
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           if (val_type == APPEND_REC_NOKEY) {
             if (type == MST_DECV) {
-              uint8_t *v64 = (uint8_t *) dbl_ptr;
+              uint8_t *v64 = (uint8_t *) &value.dbl;
               value_len = 8;
               for (size_t vi = 0; vi < value_len; vi++)
                 rec.push_back(v64[vi]);
             } else {
-              if (*i64_ptr == INT64_MIN) { // null
+              if (value.i64 == INT64_MIN) { // null
                 for (size_t i = 0; i < 9; i++)
                   rec.push_back(0xFF);
                 value_len = 9;
               } else {
-                int64_t i64 = *i64_ptr;
+                int64_t i64 = value.i64;
                 if (type >= MST_DEC0 && type <= MST_DEC9) {
-                  double dbl = *dbl_ptr;
+                  double dbl = value.dbl;
                   i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
                 }
                 i64 = flavic48::zigzag_encode(i64);
@@ -4576,12 +4574,12 @@ class builder : public builder_fwd {
               }
             }
           } else {
-            if (*i64_ptr == INT64_MIN) { // null
+            if (value.i64 == INT64_MIN) { // null
               rec.push_back(0);
               value_len = 1;
             } else {
-              gen::append_svint60(rec, *i64_ptr);
-              value_len = gen::get_svint60_len(*i64_ptr);
+              gen::append_svint60(rec, value.i64);
+              value_len = gen::get_svint60_len(value.i64);
             }
           }
         } break;
@@ -4591,18 +4589,17 @@ class builder : public builder_fwd {
       return value_len;
     }
 
-    size_t get_value_len(size_t i, char type, const uint64_t *values, const size_t value_lens[]) {
+    size_t get_value_len(size_t i, char type, const mdx_val_in *values, const size_t value_lens[]) {
       size_t value_len = 0;
       if (value_lens != nullptr)
         value_len = value_lens[i];
       if (value_lens == nullptr) {
-        if (type == MST_TEXT && values[i] != 0 && values[i] != UINT64_MAX)
-          value_len = strlen((const char *) values[i]);
+        if (type == MST_TEXT && values[i].i64 != 0 && values[i].i64 != UINT64_MAX)
+          value_len = strlen((const char *) values[i].txt_bin);
       }
       return value_len;
     }
-    bool insert_record(const void *void_values, const size_t value_lens[] = NULL) {
-      uint64_t *values = (uint64_t *) void_values;
+    bool insert_record(const mdx_val_in *values, const size_t value_lens[] = NULL) {
       cur_seq_idx++;
       byte_vec rec;
       byte_vec key_rec;
@@ -4613,9 +4610,9 @@ class builder : public builder_fwd {
           break;
         // printf("col: %lu - ", i);
         size_t value_len = get_value_len(i, type, values, value_lens);
-        append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, rec, APPEND_REC_NOKEY);
+        append_rec_value(type, column_encodings[i], values[i], value_len, rec, APPEND_REC_NOKEY);
         if (i < pk_col_count) {
-          append_rec_value(type, column_encodings[i], (void *) &values[i], (const uint8_t *) values[i], value_len, key_rec,
+          append_rec_value(type, column_encodings[i], values[i], value_len, key_rec,
              i < (pk_col_count - 1) ? APPEND_REC_KEY_MIDDLE : APPEND_REC_KEY_LAST);
         }
       }
@@ -4630,15 +4627,17 @@ class builder : public builder_fwd {
             int sec_col_idx = atoi(cur_col) - 1;
             char sec_col_type = column_types[sec_col_idx];
             size_t value_len = get_value_len(sec_col_idx, sec_col_type, values, value_lens);
-            append_rec_value(sec_col_type, column_encodings[sec_col_idx], (void *) &values[sec_col_idx], (const uint8_t *) values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_MIDDLE);
+            append_rec_value(sec_col_type, column_encodings[sec_col_idx], values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_MIDDLE);
             cur_col = sec_cols + j + 1;
           }
         }
         int sec_col_idx = atoi(cur_col) - 1;
         char sec_col_type = column_types[sec_col_idx];
         size_t value_len = get_value_len(sec_col_idx, sec_col_type, values, value_lens);
-        append_rec_value(sec_col_type, column_encodings[sec_col_idx], (void *) &values[sec_col_idx], (const uint8_t *) values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_LAST);
-        append_rec_value('*', 'T', (void *) sec_rec.data(), (const uint8_t *) sec_rec.data(), sec_rec.size(), rec, APPEND_REC_NOKEY);
+        append_rec_value(sec_col_type, column_encodings[sec_col_idx], values[sec_col_idx], value_len, sec_rec, APPEND_REC_KEY_LAST);
+        mdx_val_in sec_val;
+        sec_val.txt_bin = sec_rec.data();
+        append_rec_value('*', 'T', sec_val, sec_rec.size(), rec, APPEND_REC_NOKEY);
       }
       if (pk_col_count == 0) {
         uint32_t val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size());

@@ -98,24 +98,23 @@ int main(int argc, char *argv[]) {
         key_len = isize;
       }
       if (what == 0 || what == 2) {
-        uint64_t values[4];
+        madras_dv1::mdx_val_in values[4];
         size_t value_lens[4];
-        values[0] = (uint64_t) key;
+        values[0].txt_bin = key;
         value_lens[0] = key_len;
-        values[1] = (uint64_t) key;
+        values[1].txt_bin = key;
         value_lens[1] = key_len;
         if (what == 0) {
-          int64_t i64 = line_len;
-          memcpy(values + 2, &i64, 8);
+          values[2].i64 = line_len;
           value_lens[2] = 8;
           int64_t checksum = 0;
           for (size_t j = 0; j < strlen((const char *) key); j++) {
             checksum += key[j];
           }
-          memcpy(values + 3, &checksum, 8);
+          values[3].i64 = checksum;
           value_lens[3] = 8;
         }
-        sb->insert_record((const void *) values, value_lens);
+        sb->insert_record(values, value_lens);
       } else if (what == 1) {
         sb->insert(key, key_len);
       }
@@ -156,6 +155,8 @@ int main(int argc, char *argv[]) {
   size_t out_val_len = 0;
   uint8_t key_buf[trie_reader.get_max_key_len() + 1];
   uint8_t val_buf[trie_reader.get_max_val_len() + 1];
+  madras_dv1::mdx_val mv;
+  mv.txt_bin = val_buf;
   madras_dv1::iter_ctx dict_ctx;
   dict_ctx.init(trie_reader.get_max_key_len(), trie_reader.get_max_level());
 
@@ -224,7 +225,7 @@ int main(int argc, char *argv[]) {
         }
         if (what == 0 || what == 2) {
           in_ctx.node_id = dict_ctx.node_path[dict_ctx.cur_idx];
-          trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, val_buf);
+          trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, &mv);
           if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
             printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
             err_count++;
@@ -251,7 +252,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    success = trie_reader.get(in_ctx, &out_val_len, val_buf);
+    mv.txt_bin = val_buf;
+    success = trie_reader.get(in_ctx, &out_val_len, mv);
     if (success) {
       val_buf[out_val_len] = 0;
       if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0) {
@@ -268,19 +270,19 @@ int main(int argc, char *argv[]) {
     }
 
     if (what == 0) {
-      trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, val_buf);
-      int64_t out_len = *((int64_t *) val_buf);
+      trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, &mv);
+      int64_t out_len = mv.i64;
       if (out_len != in_ctx.key_len) {
         std::cout << "nid: " << in_ctx.node_id << ", First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << out_len << std::endl;
         err_count++;
       }
-      trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, val_buf);
+      trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, &mv);
       int64_t checksum = 0;
       for (size_t i = 0; i < strlen((const char *) in_ctx.key); i++) {
         checksum += in_ctx.key[i];
       }
-      int64_t out_chksum = *((int64_t *) val_buf);
+      int64_t out_chksum = mv.i64;
       if (out_chksum != checksum) {
         std::cout << "nid: " << in_ctx.node_id << ", Second val mismatch - expected: " << checksum << ", found: "
             << out_chksum << std::endl;

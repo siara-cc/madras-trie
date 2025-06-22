@@ -57,8 +57,9 @@ namespace madras_dv1 {
 
 class val_ctx {
   public:
-    uint8_t *val = nullptr;
+    mdx_val *val = nullptr;
     size_t *val_len;
+    size_t alloc_len;
     uint32_t node_id;
     uint32_t ptr_bit_count;
     uint32_t ptr;
@@ -79,7 +80,8 @@ class val_ctx {
     uint8_t dec_count;
     ~val_ctx() {
       if (to_alloc) {
-        delete [] val;
+        if (alloc_len > 0)
+          delete [] val->txt_bin;
         delete val_len;
       }
       if (to_alloc_uxx) {
@@ -95,11 +97,14 @@ class val_ctx {
       ptr_bit_count = UINT32_MAX;
     }
     void init(size_t _max_len, uint8_t _to_alloc_val = 1, uint8_t _to_alloc_uxx = 0) {
+      alloc_len = _max_len;
       is_init = 1;
       to_alloc = _to_alloc_val;
       to_alloc_uxx = _to_alloc_uxx;
       if (_to_alloc_val) {
-        val = new uint8_t[_max_len];
+        val = new mdx_val();
+        if (alloc_len > 0)
+          val->txt_bin = new uint8_t[_max_len];
         val_len = new size_t;
         *val_len = 0;
       }
@@ -117,13 +122,15 @@ class val_ctx {
       bm_mask = bm_init_mask;
       count = dec_count = 0;
     }
-    void set_ptrs(uint8_t *_buf_ptr, size_t *_buf_len_ptr) {
+    void set_ptrs(mdx_val *_val_ptr, size_t *_buf_len_ptr) {
       if (to_alloc) {
-        delete[] val;
+        if (alloc_len > 0)
+          delete[] val->txt_bin;
+        delete val;
         delete val_len;
       }
       to_alloc = 0;
-      val = _buf_ptr;
+      val = _val_ptr;
       val_len = _buf_len_ptr;
     }
     bool is_initialized() {
@@ -266,21 +273,21 @@ class cmn {
         *vlen = 5 - len;
       return ret;
     }
-    __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, void *ret_val, size_t& ret_len, uint8_t *null_val, size_t null_len) {
+    __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, mdx_val *ret_val, size_t *ret_len, uint8_t *null_val, size_t null_len) {
       switch (data_type) {
         case MST_INT:
         case MST_DECV ... MST_DEC9:
         case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
-          ret_len = 8;
+          *ret_len = 8;
           if (*val_loc == 0x00) {
-            *((int64_t *) ret_val) = INT64_MIN;
+            ret_val->i64 = INT64_MIN;
             return;
           }
           int64_t i64 = gen::read_svint60(val_loc);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
             dbl /= flavic48::tens()[data_type - MST_DEC0];
-            *((double *)ret_val) = dbl;
+            ret_val->dbl = dbl;
           } else
             memcpy(ret_val, &i64, sizeof(int64_t));
         } break;
@@ -1907,7 +1914,7 @@ class value_retriever_base : public ptr_group_map {
             uint8_t *val_loc, uint32_t _key_count, uint32_t _node_count) = 0;
     __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
     __fq1 __fq2 virtual void fill_val_ctx(uint32_t node_id, val_ctx& vctx) = 0;
-    __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) = 0;
+    __fq1 __fq2 virtual const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) = 0;
     __fq1 __fq2 virtual static_trie *get_col_trie() = 0;
 };
 
@@ -2086,7 +2093,7 @@ class stored_val_retriever : public value_retriever<pri_key> {
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       size_t len_len;
       *vctx.val_len = cmn::read_vint32(vctx.byts, &len_len);
-      vctx.val = (vctx.byts + len_len);
+      vctx.val->txt_bin = (vctx.byts + len_len);
       vctx.byts += len_len;
       vctx.byts += *vctx.val_len;
       return Parent::skip_to_next_leaf(vctx);
@@ -2110,13 +2117,13 @@ class stored_val_retriever : public value_retriever<pri_key> {
         vctx.bm_mask <<= 1;
       }
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(8, false, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return vctx.val;
+      return vctx.val->txt_bin;
     }
 };
 
@@ -2131,11 +2138,14 @@ class col_trie_retriever : public value_retriever<pri_key> {
         ptr_pos = ((static_trie *) Parent::dict_obj)->get_leaf_lt()->rank1(vctx.node_id);
       uint32_t col_trie_node_id = (*Parent::int_ptr_bv)[ptr_pos];
       // printf("Col trie node_id: %u\n", col_trie_node_id);
-      ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val, true);
+      uint8_t val_loc[16];
+      if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN)
+        vctx.val->txt_bin = val_loc;
+      ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val->txt_bin, true);
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
         size_t null_len;
         uint8_t *null_val = ((static_trie *) Parent::dict_obj)->get_null_value(null_len);
-        cmn::convert_back(Parent::data_type, vctx.val, vctx.val, *vctx.val_len, null_val, null_len);
+        cmn::convert_back(Parent::data_type, vctx.val->txt_bin, vctx.val, vctx.val_len, null_val, null_len);
       }
       return Parent::skip_to_next_leaf(vctx);
     }
@@ -2144,13 +2154,13 @@ class col_trie_retriever : public value_retriever<pri_key> {
       Parent::load_bm(node_id, vctx);
       Parent::skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
-      vctx.init(8, false, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.init(0, false, false);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return vctx.val;
+      return vctx.val->txt_bin;
     }
 };
 
@@ -2219,7 +2229,7 @@ class words_retriever : public value_retriever<pri_key> {
         vctx.ptr_bit_count += code_len;
         uint32_t it_leaf_id = Parent::ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
         ((static_trie *) Parent::inner_tries[grp_no])->reverse_lookup(it_leaf_id, &word_len,
-            vctx.val + *vctx.val_len, true);
+            vctx.val->txt_bin + *vctx.val_len, true);
         *vctx.val_len += word_len;
       }
       return Parent::skip_to_next_leaf(vctx);
@@ -2231,22 +2241,22 @@ class words_retriever : public value_retriever<pri_key> {
       uint32_t pbc = Parent::ptr_reader.get_ptr_block3(vctx.node_id);
       vctx.ptr_bit_count = scan_ptr_bits_words(vctx.node_id, pbc);
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(0, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
       // printf("pbc: %u\n", *p_ptr_bit_count);
-      return  (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
 class block_retriever_base {
   public:
     __fq1 __fq2 virtual ~block_retriever_base() {}
-    __fq1 __fq2 virtual void block_operation(uint32_t node_id, int len, void *sum_out, int64_t *out = nullptr) = 0;
-    __fq1 __fq2 virtual void block_operation32(uint32_t node_id, int len, void *sum_out, int32_t *out = nullptr) = 0;
+    __fq1 __fq2 virtual void block_operation(uint32_t node_id, int len, mdx_val &sum_out, int64_t *out = nullptr) = 0;
+    __fq1 __fq2 virtual void block_operation32(uint32_t node_id, int len, mdx_val &sum_out, int32_t *out = nullptr) = 0;
 };
 
 template <char type_id, typename T, char operation>
@@ -2257,7 +2267,7 @@ class fast_vint_block_retriever : public block_retriever_base {
     __fq1 __fq2 fast_vint_block_retriever(value_retriever_base *_val_retriever) {
       val_retriever = _val_retriever;
     }
-    __fq1 __fq2 void block_operation(uint32_t node_id, int len, void *sum_out, int64_t *out = nullptr) {
+    __fq1 __fq2 void block_operation(uint32_t node_id, int len, mdx_val &sum_out, int64_t *out = nullptr) {
       int64_t sum_int = 0;
       double sum_dbl = 0;
       int64_t i64;
@@ -2337,12 +2347,12 @@ class fast_vint_block_retriever : public block_retriever_base {
         delete[] byts;
       if constexpr (operation == 'S') {
         if constexpr (type_id == 'i')
-          memcpy(sum_out, &sum_int, 8);
+          sum_out.i64 = sum_int;
         else
-          memcpy(sum_out, &sum_dbl, 8);
+          sum_out.dbl = sum_dbl;
       }
     }
-    __fq1 __fq2 void block_operation32(uint32_t node_id, int len, void *sum_out, int32_t *out = nullptr) {
+    __fq1 __fq2 void block_operation32(uint32_t node_id, int len, mdx_val &sum_out, int32_t *out = nullptr) {
       int64_t sum_int = 0;
       double sum_flt = 0;
       int32_t i32;
@@ -2391,9 +2401,9 @@ class fast_vint_block_retriever : public block_retriever_base {
       delete [] i32_vals;
       if constexpr (operation == 'S') {
         if constexpr (type_id == 'i')
-          memcpy(sum_out, &sum_int, 8);
+          sum_out.i64 = sum_int;
         else
-          memcpy(sum_out, &sum_flt, 8);
+          sum_out.dbl = sum_flt;
       }
     }
 };
@@ -2495,13 +2505,13 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       skip_non_leaf_nodes(vctx);
       *vctx.val_len = 8;
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(8, false, true);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
@@ -2528,13 +2538,13 @@ class uniq_bin_val_retriever : public value_retriever<pri_key> {
       vctx.init_pbc_vars();
       Parent::skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(Parent::max_len, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
@@ -2611,7 +2621,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       if (!Parent::is_repeat(vctx)) {
         uint8_t *val_loc = Parent::get_val_loc(vctx);
-        get_text_val(val_loc, vctx.grp_no, vctx.val, *vctx.val_len);
+        get_text_val(val_loc, vctx.grp_no, vctx.val->txt_bin, *vctx.val_len);
       }
       return Parent::skip_to_next_leaf(vctx);
     }
@@ -2620,13 +2630,13 @@ class uniq_text_retriever : public value_retriever<pri_key> {
       vctx.init_pbc_vars();
       Parent::skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(Parent::max_len, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
@@ -2657,13 +2667,13 @@ class uniq_ifp_retriever : public value_retriever<pri_key> {
       *vctx.val_len = 8;
       Parent::skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(Parent::max_len, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
@@ -2719,13 +2729,13 @@ class delta_val_retriever : public value_retriever<pri_key> {
       }
       *vctx.val_len = 8;
     }
-    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, void *ret_val) {
+    __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
       vctx.init(Parent::max_len, false);
-      vctx.set_ptrs((uint8_t *) ret_val, in_size_out_value_len);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
-      return (uint8_t *) ret_val;
+      return ret_val.txt_bin;
     }
 };
 
@@ -2836,7 +2846,7 @@ class static_trie_map : public static_trie {
       return it;
     }
 
-    __fq1 __fq2 bool get(input_ctx& in_ctx, size_t *in_size_out_value_len, void *val) {
+    __fq1 __fq2 bool get(input_ctx& in_ctx, size_t *in_size_out_value_len, mdx_val &val) {
       bool is_found = lookup(in_ctx);
       if (is_found) {
         if (val_count > 1)
@@ -2851,16 +2861,16 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 const uint8_t *get_col_val(uint32_t node_id, int col_val_idx,
-          size_t *in_size_out_value_len, void *val = nullptr) {
+          size_t *in_size_out_value_len, mdx_val *val = nullptr) {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
-        if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, (uint8_t *) val))
+        if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, val->txt_bin))
           return nullptr;
         size_t null_len;
         uint8_t *null_val = get_null_value(null_len);
-        cmn::convert_back(get_column_type(col_val_idx), (uint8_t *) val, val, *in_size_out_value_len, null_val, null_len);
+        cmn::convert_back(get_column_type(col_val_idx), val->txt_bin, val, in_size_out_value_len, null_val, null_len);
         return (const uint8_t *) val;
       }
-      return val_map[col_val_idx]->get_val(node_id, in_size_out_value_len, val);
+      return val_map[col_val_idx]->get_val(node_id, in_size_out_value_len, *val);
     }
 
     __fq1 __fq2 const char *get_table_name() {
