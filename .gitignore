@@ -1,3 +1,4 @@
+.vscode
 .DS_Store
 *.o
 run_tests*
@@ -11,6 +12,8 @@ prgs/query_mdx*
 !prgs/query_mdx.cpp
 prgs/lookup*
 !prgs/lookup.cpp
+prgs/duckdb_query*
+!prgs/duckdb_query*.cpp
 a.out*
 *.txt*
 *.log

@@ -1,0 +1,26 @@
+C = gcc
+CXX = g++
+CXXFLAGS = -pthread -std=c++17 -march=native
+INCLUDES = -I/opt/homebrew/Cellar/duckdb/1.2.1/include
+L_FLAGS = -L/opt/homebrew/Cellar/duckdb/1.2.1/lib
+M_FLAGS = -lduckdb
+
+opt: CXXFLAGS += -g -O2 -DNDEBUG
+opt: duckdb_query
+
+debug: CXXFLAGS += -g -O0 -fno-inline
+debug: duckdb_query
+
+release: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
+release: duckdb_query
+
+asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer
+asan: duckdb_query
+
+clean:
+	rm duckdb_query
+	rm -rf duckdb_query.dSYM
+
+duckdb_query: duckdb_query.cpp duckdb_query_sum.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) duckdb_query.cpp -o duckdb_query $(L_FLAGS) $(M_FLAGS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) duckdb_query_sum.cpp -o duckdb_query_sum $(L_FLAGS) $(M_FLAGS)
