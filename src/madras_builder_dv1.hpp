@@ -778,13 +778,13 @@ class ptr_groups {
       output_byte(step_bits_idx, fp, out_vec);
       output_byte(step_bits_rest, fp, out_vec);
       output_byte(idx_ptr_size, fp, out_vec);
-      output_u32(null_bv.raw_data()->size(), fp, out_vec);
       output_byte(reserved8_1, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
+      output_u32(null_bv.raw_data()->size(), fp, out_vec);
 
       output_u32(max_len, fp, out_vec);
       output_u32(ptr_lookup_tbl_loc, fp, out_vec);
@@ -1321,8 +1321,6 @@ class tail_val_maps {
           uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
           uint8_t rev[ti->len];
           uint8_t *ti_data = uniq_data[ti->pos];
-            if (memcmp(ti_data, "a bad experience with", 21) == 0)
-              int hello = 1;
           for (uint32_t j = 0; j < ti->len; j++)
             rev[j] = ti_data[ti->len - j - 1];
           inner_trie->insert(rev, ti->len, freq_idx);
@@ -1369,8 +1367,6 @@ class tail_val_maps {
           if (n.get_flags() & NFLAG_LEAF) {
             uniq_info_base *ti = uniq_info_arr_freq[col_val_pos];
             uint8_t *ti_data = uniq_data[ti->pos];
-            if (memcmp(ti_data, "a bad experience with", 21) == 0)
-              int hello = 1;
             ti->ptr = node_id; //leaf_id++;
           }
           n = ni.next();

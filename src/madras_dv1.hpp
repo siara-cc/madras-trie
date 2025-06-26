@@ -2060,7 +2060,7 @@ class value_retriever : public value_retriever_base {
       uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 32);
       uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 44);
       uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint32(val_loc + 48));
-      size_t null_bv_size = cmn::read_uint32(val_loc + 14);
+      size_t null_bv_size = cmn::read_uint32(val_loc + 20);
       null_bv.set_bv(null_bv_loc, null_bv_size);
       if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         int_ptr_bv = new gen::int_bv_reader();
