@@ -206,7 +206,9 @@ int main(int argc, char *argv[]) {
     int64_t sum = 0;
     if (enc_type == MSE_VINTGB) {
       madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever<'S'>(column_idx);
-      block_retriever->block_operation32(0, node_count, &sum);
+      madras_dv1::mdx_val sum_val;
+      block_retriever->block_operation32(0, node_count, sum_val);
+      sum = sum_val.i64;
     } else {
       vctx.init(32, true, true);
       bool has_next = true;
@@ -222,7 +224,9 @@ int main(int argc, char *argv[]) {
     double sum = 0;
     if (enc_type == MSE_VINTGB) {
       madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever<'S'>(column_idx);
-      block_retriever->block_operation(0, node_count, &sum);
+      madras_dv1::mdx_val sum_val;
+      block_retriever->block_operation(0, node_count, sum_val);
+      sum = sum_val.dbl;
     } else {
       vctx.init(32, true, true);
       bool has_next = true;

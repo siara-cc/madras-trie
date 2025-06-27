@@ -79,15 +79,21 @@ class val_ctx {
     uint8_t count;
     uint8_t dec_count;
     ~val_ctx() {
+      unallocate();
+    }
+    void unallocate() {
       if (to_alloc) {
         if (alloc_len > 0)
           delete [] val->txt_bin;
         delete val_len;
+        alloc_len = 0;
+        to_alloc = 0;
       }
       if (to_alloc_uxx) {
         delete [] i64_vals;
         delete [] i32_vals;
         delete [] byts;
+        to_alloc_uxx = 0;
       }
     }
     void init_pbc_vars() {
@@ -96,6 +102,7 @@ class val_ctx {
       next_pbc = 0;
       ptr_bit_count = UINT32_MAX;
     }
+    // todo: this is leading to bugs. Allocation should be automatic
     void init(size_t _max_len, uint8_t _to_alloc_val = 1, uint8_t _to_alloc_uxx = 0) {
       alloc_len = _max_len;
       is_init = 1;
@@ -2116,6 +2123,8 @@ class stored_val_retriever : public value_retriever<pri_key> {
         node_id_from++;
         vctx.bm_mask <<= 1;
       }
+      // unallocate any allocations as value is read directly
+      vctx.unallocate();
     }
     __fq1 __fq2 const uint8_t *get_val(uint32_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
