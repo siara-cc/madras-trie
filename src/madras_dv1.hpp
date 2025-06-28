@@ -2298,7 +2298,7 @@ class fast_vint_block_retriever : public block_retriever_base {
           block_size = flavic48::decode(data + offset, data[1], i32_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = flavic48::zigzag_decode(i32_vals[i]);
-            if constexpr (operation == 'D')
+            if constexpr (operation == 'a' && type_id == 'i')
                out[out_pos++] = i64;
             else {
               if constexpr (type_id != 'i')
@@ -2316,7 +2316,7 @@ class fast_vint_block_retriever : public block_retriever_base {
             block_size = flavic48::decode(data + offset, data[1], i64_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = flavic48::zigzag_decode(i64_vals[i]);
-            if constexpr (operation == 'D')
+            if constexpr (operation == 'a' && type_id == 'i')
                out[out_pos++] = i64;
             else {
               if constexpr (type_id != 'i')
@@ -2340,10 +2340,12 @@ class fast_vint_block_retriever : public block_retriever_base {
               dbl = static_cast<double>(i64_vals[i]);
               dbl /= flavic48::tens()[val_retriever->data_type - MST_DEC0];
             }
-            if constexpr (operation == 'S')
+            if constexpr (operation == 's')
               sum_dbl += dbl;
-            if constexpr (operation == 'D')
-              memcpy(i64_vals + i, &dbl, 8);
+            if constexpr (operation == 'a') {
+              memcpy(out + out_pos, &dbl, 8);
+              out_pos++;
+            }
           }
         }
         len -= data[1];
@@ -2354,7 +2356,7 @@ class fast_vint_block_retriever : public block_retriever_base {
       delete [] i64_vals;
       if constexpr (type_id == '.')
         delete[] byts;
-      if constexpr (operation == 'S') {
+      if constexpr (operation == 's') {
         if constexpr (type_id == 'i')
           sum_out.i64 = sum_int;
         else
@@ -2378,7 +2380,7 @@ class fast_vint_block_retriever : public block_retriever_base {
         block_size = flavic48::decode(data + offset, data[1], i32_vals);
         for (size_t i = 0; i < data[1]; i++) {
           i32 = flavic48::zigzag_decode(i32_vals[i]);
-          if constexpr (operation == 'D')
+          if constexpr (operation == 'a')
               out[out_pos++] = i32;
           else {
             if constexpr (type_id != 'i')
@@ -2397,9 +2399,9 @@ class fast_vint_block_retriever : public block_retriever_base {
               flt = static_cast<float>(i32_vals[i]);
               flt /= flavic48::tens()[val_retriever->data_type - MST_DEC0];
             }
-            if constexpr (operation == 'S')
+            if constexpr (operation == 's')
               sum_flt += flt;
-            if constexpr (operation == 'D')
+            if constexpr (operation == 'a')
               memcpy(i32_vals + i, &flt, 4);
           }
         }
@@ -2408,7 +2410,7 @@ class fast_vint_block_retriever : public block_retriever_base {
         data += offset;
       }
       delete [] i32_vals;
-      if constexpr (operation == 'S') {
+      if constexpr (operation == 's') {
         if constexpr (type_id == 'i')
           sum_out.i64 = sum_int;
         else
