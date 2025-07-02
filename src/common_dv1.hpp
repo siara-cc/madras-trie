@@ -3,6 +3,10 @@
 
 namespace madras_dv1 {
 
+#ifndef uintxx_t
+#define uintxx_t uint32_t
+#endif
+
 #define MDX_HEADER_SIZE (4 + 12 + 30 * 4)
 
 const static uint8_t *NULL_VALUE =  (const uint8_t *) " ";
@@ -192,7 +196,7 @@ const static bldr_options inner_tries_dflt_opts =
 
 class word_split_iface {
   public:
-    virtual uint32_t split_into_words(const uint8_t *str, size_t str_len, uint32_t *out_word_positions, uint32_t max_word_count) = 0;
+    virtual uintxx_t split_into_words(const uint8_t *str, size_t str_len, uintxx_t *out_word_positions, uintxx_t max_word_count) = 0;
     virtual ~word_split_iface() {
     }
 };
@@ -204,7 +208,7 @@ class simple_word_splitter : public word_split_iface {
     void set_min_word_len(size_t _min_len) {
       min_word_len = _min_len;
     }
-    uint32_t split_into_words(const uint8_t *str, size_t str_len, uint32_t *out_word_positions, uint32_t max_word_count) {
+    uintxx_t split_into_words(const uint8_t *str, size_t str_len, uintxx_t *out_word_positions, uintxx_t max_word_count) {
       size_t word_count = 0;
       size_t last_word_len = 0;
       bool is_prev_non_word = false;

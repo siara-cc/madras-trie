@@ -406,18 +406,18 @@ int main(int argc, char* argv[]) {
   ins_seq_id = 0;
   madras_dv1::input_ctx in_ctx;
   uint8_t *key = new uint8_t[stm.get_max_key_len()];
-  uint32_t ptr_count[column_count];
+  uintxx_t ptr_count[column_count];
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
   size_t errors[column_count];
-  memset(ptr_count, '\xFF', sizeof(uint32_t) * column_count);
+  memset(ptr_count, '\xFF', sizeof(uintxx_t) * column_count);
   memset(int_sums, '\0', sizeof(int64_t) * column_count);
   memset(dbl_sums, '\0', sizeof(double) * column_count);
   memset(errors, '\0', sizeof(size_t) * column_count);
   while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
     if (ins_seq_id > row_count)
       break;
-    uint32_t node_id = ins_seq_id;
+    uintxx_t node_id = ins_seq_id;
     if (pk_col_count > 0) {
       gen::byte_vec key_rec;
       for (size_t i = 0; i < pk_col_count; i++) {

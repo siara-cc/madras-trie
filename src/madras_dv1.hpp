@@ -2873,14 +2873,22 @@ class static_trie_map : public static_trie {
 
     __fq1 __fq2 const uint8_t *get_col_val(uint64_t node_id, int col_val_idx,
           size_t *in_size_out_value_len, mdx_val *val = nullptr) {
+      mdx_val mv;
+      uint8_t *txt_bin_buf = new uint8_t[get_max_val_len(col_val_idx)];
+      if (val == nullptr)
+        val = &mv;
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
-        if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, val->txt_bin))
+        if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, val->txt_bin)) {
+          delete [] txt_bin_buf;
           return nullptr;
+        }
         size_t null_len;
         uint8_t *null_val = get_null_value(null_len);
         cmn::convert_back(get_column_type(col_val_idx), val->txt_bin, val, in_size_out_value_len, null_val, null_len);
+        delete [] txt_bin_buf;
         return (const uint8_t *) val;
       }
+      delete [] txt_bin_buf;
       return val_map[col_val_idx]->get_val(node_id, in_size_out_value_len, *val);
     }
 
