@@ -450,7 +450,7 @@ int main(int argc, char* argv[]) {
         madras_dv1::mdx_val mv;
         mv.txt_bin = val_buf;
         size_t val_len = 8;
-        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, &mv); // , &ptr_count[col_val_idx]);
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         size_t null_value_len;
         uint8_t *null_value = stm.get_null_value(null_value_len);
         if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
@@ -477,7 +477,7 @@ int main(int argc, char* argv[]) {
         uint8_t val_buf[val_len];
         madras_dv1::mdx_val mv;
         mv.txt_bin = val_buf;
-        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, &mv); // , &ptr_count[col_val_idx]);
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         if (sql_val == nullptr) {
           size_t empty_value_len;
           uint8_t *empty_value = stm.get_empty_value(empty_value_len);
@@ -510,7 +510,7 @@ int main(int argc, char* argv[]) {
         size_t sql_val_len = sqlite3_column_bytes(stmt, sql_col_idx);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, &mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         int64_t original_epoch = mv.i64;
         // printf("orig epoch: %lld\n", original_epoch);
         if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
@@ -551,7 +551,7 @@ int main(int argc, char* argv[]) {
         int64_t sql_val = sqlite3_column_int64(stmt, sql_col_idx);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, &mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         int64_t i64 = mv.i64;
         if (i64 != sql_val) {
           errors[col_val_idx]++;
@@ -563,7 +563,7 @@ int main(int argc, char* argv[]) {
         double sql_val = round_dbl(sqlite3_column_double(stmt, sql_col_idx), exp_col_type);
         size_t val_len;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, &mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         double dbl_val = mv.dbl;
         if (dbl_val != sql_val) {
           errors[col_val_idx]++;
