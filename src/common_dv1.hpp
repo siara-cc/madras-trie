@@ -17,7 +17,7 @@ namespace madras_dv1 {
 #define UINTXX_MAX UINT64_MAX
 #endif
 
-#define MDX_HEADER_SIZE (4 + 12 + 30 * 4)
+#define MDX_HEADER_SIZE (36 + 4 + 8 + 29 * 8)
 
 const static uint8_t *NULL_VALUE =  (const uint8_t *) " ";
 const static size_t NULL_VALUE_LEN = 1;

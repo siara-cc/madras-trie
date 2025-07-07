@@ -55,6 +55,49 @@ namespace madras_dv1 {
 #define TF_CHILD 2
 #define TF_LEAF 3
 
+#define PK_COL_COUNT_LOC 38
+#define TRIE_LEVEL_LOC 39
+
+#define MAX_TAIL_LEN_LOC 40
+#define MAX_LVL_LOC 42
+#define MIN_STAT_LOC 44
+
+#define VAL_COUNT_LOC 48
+#define NAMES_LOC 56
+#define VAL_TBL_LOC 64
+#define NODE_COUNT_LOC 72
+#define OPTS_SIZE_LOC 80
+#define NS_COUNT_LOC 88
+#define KEY_COUNT_LOC 96
+#define MAX_KEY_LEN_LOC 104
+#define MAX_VAL_LEN_LOC 112
+
+#define FC_COUNT_LOC 120
+#define RC_COUNT_LOC 128
+#define FC_MAX_NID_LOC 136
+#define RC_MAX_NID_LOC 144
+#define FCACHE_LOC 152
+#define RCACHE_LOC 160
+#define SEC_CACHE_LOC 168
+
+#define TERM_SEL_LT_LOC 176
+#define TERM_RANK_LT_LOC 184
+#define CHILD_SEL_LT_LOC 192
+#define CHILD_RANK_LT_LOC 200
+
+#define LOUDS_SEL_LT_LOC 192
+#define LOUDS_RANK_LT_LOC 200
+
+#define LEAF_SEL_LT_LOC 208
+#define LEAF_RANK_LT_LOC 216
+#define TAIL_RANK_LT_LOC 224
+#define TRIE_TAIL_PTRS_DATA_LOC 232
+
+#define TRIE_FLAGS_LOC 240
+#define TAIL_FLAGS_PTR_LOC 248
+#define NULL_VAL_LOC 256
+#define EMPTY_VAL_LOC 264
+
 class val_ctx {
   public:
     mdx_val *val = nullptr;
@@ -1307,7 +1350,7 @@ class inner_trie : public inner_trie_fwd {
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       inner_trie *it = new inner_trie();
-      it->trie_level = mem[3];
+      it->trie_level = mem[TRIE_LEVEL_LOC];
       it->load_inner_trie(mem);
       return it;
     }
@@ -1316,30 +1359,30 @@ class inner_trie : public inner_trie_fwd {
       tail_map = nullptr;
       trie_loc = nullptr;
 
-      node_count = cmn::read_uint32(trie_bytes + 16);
-      uintxx_t node_set_count = cmn::read_uint32(trie_bytes + 24);
-      uintxx_t key_count = cmn::read_uint32(trie_bytes + 28);
+      node_count = cmn::read_uint64(trie_bytes + NODE_COUNT_LOC);
+      uintxx_t node_set_count = cmn::read_uint64(trie_bytes + NS_COUNT_LOC);
+      uintxx_t key_count = cmn::read_uint64(trie_bytes + KEY_COUNT_LOC);
       if (key_count > 0) {
-        uintxx_t rev_cache_count = cmn::read_uint32(trie_bytes + 48);
-        uintxx_t rev_cache_max_node_id = cmn::read_uint32(trie_bytes + 56);
-        uint8_t *rev_cache_loc = trie_bytes + cmn::read_uint32(trie_bytes + 68);
+        uintxx_t rev_cache_count = cmn::read_uint64(trie_bytes + RC_COUNT_LOC);
+        uintxx_t rev_cache_max_node_id = cmn::read_uint64(trie_bytes + RC_MAX_NID_LOC);
+        uint8_t *rev_cache_loc = trie_bytes + cmn::read_uint64(trie_bytes + RCACHE_LOC);
         rev_cache.init(rev_cache_loc, rev_cache_count, rev_cache_max_node_id);
 
-        uint8_t *term_select_lkup_loc = trie_bytes + cmn::read_uint32(trie_bytes + 76);
-        uint8_t *term_lt_loc = trie_bytes + cmn::read_uint32(trie_bytes + 80);
-        uint8_t *child_select_lkup_loc = trie_bytes + cmn::read_uint32(trie_bytes + 84);
-        uint8_t *child_lt_loc = trie_bytes + cmn::read_uint32(trie_bytes + 88);
+        uint8_t *term_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + TERM_SEL_LT_LOC);
+        uint8_t *term_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + TERM_RANK_LT_LOC);
+        uint8_t *child_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + CHILD_SEL_LT_LOC);
+        uint8_t *child_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + CHILD_RANK_LT_LOC);
 
-        uint8_t *tail_lt_loc = trie_bytes + cmn::read_uint32(trie_bytes + 100);
-        uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint32(trie_bytes + 104);
+        uint8_t *tail_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + TAIL_RANK_LT_LOC);
+        uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
 
         uintxx_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
         //uintxx_t trie_flags_size = cmn::read_uint32(trie_tail_ptrs_data_loc + 4);
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 8;
         trie_loc = tails_loc + tail_size;
 
-        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 116));
-        uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 120));
+        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
+        uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
 
         bldr_options *opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
         uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
@@ -1701,7 +1744,7 @@ class static_trie : public inner_trie {
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       static_trie *it = new static_trie();
-      it->trie_level = mem[3];
+      it->trie_level = mem[TRIE_LEVEL_LOC];
       it->load_static_trie(mem);
       return it;
     }
@@ -1759,13 +1802,13 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 uint8_t *get_null_value(size_t& null_value_len) {
-      uint8_t *nv_loc = trie_bytes + cmn::read_uint32(trie_bytes + 124);
+      uint8_t *nv_loc = trie_bytes + cmn::read_uint64(trie_bytes + NULL_VAL_LOC);
       null_value_len = *nv_loc++;
       return nv_loc;
     }
 
     __fq1 __fq2 uint8_t *get_empty_value(size_t& empty_value_len) {
-      uint8_t *ev_loc = trie_bytes + cmn::read_uint32(trie_bytes + 128);
+      uint8_t *ev_loc = trie_bytes + cmn::read_uint64(trie_bytes + EMPTY_VAL_LOC);
       empty_value_len = *ev_loc++;
       return ev_loc;
     }
@@ -1777,14 +1820,14 @@ class static_trie : public inner_trie {
 
       load_inner_trie(trie_bytes);
       opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
-      key_count = cmn::read_uint32(trie_bytes + 28);
+      key_count = cmn::read_uint64(trie_bytes + KEY_COUNT_LOC);
       if (key_count > 0) {
-        max_tail_len = cmn::read_uint16(trie_bytes + 40) + 1;
+        max_tail_len = cmn::read_uint16(trie_bytes + MAX_TAIL_LEN_LOC) + 1;
 
-        uintxx_t node_set_count = cmn::read_uint32(trie_bytes + 24);
-        uint8_t *leaf_select_lkup_loc = trie_bytes + cmn::read_uint32(trie_bytes + 92);
-        uint8_t *leaf_lt_loc = trie_bytes + cmn::read_uint32(trie_bytes + 96);
-        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 116));
+        uintxx_t node_set_count = cmn::read_uint64(trie_bytes + NS_COUNT_LOC);
+        uint8_t *leaf_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_SEL_LT_LOC);
+        uint8_t *leaf_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_RANK_LT_LOC);
+        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
         trie_flags_loc = (trie_flags *) tf_loc;
 
         if (leaf_select_lkup_loc == trie_bytes) leaf_select_lkup_loc = nullptr;
@@ -1801,16 +1844,16 @@ class static_trie : public inner_trie {
       }
 
       if (key_count > 0) {
-        max_key_len = cmn::read_uint32(trie_bytes + 32);
-        max_level = cmn::read_uint16(trie_bytes + 42);
-        uintxx_t fwd_cache_count = cmn::read_uint32(trie_bytes + 44);
-        uintxx_t fwd_cache_max_node_id = cmn::read_uint32(trie_bytes + 52);
-        uint8_t *fwd_cache_loc = trie_bytes + cmn::read_uint32(trie_bytes + 64);
+        max_key_len = cmn::read_uint64(trie_bytes + MAX_KEY_LEN_LOC);
+        max_level = cmn::read_uint16(trie_bytes + MAX_LVL_LOC);
+        uintxx_t fwd_cache_count = cmn::read_uint64(trie_bytes + FC_COUNT_LOC);
+        uintxx_t fwd_cache_max_node_id = cmn::read_uint64(trie_bytes + FC_MAX_NID_LOC);
+        uint8_t *fwd_cache_loc = trie_bytes + cmn::read_uint64(trie_bytes + FCACHE_LOC);
         fwd_cache.init(fwd_cache_loc, fwd_cache_count, fwd_cache_max_node_id);
 
         min_pos_stats min_stats;
-        memcpy(&min_stats, trie_bytes + 60, 4);
-        uint8_t *min_pos_loc = trie_bytes + cmn::read_uint32(trie_bytes + 72);
+        memcpy(&min_stats, trie_bytes + MIN_STAT_LOC, 4);
+        uint8_t *min_pos_loc = trie_bytes + cmn::read_uint64(trie_bytes + SEC_CACHE_LOC);
         if (min_pos_loc == trie_bytes)
           min_pos_loc = nullptr;
         if (min_pos_loc != nullptr) {
@@ -2796,7 +2839,7 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       static_trie_map *it = new static_trie_map();
-      it->trie_level = mem[3];
+      it->trie_level = mem[TRIE_LEVEL_LOC];
       it->load_from_mem(mem, 0);
       return it;
     }
@@ -2833,7 +2876,7 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 size_t get_column_size(size_t i) {
-      uint8_t *val_table_loc = trie_bytes + cmn::read_uint32(trie_bytes + 12);
+      uint8_t *val_table_loc = trie_bytes + cmn::read_uint64(trie_bytes + VAL_TBL_LOC);
       size_t col_start = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
       if (col_start == 0)
         col_start = cmn::read_uint64(val_table_loc);
@@ -3215,14 +3258,14 @@ class static_trie_map : public static_trie {
     }
     __fq1 __fq2 void load_into_vars() {
       load_static_trie();
-      pk_col_count = trie_bytes[2];
-      val_count = cmn::read_uint32(trie_bytes + 4);
-      max_val_len = cmn::read_uint32(trie_bytes + 36);
+      pk_col_count = trie_bytes[PK_COL_COUNT_LOC];
+      val_count = cmn::read_uint64(trie_bytes + VAL_COUNT_LOC);
+      max_val_len = cmn::read_uint64(trie_bytes + MAX_VAL_LEN_LOC);
 
-      uint64_t *tf_leaf_loc = (uint64_t *) (trie_bytes + cmn::read_uint32(trie_bytes + 116));
+      uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
 
-      names_loc = trie_bytes + cmn::read_uint32(trie_bytes + 8);
-      uint8_t *val_table_loc = trie_bytes + cmn::read_uint32(trie_bytes + 12);
+      names_loc = trie_bytes + cmn::read_uint64(trie_bytes + NAMES_LOC);
+      uint8_t *val_table_loc = trie_bytes + cmn::read_uint64(trie_bytes + VAL_TBL_LOC);
       // printf("Val table loc: %lu\n", val_table_loc - trie_bytes);
       names_start = (char *) names_loc + (val_count + 2) * sizeof(uint16_t);
       column_encoding = names_start + cmn::read_uint16(names_loc);
@@ -3237,7 +3280,7 @@ class static_trie_map : public static_trie {
         uint8_t *val_loc = trie_bytes + vl64;
         if (val_loc == trie_bytes)
           continue;
-        val_map[i]->init(this, trie_loc, tf_leaf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, val_loc, key_count, node_count);
+        val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, val_loc, key_count, node_count);
       }
     }
 };

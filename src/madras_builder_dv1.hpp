@@ -110,14 +110,14 @@ void output_byte(uint8_t b, FILE *fp, std::vector<uint8_t> *out_vec) {
     fputc(b, fp);
 }
 
-void output_u32(uintxx_t u32, FILE *fp, std::vector<uint8_t> *out_vec) {
+void output_u32(uint32_t u32, FILE *fp, std::vector<uint8_t> *out_vec) {
   if (fp == NULL)
     gen::append_uint32(u32, *out_vec);
   else
     gen::write_uint32(u32, fp);
 }
 
-void output_u64(uintxx_t u64, FILE *fp, std::vector<uint8_t> *out_vec) {
+void output_u64(uint64_t u64, FILE *fp, std::vector<uint8_t> *out_vec) {
   if (fp == NULL)
     gen::append_uint64(u64, *out_vec);
   else
@@ -3920,7 +3920,7 @@ class builder : public builder_fwd {
       gen::gen_printf("Key count: %u\n", memtrie.key_count);
 
       tp = {};
-      tp.opts_loc = MDX_HEADER_SIZE; // 136
+      tp.opts_loc = MDX_HEADER_SIZE;
       tp.opts_size = sizeof(bldr_options) * opts->opts_count;
 
       if (pk_col_count == 0)
@@ -4090,56 +4090,54 @@ class builder : public builder_fwd {
       if (fp == nullptr)
         out_vec->reserve(tp.total_idx_size);
 
+      output_bytes((const uint8_t *) "Madras Sorcery Static DB Format 1.0", 36, fp, out_vec);
       output_byte(0xA5, fp, out_vec); // magic byte
       output_byte(0x01, fp, out_vec); // version 1.0
       output_byte(pk_col_count, fp, out_vec);
       output_byte(trie_level, fp, out_vec);
 
-      int val_count = column_count;
-      output_u32(val_count, fp, out_vec);
-
-      output_u32(tp.names_loc, fp, out_vec);
-      output_u32(tp.col_val_table_loc, fp, out_vec);
-
-      output_u32(memtrie.node_count, fp, out_vec);
-      output_u32(tp.opts_size, fp, out_vec);
-      output_u32(memtrie.node_set_count, fp, out_vec);
-      output_u32(memtrie.key_count, fp, out_vec);
-      output_u32(memtrie.max_key_len, fp, out_vec);
-      output_u32(max_val_len, fp, out_vec);
       output_u16(memtrie.max_tail_len, fp, out_vec);
       output_u16(max_level, fp, out_vec);
-      output_u32(tp.fwd_cache_count, fp, out_vec);
-      output_u32(tp.rev_cache_count, fp, out_vec);
-      output_u32(tp.fwd_cache_max_node_id, fp, out_vec);
-      output_u32(tp.rev_cache_max_node_id, fp, out_vec);
       output_bytes((const uint8_t *) &tp.min_stats, 4, fp, out_vec); // todo: check
-      output_u32(tp.fwd_cache_loc, fp, out_vec);
-      output_u32(tp.rev_cache_loc, fp, out_vec);
-      output_u32(tp.sec_cache_loc, fp, out_vec);
+
+      int val_count = column_count;
+      output_u64(val_count, fp, out_vec);
+      output_u64(tp.names_loc, fp, out_vec);
+      output_u64(tp.col_val_table_loc, fp, out_vec);
+      output_u64(memtrie.node_count, fp, out_vec);
+      output_u64(tp.opts_size, fp, out_vec);
+      output_u64(memtrie.node_set_count, fp, out_vec);
+      output_u64(memtrie.key_count, fp, out_vec);
+      output_u64(memtrie.max_key_len, fp, out_vec);
+      output_u64(max_val_len, fp, out_vec);
+      output_u64(tp.fwd_cache_count, fp, out_vec);
+      output_u64(tp.rev_cache_count, fp, out_vec);
+      output_u64(tp.fwd_cache_max_node_id, fp, out_vec);
+      output_u64(tp.rev_cache_max_node_id, fp, out_vec);
+      output_u64(tp.fwd_cache_loc, fp, out_vec);
+      output_u64(tp.rev_cache_loc, fp, out_vec);
+      output_u64(tp.sec_cache_loc, fp, out_vec);
 
       if (trie_level == 0) {
-        output_u32(tp.term_select_lkup_loc, fp, out_vec);
-        output_u32(tp.term_rank_lt_loc, fp, out_vec);
-        output_u32(tp.child_select_lkup_loc, fp, out_vec);
-        output_u32(tp.child_rank_lt_loc, fp, out_vec);
+        output_u64(tp.term_select_lkup_loc, fp, out_vec);
+        output_u64(tp.term_rank_lt_loc, fp, out_vec);
+        output_u64(tp.child_select_lkup_loc, fp, out_vec);
+        output_u64(tp.child_rank_lt_loc, fp, out_vec);
       } else {
-        output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
-        output_u32(tp.louds_rank_lt_loc, fp, out_vec);
-        output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
-        output_u32(tp.louds_rank_lt_loc, fp, out_vec);
+        output_u64(tp.louds_sel1_lt_loc, fp, out_vec);
+        output_u64(tp.louds_rank_lt_loc, fp, out_vec);
+        output_u64(tp.louds_sel1_lt_loc, fp, out_vec);
+        output_u64(tp.louds_rank_lt_loc, fp, out_vec);
       }
-      output_u32(tp.leaf_select_lkup_loc, fp, out_vec);
-      output_u32(tp.leaf_rank_lt_loc, fp, out_vec);
-      output_u32(tp.tail_rank_lt_loc, fp, out_vec);
-      output_u32(tp.trie_tail_ptrs_data_loc, fp, out_vec);
-      output_u32(tp.louds_rank_lt_loc, fp, out_vec);
-      output_u32(tp.louds_sel1_lt_loc, fp, out_vec);
-      output_u32(tp.trie_flags_loc, fp, out_vec);
-      output_u32(tp.tail_flags_loc, fp, out_vec);
-      output_u32(tp.null_val_loc, fp, out_vec);
-      output_u32(tp.empty_val_loc, fp, out_vec);
-      output_u32(0, fp, out_vec); // padding
+      output_u64(tp.leaf_select_lkup_loc, fp, out_vec);
+      output_u64(tp.leaf_rank_lt_loc, fp, out_vec);
+      output_u64(tp.tail_rank_lt_loc, fp, out_vec);
+      output_u64(tp.trie_tail_ptrs_data_loc, fp, out_vec);
+      output_u64(tp.trie_flags_loc, fp, out_vec);
+      output_u64(tp.tail_flags_loc, fp, out_vec);
+      output_u64(tp.null_val_loc, fp, out_vec);
+      output_u64(tp.empty_val_loc, fp, out_vec);
+      output_u64(0, fp, out_vec); // padding
 
       output_bytes((const uint8_t *) opts, tp.opts_size, fp, out_vec);
 
