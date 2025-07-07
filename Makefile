@@ -3,7 +3,7 @@ CXX = g++
 CXXFLAGS = -pthread -std=c++17 -march=native
 INCLUDES = -I./src -I../ds_common/src -I../flavic48/src
 L_FLAGS = 
-M_FLAGS = -mbmi2 -mpopcnt
+M_FLAGS =
 #OBJS = build/imain.o
 
 opt: CXXFLAGS += -g -O2 -DNDEBUG
