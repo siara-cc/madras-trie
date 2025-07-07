@@ -392,7 +392,7 @@ int main(int argc, char* argv[]) {
   uint16_t stm_col_count = stm.get_column_count();
   printf("Col Count: %u, Cols:", stm_col_count);
   for (int i = 0; i < stm_col_count; i++)
-    printf(", %s (%u)", stm.get_column_name(i), stm.get_max_val_len(i));
+    printf(", %s (%" PRIuXX ")", stm.get_column_name(i), stm.get_max_val_len(i));
   printf("\n");
 
   if (dont_verify) {
@@ -457,7 +457,7 @@ int main(int argc, char* argv[]) {
           if (val_len != null_value_len || memcmp(val_buf, null_value, null_value_len) != 0) {
             errors[col_val_idx]++;
             if (to_print_mismatch) {
-              printf("Val not null: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, null_value_len);
+              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, null_value_len);
               printf("%d, %d\n", val_buf[0], val_buf[1]);
             }
           }
@@ -466,7 +466,7 @@ int main(int argc, char* argv[]) {
           if (i64 != INT64_MIN) {
             errors[col_val_idx]++;
             if (to_print_mismatch)
-              printf("Val not null: nid: %u, seq: %lu, col: %lu, A: %lld\n", node_id, ins_seq_id, col_val_idx, i64);
+              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A: %lld\n", node_id, ins_seq_id, col_val_idx, i64);
           }
         }
       } else
@@ -484,14 +484,14 @@ int main(int argc, char* argv[]) {
           if (val_len != empty_value_len || memcmp(ret_buf, empty_value, empty_value_len) != 0) {
             errors[col_val_idx]++;
             if (to_print_mismatch) {
-              printf("Val not empty: nid: %u, seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, ret_buf, empty_value_len);
+              printf("Val not empty: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, ret_buf, empty_value_len);
               printf("%d, %d\n", ret_buf[0], ret_buf[1]);
             }
           }
         } else if (val_len != sql_val_len) {
           errors[col_val_idx]++;
           if (to_print_mismatch) {
-            printf("Val len mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
             printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
             printf("Found: [%.*s]\n", (int) val_len, ret_buf);
           }
@@ -499,7 +499,7 @@ int main(int argc, char* argv[]) {
           if (memcmp(sql_val, ret_buf, val_len) != 0) {
             errors[col_val_idx]++;
             if (to_print_mismatch) {
-              printf("Val mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
               printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
               printf("Found: [%.*s]\n", (int) val_len, ret_buf);
             }
@@ -533,7 +533,7 @@ int main(int argc, char* argv[]) {
         if (val_len != sql_val_len) {
           errors[col_val_idx]++;
           if (to_print_mismatch) {
-            printf("Val len mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
             printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
             printf("Found: [%.*s]\n", (int) val_len, dt_txt);
           }
@@ -541,7 +541,7 @@ int main(int argc, char* argv[]) {
           if (memcmp(sql_val, dt_txt, val_len) != 0) {
             errors[col_val_idx]++;
             if (to_print_mismatch) {
-              printf("Val mismatch: nid: %u, seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
               printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
               printf("Found: [%.*s]\n", (int) val_len, dt_txt);
             }

@@ -3,8 +3,18 @@
 
 namespace madras_dv1 {
 
-#ifndef uintxx_t
+#ifndef UINTXX_WIDTH
+#define UINTXX_WIDTH 64
+#endif
+
+#if UINTXX_WIDTH == 32
 #define uintxx_t uint32_t
+#define PRIuXX PRIu32
+#define UINTXX_MAX UINT32_MAX
+#else
+#define uintxx_t uint64_t
+#define PRIuXX PRIu64
+#define UINTXX_MAX UINT64_MAX
 #endif
 
 #define MDX_HEADER_SIZE (4 + 12 + 30 * 4)

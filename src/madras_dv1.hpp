@@ -100,7 +100,7 @@ class val_ctx {
       grp_no = 0;
       rpt_left = 0;
       next_pbc = 0;
-      ptr_bit_count = UINT32_MAX;
+      ptr_bit_count = UINTXX_MAX;
     }
     // todo: this is leading to bugs. Allocation should be automatic
     void init(size_t _max_len, uint8_t _to_alloc_val = 1, uint8_t _to_alloc_uxx = 0) {
@@ -124,7 +124,7 @@ class val_ctx {
       }
       is64 = 0;
       is_init = 1;
-      node_id = UINT32_MAX;
+      node_id = UINTXX_MAX;
       bm_leaf = UINT64_MAX;
       bm_mask = bm_init_mask;
       count = dec_count = 0;
@@ -226,7 +226,7 @@ class cmn {
     }
     __fq1 __fq2 static uintxx_t read_uint32(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
-      return *((uintxx_t *) ptr);
+      return *((uint32_t *) ptr);
       // TODO: fix
       // #else
       // uintxx_t ret = *ptr++;
@@ -476,7 +476,7 @@ class lt_builder {
             uintxx_t val_to_write = node_id / nodes_per_bv_block;
             gen::copy_uint24(val_to_write, lt_pos); lt_pos += 3;
             if (val_to_write > (1 << 24))
-              printf("WARNING: %" PRIu32 "\t%" PRIu32 "\n", sel_count, val_to_write);
+              printf("WARNING: %" PRIuXX "\t%" PRIuXX "\n", sel_count, val_to_write);
           }
           sel_count++;
         }
@@ -1042,7 +1042,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       uintxx_t ptr = node_byte & (0xFF >> code_len);
       uint8_t bit_len = code_lt_bit_len[node_byte];
       if (bit_len > 0) {
-        if (ptr_bit_count == UINT32_MAX)
+        if (ptr_bit_count == UINTXX_MAX)
           get_ptr_bit_count_tail(node_id, ptr_bit_count);
         ptr |= (ptr_reader.read(ptr_bit_count, bit_len) << (8 - code_len));
       }
@@ -1060,9 +1060,9 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map{
       return compare_tail_data(tail, tail_ptr, in_ctx);
     }
     __fq1 __fq2 void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) {
-      //ptr_bit_count = UINT32_MAX;
+      //ptr_bit_count = UINTXX_MAX;
       uint8_t grp_no;
-      uintxx_t tail_ptr = UINT32_MAX; // avoid a stack entry
+      uintxx_t tail_ptr = UINTXX_MAX; // avoid a stack entry
       tail_ptr = get_tail_ptr(node_id, tail_ptr, grp_no);
       uint8_t *tail = grp_data[grp_no];
       if (*tail != 0) {
@@ -1113,7 +1113,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
       }
     }
     __fq1 __fq2 uintxx_t get_tail_ptr(uintxx_t node_id, uintxx_t& ptr_bit_count) {
-      if (ptr_bit_count == UINT32_MAX)
+      if (ptr_bit_count == UINTXX_MAX)
         ptr_bit_count = tail_lt->rank1(node_id);
       return (int_ptr_bv[ptr_bit_count++] << 8) | trie_loc[node_id];
     }
@@ -1124,7 +1124,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
       return compare_tail_data(data, tail_ptr, in_ctx);
     }
     __fq1 __fq2 void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) {
-      uintxx_t tail_ptr = UINT32_MAX;
+      uintxx_t tail_ptr = UINTXX_MAX;
       tail_ptr = get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
       if (inner_trie != nullptr) {
         inner_trie->copy_trie_tail(tail_ptr, tail_str);
@@ -1333,7 +1333,7 @@ class inner_trie : public inner_trie_fwd {
     __fq1 __fq2 bool compare_trie_tail(uintxx_t node_id, input_ctx& in_ctx) {
       do {
         if (tail_lt.is_set1(node_id)) {
-          uintxx_t ptr_bit_count = UINT32_MAX;
+          uintxx_t ptr_bit_count = UINTXX_MAX;
           if (!tail_map->compare_tail(node_id, in_ctx, ptr_bit_count))
             return false;
         } else {
@@ -1532,7 +1532,7 @@ class static_trie : public inner_trie {
             tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
           }
         }
-        uintxx_t ptr_bit_count = UINT32_MAX;
+        uintxx_t ptr_bit_count = UINTXX_MAX;
         do {
           if ((bm_mask & tf->bm_ptr) == 0) {
             if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
@@ -1761,7 +1761,7 @@ class static_trie : public inner_trie {
       return it;
     }
 
-    __fq1 __fq2 uintxx_t find_first(const uint8_t *prefix, int prefix_len, iter_ctx& ctx, bool for_next = false) {
+    __fq1 __fq2 uintxx_t find_first(const uint8_t *prefix, size_t prefix_len, iter_ctx& ctx, bool for_next = false) {
       input_ctx in_ctx;
       in_ctx.key = prefix;
       in_ctx.key_len = prefix_len;
@@ -2007,7 +2007,7 @@ class value_retriever : public value_retriever_base {
         //   ptr = read_ptr_from_idx(vctx.grp_no, ptr);
         return grp_data[0] + vctx.ptr;
       }
-      if (vctx.ptr_bit_count == UINT32_MAX)
+      if (vctx.ptr_bit_count == UINTXX_MAX)
         get_ptr_bit_count_val(vctx);
       uint8_t code = ptr_reader.read8(vctx.ptr_bit_count);
       uint8_t bit_len = code_lt_bit_len[code];
@@ -2380,7 +2380,7 @@ class fast_vint_block_retriever : public block_retriever_base {
       while (len > 0) {
         block_size = flavic48::decode(data + offset, data[1], i32_vals);
         for (size_t i = 0; i < data[1]; i++) {
-          i32 = flavic48::zigzag_decode(i32_vals[i]);
+          i32 = (int32_t) flavic48::zigzag_decode(i32_vals[i]);
           if constexpr (operation == 'a')
               out[out_pos++] = i32;
           else {
@@ -2429,7 +2429,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       Parent::load_bm(node_id, vctx);
       // if ((node_id / nodes_per_bv_block_n) == (vctx.node_id / nodes_per_bv_block_n))
       //   return;
-      // if (vctx.node_id != UINT32_MAX)
+      // if (vctx.node_id != UINTXX_MAX)
       //   return;
       vctx.node_id = node_id;
       vctx.ptr_bit_count = Parent::ptr_reader.get_ptr_block3(node_id);
@@ -2995,7 +2995,7 @@ class static_trie_map : public static_trie {
       size_t nid_len;
       rev_ctx.rev_nl_pos = 0;
       rev_ctx.node_id = cmn::read_vint32(rev_ctx.rev_node_list, &nid_len) >> 1;
-      printf("rev_node id: %" PRIu32 "\n", rev_ctx.node_id);
+      printf("rev_node id: %" PRIuXX "\n", rev_ctx.node_id);
       rev_ctx.prev_node_id = 0;
       return true;
     }
@@ -3014,16 +3014,16 @@ class static_trie_map : public static_trie {
         nid_len += nid_end_len;
       } else
         nid_end = nid_start;
-      printf("nid_start: %" PRIu32 ", nid_end: %" PRIu32 ", prev_nid: %" PRIu32 ", nid: %" PRIu32 "\n", nid_start, nid_end, rev_ctx.prev_node_id, rev_ctx.node_id);
+      printf("nid_start: %" PRIuXX ", nid_end: %" PRIuXX ", prev_nid: %" PRIuXX ", nid: %" PRIuXX "\n", nid_start, nid_end, rev_ctx.prev_node_id, rev_ctx.node_id);
       rev_ctx.node_id++;
       if (rev_ctx.node_id > nid_end) {
         rev_ctx.rev_nl_pos += nid_len;
         rev_ctx.prev_node_id = nid_start + 1;
         if (has_end)
           rev_ctx.prev_node_id = nid_end + 1;
-        printf("rev_nl_len: %zu, pos: %" PRIu32 "\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
+        printf("rev_nl_len: %zu, pos: %" PRIuXX "\n", rev_ctx.rev_nl_len, rev_ctx.rev_nl_pos);
         if (rev_ctx.rev_nl_pos >= rev_ctx.rev_nl_len) {
-          rev_ctx.node_id = UINT32_MAX;
+          rev_ctx.node_id = UINTXX_MAX;
           return false;
         }
         nid_start = cmn::read_vint32(rev_ctx.rev_node_list + rev_ctx.rev_nl_pos, &nid_len);
@@ -3039,9 +3039,9 @@ class static_trie_map : public static_trie {
         rev_ctx.init(this);
         rev_ctx.rev_state = MDX_REV_ST_NEXT;
         input_ctx *in_ctx = &rev_ctx;
-        printf("key: %" PRIu32 ", [%.*s]\n", in_ctx->key_len, (int) in_ctx->key_len, in_ctx->key);
+        printf("key: %" PRIuXX ", [%.*s]\n", in_ctx->key_len, (int) in_ctx->key_len, in_ctx->key);
         uintxx_t ct_node_id = find_first(in_ctx->key, in_ctx->key_len, rev_ctx, true);
-        printf("ct node id: %" PRIu32 "\n", ct_node_id);
+        printf("ct node id: %" PRIuXX "\n", ct_node_id);
         if (ct_node_id == 0) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
@@ -3060,26 +3060,26 @@ class static_trie_map : public static_trie {
           return false;
         }
         ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
-        printf("ct node id: %" PRIu32 "\n", ct_node_id);
+        printf("ct node id: %" PRIuXX "\n", ct_node_id);
         if (get_column_count() == 1)
           return true;
         if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
-        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIuXX "\n", rev_ctx.node_id);
         return true;
       } else {
-        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIuXX "\n", rev_ctx.node_id);
         if (get_column_count() == 2) {
           if (get_next_rev_node_id(rev_ctx))
             return true;
         }
-        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIuXX "\n", rev_ctx.node_id);
         int res = next(rev_ctx);
         if (res == -2) {
           rev_ctx.rev_state = MDX_REV_ST_END;
           return false;
         }
-        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIuXX "\n", rev_ctx.node_id);
         input_ctx *in_ctx = &rev_ctx;
         iter_ctx *it_ctx = &rev_ctx;
         printf("found next: %d, [%.*s]\n", it_ctx->key_len, (int) it_ctx->key_len, it_ctx->key);
@@ -3091,7 +3091,7 @@ class static_trie_map : public static_trie {
         uintxx_t ct_node_id = rev_ctx.node_path[rev_ctx.cur_idx];
         if (!read_rev_node_list(ct_node_id, rev_ctx))
           return false;
-        printf("rev_ctx node_id: %" PRIu32 "\n", rev_ctx.node_id);
+        printf("rev_ctx node_id: %" PRIuXX "\n", rev_ctx.node_id);
         return true;
       }
       return false;
