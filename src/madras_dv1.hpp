@@ -571,17 +571,7 @@ __gq1 __gq2 static const uint8_t select_lookup_tbl[8][256] = {{
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 }};
 
-class leapfrog {
-  private:
-    // __fq1 __fq2 leapfrog(leapfrog const&);
-    // __fq1 __fq2 leapfrog& operator=(leapfrog const&);
-  public:
-    __fq1 __fq2 leapfrog() {};
-    __fq1 __fq2 virtual ~leapfrog() {};
-    __fq1 __fq2 virtual void find_pos(uintxx_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) = 0;
-};
-
-class leapfrog_asc : public leapfrog {
+class leapfrog_asc {
   private:
     // __fq1 __fq2 leapfrog_asc(leapfrog_asc const&);
     // __fq1 __fq2 leapfrog_asc& operator=(leapfrog_asc const&);
@@ -597,51 +587,6 @@ class leapfrog_asc : public leapfrog {
     __fq1 __fq2 void init(min_pos_stats _stats, uint8_t *_min_pos_loc) {
       min_stats = _stats;
       min_pos_loc = _min_pos_loc;
-    }
-};
-
-class leapfrog_rnd : public leapfrog {
-  private:
-    // __fq1 __fq2 leapfrog_rnd(leapfrog_rnd const&);
-    // __fq1 __fq2 leapfrog_rnd& operator=(leapfrog_rnd const&);
-  public:
-    __fq1 __fq2 void find_pos(uintxx_t& node_id, const uint8_t *trie_loc, uint8_t key_byte) {
-        int len = trie_loc[node_id++];
-      #if defined(__SSE4_2__)
-        __m128i to_locate = _mm_set1_epi8(key_byte);
-        node_id -= 16;
-        do {
-          node_id += 16;
-          __m128i segment = _mm_loadu_si128((__m128i *)(trie_loc + node_id));
-          int pos = _mm_cmpestri(to_locate, 16, segment, 16, _SIDD_CMP_EQUAL_EACH);
-          if (pos < (len < 16 ? len : 16)) {
-            node_id += pos;
-            return;
-          }
-          len -= 16;
-        } while (len > 0);
-        // node_id -= 32;
-        // do {
-        //   node_id += 32;
-        //   int bitfield = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_set1_epi8(key_byte),
-        //                           _mm256_loadu_si256((__m256i *)(trie_loc + node_id))));
-        //   if (bitfield) {
-        //     int pos = __builtin_ctz(bitfield);
-        //     if (pos < len) {
-        //       node_id += pos;
-        //       return;
-        //     }
-        //   }
-        //   len -= 32;
-        // } while (len > 0);
-      #else
-        while (len-- && trie_loc[node_id] != key_byte)
-            node_id++;
-      #endif
-    }
-    __fq1 __fq2 leapfrog_rnd() {
-    }
-    __fq1 __fq2 void init() {
     }
 };
 
@@ -1501,7 +1446,7 @@ class static_trie : public inner_trie {
     bvlt_select *leaf_lt;
     GCFC_fwd_cache fwd_cache;
     trie_flags *trie_flags_loc;
-    leapfrog *leaper;
+    leapfrog_asc *leaper;
     uintxx_t key_count;
     uint8_t *trie_bytes;
     uint16_t max_tail_len;
@@ -1869,11 +1814,9 @@ class static_trie : public inner_trie {
         if (min_pos_loc == trie_bytes)
           min_pos_loc = nullptr;
         if (min_pos_loc != nullptr) {
-          if (opts->sort_nodes_on_freq)
-            leaper = new leapfrog_rnd();
-          else {
+          if (!opts->sort_nodes_on_freq) {
             leaper = new leapfrog_asc();
-            ((leapfrog_asc *) leaper)->init(min_stats, min_pos_loc);
+            leaper->init(min_stats, min_pos_loc);
           }
         }
 

@@ -242,14 +242,14 @@ int main(int argc, char *argv[]) {
   printf("\n");
   std::cout << "Sorted? : " << is_sorted << std::endl;
 
-  if (!is_sorted) {
-    std::sort(lines.begin(), lines.end(), [as_int](const key_ctx& lhs, const key_ctx& rhs) -> bool {
-      if (as_int)
-        return atoll((const char *) lhs.key) < atoll((const char *) rhs.key);
-      return gen::compare(lhs.key, lhs.key_len, rhs.key, rhs.key_len) < 0;
-    });
-    is_sorted = true;
-  }
+//   if (!is_sorted) {
+//     std::sort(lines.begin(), lines.end(), [as_int](const key_ctx& lhs, const key_ctx& rhs) -> bool {
+//       if (as_int)
+//         return atoll((const char *) lhs.key) < atoll((const char *) rhs.key);
+//       return gen::compare(lhs.key, lhs.key_len, rhs.key, rhs.key_len) < 0;
+//     });
+//     is_sorted = true;
+//   }
 
   size_t trie_size;
   double time_taken;
@@ -277,7 +277,7 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     printf("%lf\t", keys_per_sec);
-    if (!nodes_sorted_on_freq) {
+    if (!nodes_sorted_on_freq && is_sorted) {
       is_success = bench_next(lines, trie_reader, time_taken, keys_per_sec);
       if (!is_success) {
         printf("Next fail\n");
