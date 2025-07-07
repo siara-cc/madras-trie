@@ -214,18 +214,18 @@ int main(int argc, char *argv[]) {
     if (is_sorted && !nodes_sorted_on_freq) {
       out_key_len = trie_reader.next(dict_ctx, key_buf);
       if (out_key_len != in_ctx.key_len) {
-        printf("%lu: Len mismatch: [%.*s], [%.*s], %d, %d, %d\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
+        printf("%lu: Len mismatch: [%.*s], [%.*s], %" PRIuXX ", %d, %d\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
         err_count++;
       } else {
         if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0) {
           err_count++;
-          printf("%lu: Key mismatch: E:[%.*s], A:[%.*s], %u\n", i, in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len);
+          printf("%lu: Key mismatch: E:[%.*s], A:[%.*s], %" PRIuXX "\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len);
           if (as_int)
             printf("E: %s, A: %" PRId64 "\n", lines[i].first, gen::read_svint60(key_buf));
         }
         if (what == 0 || what == 2) {
           in_ctx.node_id = dict_ctx.node_path[dict_ctx.cur_idx];
-          trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, &mv);
+          trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, mv);
           if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
             printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
             err_count++;
@@ -247,7 +247,7 @@ int main(int argc, char *argv[]) {
       bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
       key_buf[out_key_len] = 0;
       if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0) {
-        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, in_ctx.key_len, key_buf);
+        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, (int) in_ctx.key_len, key_buf);
         err_count++;
       }
     }
@@ -270,14 +270,14 @@ int main(int argc, char *argv[]) {
     }
 
     if (what == 0) {
-      trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, &mv);
+      trie_reader.get_col_val(in_ctx.node_id, 2, &out_val_len, mv);
       int64_t out_len = mv.i64;
       if (out_len != in_ctx.key_len) {
         std::cout << "nid: " << in_ctx.node_id << ", First val mismatch - expected: " << in_ctx.key_len << ", found: "
             << out_len << std::endl;
         err_count++;
       }
-      trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, &mv);
+      trie_reader.get_col_val(in_ctx.node_id, 3, &out_val_len, mv);
       int64_t checksum = 0;
       for (size_t i = 0; i < strlen((const char *) in_ctx.key); i++) {
         checksum += in_ctx.key[i];
