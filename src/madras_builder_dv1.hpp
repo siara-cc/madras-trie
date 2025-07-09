@@ -505,7 +505,7 @@ class ptr_groups {
       return last_byte_bits;
     }
     uintxx_t get_hdr_size() {
-      return 520 + grp_data.size() * 4 + inner_tries.size() * 4;
+      return 520 + grp_data.size() * 8 + inner_tries.size() * 8;
     }
     uintxx_t get_data_size() {
       uintxx_t data_size = 0;
@@ -522,11 +522,11 @@ class ptr_groups {
       if (enc_type == MSE_TRIE || enc_type == MSE_TRIE_2WAY) {
         return gen::size_align8(grp_data_size) + get_ptrs_size() +
                   null_bv.size_bytes() +
-                  gen::size_align8(ptr_lookup_tbl_sz) + 8 * 4 + 2 * 8 + 24;
+                  gen::size_align8(ptr_lookup_tbl_sz) + 11 * 8 + 16;
       }
       return gen::size_align8(grp_data_size) + get_ptrs_size() +
         null_bv.size_bytes() + gen::size_align8(idx2_ptrs_map.size()) +
-        gen::size_align8(ptr_lookup_tbl_sz) + 8 * 4 + 2 * 8 + 24; // aligned to 8
+        gen::size_align8(ptr_lookup_tbl_sz) + 11 * 8 + 16; // aligned to 8
     }
     void set_ptr_lkup_tbl_ptr_width(uint8_t width) {
       ptr_lkup_tbl_ptr_width = width;
@@ -556,7 +556,7 @@ class ptr_groups {
       }
       if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB)
         build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
-      ptr_lookup_tbl_loc = 8 * 4 + 2 * 8 + 24;
+      ptr_lookup_tbl_loc = 11 * 8 + 16;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB))
         ptr_lookup_tbl_sz = 0;
       else {
@@ -631,13 +631,13 @@ class ptr_groups {
       write_code_lookup_tbl(is_tail, fp, out_vec);
       uintxx_t total_data_size = 0;
       for (size_t i = 0; i < grp_data.size(); i++) {
-        output_u32(offset + grp_count * 4 + total_data_size, fp, out_vec);
+        output_u64(offset + grp_count * 8 + total_data_size, fp, out_vec);
         total_data_size += gen::size_align8(grp_data[i].size());
       }
       for (size_t i = 0; i < inner_tries.size(); i++) {
-        uintxx_t grp_data_loc = offset + grp_count * 4 + total_data_size;
+        uintxx_t grp_data_loc = offset + grp_count * 8 + total_data_size;
         //printf("grp_data_loc: %lu, %u\n", i + inner_trie_start_grp, grp_data_loc);
-        output_u32(grp_data_loc, fp, out_vec);
+        output_u64(grp_data_loc, fp, out_vec);
         total_data_size += freq_grp_vec[i + inner_trie_start_grp].grp_size;
       }
       for (size_t i = 0; i < grp_data.size(); i++) {
@@ -785,20 +785,16 @@ class ptr_groups {
       output_byte(idx_ptr_size, fp, out_vec);
       output_byte(reserved8_1, fp, out_vec);
       output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_byte(reserved8_2, fp, out_vec);
-      output_u32(null_bv.raw_data()->size(), fp, out_vec);
 
-      output_u32(max_len, fp, out_vec);
-      output_u32(ptr_lookup_tbl_loc, fp, out_vec);
-      output_u32(grp_data_loc, fp, out_vec);
-      output_u32(idx2_ptr_count, fp, out_vec);
-      output_u32(idx2_ptrs_map_loc, fp, out_vec);
-      output_u32(grp_ptrs_loc, fp, out_vec);
-      output_u32(null_bv_loc, fp, out_vec);
-      output_u32(null_count, fp, out_vec);
+      output_u64(null_bv.raw_data()->size(), fp, out_vec);
+      output_u64(max_len, fp, out_vec);
+      output_u64(ptr_lookup_tbl_loc, fp, out_vec);
+      output_u64(grp_data_loc, fp, out_vec);
+      output_u64(idx2_ptr_count, fp, out_vec);
+      output_u64(idx2_ptrs_map_loc, fp, out_vec);
+      output_u64(grp_ptrs_loc, fp, out_vec);
+      output_u64(null_bv_loc, fp, out_vec);
+      output_u64(null_count, fp, out_vec);
       output_u64(min_val, fp, out_vec);
       output_u64(max_val, fp, out_vec);
 
@@ -3624,8 +3620,8 @@ class builder : public builder_fwd {
     uintxx_t write_trie_tail_ptrs_data(FILE *fp, byte_vec *out_vec) {
       uintxx_t tail_size = tail_maps.get_grp_ptrs()->get_total_size();
       gen::gen_printf("\nTrie: %u, Flags: %u, Tail size: %u\n", trie.size(), trie_flags.size(), tail_size);
-      output_u32(tail_size, fp, out_vec);
-      output_u32(trie_flags.size(), fp, out_vec);
+      output_u64(tail_size, fp, out_vec);
+      output_u64(trie_flags.size(), fp, out_vec);
       gen::gen_printf("Tail stats - ");
       tail_maps.get_grp_ptrs()->write_ptrs_data(true, fp, out_vec);
       if (get_opts()->inner_tries && tail_trie_builder != nullptr) {
@@ -3648,7 +3644,7 @@ class builder : public builder_fwd {
       return val_fp_offset;
     }
     size_t trie_data_ptr_size() {
-      size_t ret = 8 + gen::size_align8(trie.size()) + tail_maps.get_grp_ptrs()->get_total_size(); // + trie_flags.size();
+      size_t ret = 16 + gen::size_align8(trie.size()) + tail_maps.get_grp_ptrs()->get_total_size(); // + trie_flags.size();
       //if (get_uniq_val_count() > 0)
       //  ret += val_maps.get_grp_ptrs()->get_total_size();
       return ret;

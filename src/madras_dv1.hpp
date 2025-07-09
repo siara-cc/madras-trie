@@ -98,6 +98,37 @@ namespace madras_dv1 {
 #define NULL_VAL_LOC 256
 #define EMPTY_VAL_LOC 264
 
+#define TV_PLT_PTR_WIDTH_LOC 0
+#define TV_DATA_TYPE_LOC 1
+#define TV_ENC_TYPE_LOC 2
+#define TV_FLAGS_LOC 3
+#define TV_LEN_GRP_NO_LOC 4
+#define TV_RPT_GRP_NO_LOC 5
+#define TV_RPT_SEQ_GRP_NO_LOC 6
+#define TV_SUG_WIDTH_LOC 7
+#define TV_SUG_HEIGHT_LOC 8
+#define TV_IDX_LIMIT_LOC 9
+#define TV_START_BITS_LOC 10
+#define TV_STEP_BITS_IDX_LOC 11
+#define TV_STEP_BITS_REST_LOC 12
+#define TV_IDX_PTR_SIZE_LOC 13
+
+#define TV_NULL_BV_SIZE_LOC 16
+#define TV_MAX_LEN_LOC 24
+#define TV_PLT_LOC 32
+#define TV_GRP_DATA_LOC 40
+#define TV_IDX2_PTR_COUNT_LOC 48
+#define TV_IDX2_PTR_MAP_LOC 56
+#define TV_GRP_PTRS_LOC 64
+#define TV_NULL_BV_LOC 72
+#define TV_NULL_COUNT_LOC 80
+#define TV_MIN_VAL_LOC 88
+#define TV_MAX_VAL_LOC 96
+
+#define TVG_GRP_COUNT_LOC 0
+#define TVG_INNER_TRIE_START_GRP_LOC 1
+#define TVG_PTR_WIDTH_LOC 1
+
 class val_ctx {
   public:
     mdx_val *val = nullptr;
@@ -949,31 +980,29 @@ class ptr_group_map {
       ptr_bm_loc = _multiplier == 1 ? _tf_ptr_loc : _bm_loc;
       multiplier = _multiplier;
 
-      data_type = data_loc[1];
-      encoding_type = data_loc[2];
-      rpt_grp_no = data_loc[5];
-      flags = data_loc[3];
-      max_len = cmn::read_uint32(data_loc + 24);
-      uint8_t *ptr_lt_loc = data_loc + cmn::read_uint32(data_loc + 28);
+      data_type = data_loc[TV_DATA_TYPE_LOC];
+      encoding_type = data_loc[TV_ENC_TYPE_LOC];
+      rpt_grp_no = data_loc[TV_RPT_GRP_NO_LOC];
+      flags = data_loc[TV_FLAGS_LOC];
+      max_len = cmn::read_uint64(data_loc + TV_MAX_LEN_LOC);
+      uint8_t *ptr_lt_loc = data_loc + cmn::read_uint64(data_loc + TV_PLT_LOC);
 
-      uint8_t *grp_data_loc = data_loc + cmn::read_uint32(data_loc + 32);
+      uint8_t *grp_data_loc = data_loc + cmn::read_uint64(data_loc + TV_GRP_DATA_LOC);
       // uintxx_t idx2_ptr_count = cmn::read_uint32(data_loc + 32);
       // idx2_ptr_size = idx2_ptr_count & 0x80000000 ? 3 : 2;
       // idx_ptr_mask = idx2_ptr_size == 3 ? 0x00FFFFFF : 0x0000FFFF;
-      uint8_t start_bits = data_loc[10];
-      grp_idx_limit = data_loc[9];
-      uint8_t idx_step_bits = data_loc[11];
-      idx2_ptrs_map_loc = data_loc + cmn::read_uint32(data_loc + 40);
+      uint8_t start_bits = data_loc[TV_START_BITS_LOC];
+      grp_idx_limit = data_loc[TV_IDX_LIMIT_LOC];
+      uint8_t idx_step_bits = data_loc[TV_STEP_BITS_IDX_LOC];
+      idx2_ptrs_map_loc = data_loc + cmn::read_uint64(data_loc + TV_IDX2_PTR_MAP_LOC);
 
-      uint8_t *ptrs_loc = data_loc + cmn::read_uint32(data_loc + 44);
+      uint8_t *ptrs_loc = data_loc + cmn::read_uint64(data_loc + TV_GRP_PTRS_LOC);
 
-      uint8_t ptr_lt_ptr_width = data_loc[0];
+      uint8_t ptr_lt_ptr_width = data_loc[TV_PLT_PTR_WIDTH_LOC];
       bool release_ptr_lt = false;
       if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY) {
-        group_count = *grp_data_loc;
-        if (*grp_data_loc == 0xA5)
-          group_count = 1;
-        inner_trie_start_grp = grp_data_loc[1];
+        group_count = grp_data_loc[TVG_GRP_COUNT_LOC];
+        inner_trie_start_grp = grp_data_loc[TVG_INNER_TRIE_START_GRP_LOC];
         code_lt_bit_len = grp_data_loc + 8;
         code_lt_code_len = code_lt_bit_len + 256;
         uint8_t *grp_data_idx_start = code_lt_bit_len + 512;
@@ -981,7 +1010,7 @@ class ptr_group_map {
         inner_tries = new inner_trie_fwd*[group_count]();
         for (int i = 0; i < group_count; i++) {
           grp_data[i] = data_loc;
-          grp_data[i] += cmn::read_uint32(grp_data_idx_start + i * 4);
+          grp_data[i] += cmn::read_uint64(grp_data_idx_start + i * 8);
           if (*(grp_data[i]) != 0)
             inner_tries[i] = dict_obj->new_instance(grp_data[i]);
         }
@@ -1083,21 +1112,21 @@ class tail_ptr_flat_map : public tail_ptr_map {
     __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, bvlt_rank *_tail_lt, uint8_t *_trie_loc, uint8_t *tail_loc) {
       tail_lt = _tail_lt;
       trie_loc = _trie_loc;
-      uint8_t encoding_type = tail_loc[2];
-      uint8_t *data_loc = tail_loc + cmn::read_uint32(tail_loc + 32);
-      uint8_t *ptrs_loc = tail_loc + cmn::read_uint32(tail_loc + 44);
+      uint8_t encoding_type = tail_loc[TV_ENC_TYPE_LOC];
+      uint8_t *data_loc = tail_loc + cmn::read_uint64(tail_loc + TV_GRP_DATA_LOC);
+      uint8_t *ptrs_loc = tail_loc + cmn::read_uint64(tail_loc + TV_GRP_PTRS_LOC);
 
-      uint8_t ptr_lt_ptr_width = tail_loc[0];
+      uint8_t ptr_lt_ptr_width = tail_loc[TV_PLT_PTR_WIDTH_LOC];
       inner_trie = nullptr;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY) {
         inner_trie = _dict_obj->new_instance(data_loc);
         int_ptr_bv.init(ptrs_loc, ptr_lt_ptr_width);
       } else {
-        uint8_t group_count = *data_loc;
+        uint8_t group_count = data_loc[TVG_GRP_COUNT_LOC];
         if (group_count == 1)
-          int_ptr_bv.init(ptrs_loc, data_loc[1]);
+          int_ptr_bv.init(ptrs_loc, data_loc[TVG_PTR_WIDTH_LOC]);
         uint8_t *data_idx_start = data_loc + 8 + 512;
-        data = tail_loc + cmn::read_uint32(data_idx_start);
+        data = tail_loc + cmn::read_uint64(data_idx_start);
       }
     }
     __fq1 __fq2 uintxx_t get_tail_ptr(uintxx_t node_id, uintxx_t& ptr_bit_count) {
@@ -1376,9 +1405,9 @@ class inner_trie : public inner_trie_fwd {
         uint8_t *tail_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + TAIL_RANK_LT_LOC);
         uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
 
-        uintxx_t tail_size = cmn::read_uint32(trie_tail_ptrs_data_loc);
+        uintxx_t tail_size = cmn::read_uint64(trie_tail_ptrs_data_loc);
         //uintxx_t trie_flags_size = cmn::read_uint32(trie_tail_ptrs_data_loc + 4);
-        uint8_t *tails_loc = trie_tail_ptrs_data_loc + 8;
+        uint8_t *tails_loc = trie_tail_ptrs_data_loc + 16;
         trie_loc = tails_loc + tail_size;
 
         uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
@@ -1387,8 +1416,8 @@ class inner_trie : public inner_trie_fwd {
         bldr_options *opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
         uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
 
-        uint8_t encoding_type = tails_loc[2];
-        uint8_t *tail_data_loc = tails_loc + cmn::read_uint32(tails_loc + 32);
+        uint8_t encoding_type = tails_loc[TV_ENC_TYPE_LOC];
+        uint8_t *tail_data_loc = tails_loc + cmn::read_uint64(tails_loc + TV_GRP_DATA_LOC);
         if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || *tail_data_loc == 1) {
           tail_ptr_flat_map *tail_flat_map = new tail_ptr_flat_map();  // Release where?
           tail_flat_map->init(this, &tail_lt, trie_loc, tails_loc);
@@ -2050,10 +2079,10 @@ class value_retriever : public value_retriever_base {
       key_count = _key_count;
       node_count = _node_count;
       init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
-      uint8_t *data_loc = val_loc + cmn::read_uint32(val_loc + 32);
-      uint8_t *ptrs_loc = val_loc + cmn::read_uint32(val_loc + 44);
-      uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint32(val_loc + 48));
-      size_t null_bv_size = cmn::read_uint32(val_loc + 20);
+      uint8_t *data_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_DATA_LOC);
+      uint8_t *ptrs_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_PTRS_LOC);
+      uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint64(val_loc + TV_NULL_BV_LOC));
+      uintxx_t null_bv_size = cmn::read_uint64(val_loc + TV_NULL_BV_SIZE_LOC);
       null_bv.set_bv(null_bv_loc, null_bv_size);
       if (group_count == 1 || val_loc[2] == MSE_TRIE || val_loc[2] == MSE_TRIE_2WAY) {
         int_ptr_bv = new gen::int_bv_reader();
