@@ -57,10 +57,10 @@ const static size_t EMPTY_VALUE_LEN = 1;
 
 #define nodes_per_ptr_block 1984
 #define nodes_per_ptr_block_n 64
-// ptr_lt_blk_width = 4 + (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
-// Ensure ptr_lt_blk_width is multiple of 4 so it works on CUDA cores
-#define ptr_lt_blk_width2 64
-#define ptr_lt_blk_width3 94
+// ptr_lt_blk_width = (nodes_per_ptr_block/nodes_per_ptr_block_n - 1) * 2
+// **Invalid for now** -> Ensure ptr_lt_blk_width is multiple of 4 so it works on CUDA cores
+#define ptr_lt_blk_width2 60
+#define ptr_lt_blk_width3 90
 
 // #define sel_divisor 256
 

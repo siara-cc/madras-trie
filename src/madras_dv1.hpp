@@ -744,6 +744,7 @@ class ptr_bits_reader {
     // __fq1 __fq2 ptr_bits_reader& operator=(ptr_bits_reader const&);
     uint8_t *ptrs_loc;
     uint8_t *ptr_lt_loc;
+    uintxx_t lt_ptr_width;
     bool release_lt_loc;
   public:
     __fq1 __fq2 uintxx_t read(uintxx_t& ptr_bit_count, int bits_to_read) {
@@ -764,19 +765,21 @@ class ptr_bits_reader {
       return ret | (*ptr_loc >> (64 - (bit_pos % 8)));
     }
     __fq1 __fq2 uintxx_t get_ptr_block2(uintxx_t node_id) {
-      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width2;
-      uintxx_t ptr_bit_count = cmn::read_uint32(block_ptr);
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * (ptr_lt_blk_width2 + lt_ptr_width);
+      uintxx_t ptr_bit_count = 0;
+      memcpy(&ptr_bit_count, block_ptr, lt_ptr_width); // improve perf
       uintxx_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
       if (pos)
-        ptr_bit_count += cmn::read_uint16(block_ptr + 4 + --pos * 2);
+        ptr_bit_count += cmn::read_uint16(block_ptr + lt_ptr_width + --pos * 2);
       return ptr_bit_count;
     }
     __fq1 __fq2 uintxx_t get_ptr_block3(uintxx_t node_id) {
-      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * ptr_lt_blk_width3;
-      uintxx_t ptr_bit_count = cmn::read_uint32(block_ptr);
+      uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * (ptr_lt_blk_width3 + lt_ptr_width);
+      uintxx_t ptr_bit_count = 0;
+      memcpy(&ptr_bit_count, block_ptr, lt_ptr_width);
       uintxx_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
       if (pos)
-        ptr_bit_count += cmn::read_uint24(block_ptr + 4 + --pos * 3);
+        ptr_bit_count += cmn::read_uint24(block_ptr + lt_ptr_width + --pos * 3);
       return ptr_bit_count;
     }
     __fq1 __fq2 ptr_bits_reader() {
@@ -789,6 +792,7 @@ class ptr_bits_reader {
     __fq1 __fq2 void init(uint8_t *_ptrs_loc, uint8_t *_lt_loc, uintxx_t _lt_ptr_width, bool _release_lt_loc) {
       ptrs_loc = _ptrs_loc;
       ptr_lt_loc = _lt_loc;
+      lt_ptr_width = _lt_ptr_width;
       release_lt_loc = _release_lt_loc;
     }
     __fq1 __fq2 uint8_t *get_ptrs_loc() {

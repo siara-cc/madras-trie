@@ -378,7 +378,7 @@ class ptr_groups {
         if (next_idx == cur_limit)
           return pow(2, log2(cur_limit) + step_bits_idx);
       } else {
-        if ((freq_grp_vec[grp_no].grp_size + len) > cur_limit)
+        if ((freq_grp_vec[grp_no].grp_size + len) >= cur_limit)
           return pow(2, log2(cur_limit) + step_bits_rest);
       }
       return cur_limit;
@@ -394,7 +394,7 @@ class ptr_groups {
             next_idx = 0;
           }
         } else {
-          if ((freq_grp_vec[grp_no].grp_size + len) > cur_limit)
+          if ((freq_grp_vec[grp_no].grp_size + len) >= cur_limit)
             next_grp = true;
         }
       }
@@ -546,7 +546,9 @@ class ptr_groups {
       enc_type = encoding_type;
       data_type = _data_type;
       if (encoding_type != MSE_TRIE && encoding_type != MSE_TRIE_2WAY && col_trie_size == 0 && (freq_grp_vec.size() > 2 || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB)) {
-        ptr_lkup_tbl_ptr_width = 4;
+        ptr_lkup_tbl_ptr_width = gen::bytes_needed(tot_ptr_bit_count);
+        if (ptr_lkup_tbl_ptr_width < 3)
+          ptr_lkup_tbl_ptr_width = 3;
         if (!dessicate)
           build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type);
         if (encoding_type != MSE_STORE && encoding_type != MSE_VINTGB) {
@@ -692,10 +694,11 @@ class ptr_groups {
       return &ptr_lookup_tbl;
     }
     void append_plt_count(uintxx_t bit_count) {
-      if (ptr_lkup_tbl_ptr_width == 4)
-        gen::append_uint32(bit_count, ptr_lookup_tbl);
-      else
-        gen::append_uint24(bit_count, ptr_lookup_tbl);
+      gen::append_byte_vec(ptr_lookup_tbl, (uint8_t *) &bit_count, ptr_lkup_tbl_ptr_width);
+      // if (ptr_lkup_tbl_ptr_width == 4)
+      //   gen::append_uint32(bit_count, ptr_lookup_tbl);
+      // else
+      //   gen::append_uint24(bit_count, ptr_lookup_tbl);
     }
     void append_plt_count16(uintxx_t *bit_counts, size_t u16_arr_count, char encoding_type) {
       for (size_t j = 0; j < u16_arr_count; j++) {
@@ -855,7 +858,7 @@ class ptr_groups {
       if (freq_grp_vec.size() == 2) {
         freq_grp *fg = &freq_grp_vec[1];
         fg->code = fg->code_len = 0;
-        fg->grp_log2 = ceil(log2(fg->grp_size));
+        fg->grp_log2 = gen::bits_needed(fg->grp_size);
         if (!is_val) {
           if (fg->grp_log2 > 8)
             fg->grp_log2 -= 8;
@@ -876,14 +879,14 @@ class ptr_groups {
         fg->code = (uint8_t) _huffman.get_code(i - 1, len);
         fg->code_len = len;
         if (i <= idx_limit) {
-          fg->grp_log2 = ceil(log2(fg->grp_limit));
+          fg->grp_log2 = gen::bits_needed(fg->grp_limit - 1);
         } else if (inner_trie_start_grp > 0 && i >= inner_trie_start_grp) {
           if (fg->count < fg->grp_limit)
-            fg->grp_log2 = ceil(log2(fg->count == 1 ? 2 : fg->count));
+            fg->grp_log2 = gen::bits_needed(fg->count == 1 ? 2 : fg->count);
           else
-            fg->grp_log2 = ceil(log2(fg->grp_limit));
+            fg->grp_log2 = gen::bits_needed(fg->grp_limit);
         } else {
-          fg->grp_log2 = ceil(log2(fg->grp_size));
+          fg->grp_log2 = gen::bits_needed(fg->grp_size);
         }
         if (is_val)
           fg->grp_log2 += fg->code_len;
@@ -1029,7 +1032,7 @@ class tail_val_maps {
           }
         }
         if (grp_no == 0 && start_bits == 1) {
-          start_bits = ceil(log2(2 + uniq_freq_vec[0]->len + 1));
+          start_bits = gen::bits_needed(2 + uniq_freq_vec[0]->len + 1);
           if (start_bits == 0)
             start_bits++;
         }
@@ -2514,13 +2517,13 @@ class builder : public builder_fwd {
 
       grp_no = 1;
       len_grp_no = grp_no;
-      ptr_grps.next_grp(grp_no, pow(2, ceil(log2(max_word_count)) - 1), 0, tot_freq, true);
+      ptr_grps.next_grp(grp_no, pow(2, gen::bits_needed(max_word_count) - 1), 0, tot_freq, true);
       ptr_grps.update_current_grp(len_grp_no, max_word_count, total_word_entries, max_word_count);
       ptr_grps.append_text(len_grp_no, (const uint8_t *) "L", 1);
 
       if (rpt_freq > 0 && max_rpts > 0) {
         rpt_grp_no = grp_no;
-        ptr_grps.next_grp(grp_no, pow(2, ceil(log2(max_rpts)) - 1), 0, tot_freq, true);
+        ptr_grps.next_grp(grp_no, pow(2, gen::bits_needed(max_rpts) - 1), 0, tot_freq, true);
         ptr_grps.update_current_grp(rpt_grp_no, max_rpts, rpt_freq, max_rpts);
         ptr_grps.append_text(rpt_grp_no, (const uint8_t *) "R", 1);
       }
@@ -2687,7 +2690,6 @@ class builder : public builder_fwd {
       total_word_entries++;
       uintxx_t last_word_len = 0;
       bool is_prev_non_word = false;
-      size_t vint_len = gen::get_vlen_of_uint32(word_str_len);
       uintxx_t word_count_pos = word_ptrs.size();
       word_ptrs.push_back(0); // initially 0
       uintxx_t *word_positions = new uintxx_t[word_str_len];
@@ -2886,7 +2888,7 @@ class builder : public builder_fwd {
         col_trie_builder->set_all_vals(&col_trie_vals);
       }
       byte_vec *ptr_grps = val_maps.get_grp_ptrs()->get_ptrs();
-      int bit_len = ceil(log2(max_node_id + 1));
+      int bit_len = gen::bits_needed(max_node_id + 1);
       val_maps.get_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Col trie bit_len: %d [log(%u)]\n", bit_len, max_node_id);
       gen::int_bit_vector int_bv(ptr_grps, bit_len, memtrie.node_count);
@@ -3457,7 +3459,7 @@ class builder : public builder_fwd {
         cur_node = ni_freq.next();
       }
       uintxx_t trie_size = tail_trie_builder->build();
-      int bit_len = ceil(log2(tail_trie_builder->memtrie.node_count + 1)) - 8;
+      int bit_len = gen::bits_needed(tail_trie_builder->memtrie.node_count + 1) - 8;
       tail_maps.get_grp_ptrs()->set_ptr_lkup_tbl_ptr_width(bit_len);
       gen::gen_printf("Tail trie bit_len: %d [log(%u) - 8]\n", bit_len, tail_trie_builder->memtrie.node_count);
       uintxx_t node_id = 0;
@@ -4292,7 +4294,7 @@ class builder : public builder_fwd {
     void write_final_val_table(bool to_close = true) {
       if (fp == NULL) {
         for (size_t i = 0; i < column_count; i++)
-          gen::copy_uint32(val_table[i], out_vec->data() + tp.col_val_table_loc + i * 8);
+          gen::copy_uint64(val_table[i], out_vec->data() + tp.col_val_table_loc + i * 8);
       } else {
         fseek(fp, tp.col_val_table_loc, SEEK_SET);
         write_col_val_table();
