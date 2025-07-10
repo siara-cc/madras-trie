@@ -9,10 +9,10 @@
 ./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 -----------t tttuuuutttuw
 + key_col 1 not working
 
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 -t--------- uwttuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 1 tttt90990t0 ttttuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt9i99iti twuuuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt9i99iti TWTTTTTTTTT
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti uwttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 1 tttt2i22iti ttttuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti twuuuuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti TWTTTTTTTTT
 
 ~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
 ./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu

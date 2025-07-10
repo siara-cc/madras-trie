@@ -3297,7 +3297,7 @@ class builder : public builder_fwd {
 
           uint8_t max_repeats;
           size_t rpt_count = process_repeats(false, max_repeats);
-          printf("rpt enable perc: %d, actual perc: %" PRIuXX "\n", get_opts()->rpt_enable_perc, (rpt_count * 100 / memtrie.node_count));
+          printf("rpt enable perc: %d, actual perc: %zu\n", get_opts()->rpt_enable_perc, (size_t) (rpt_count * 100 / memtrie.node_count));
           if (get_opts()->rpt_enable_perc < (rpt_count * 100 / memtrie.node_count))
             process_repeats(true, max_repeats);
           printf("Max col len: %" PRIuXX ", Rpt count: %lu, max: %d\n", max_len, rpt_count, max_repeats);

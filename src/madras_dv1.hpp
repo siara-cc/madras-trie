@@ -310,6 +310,10 @@ class cmn {
       // return ret;
       // #endif
     }
+    __fq1 __fq2 static uint64_t read_uint40(uint8_t *ptr) {
+      uint64_t ret = *((uint32_t *) ptr);
+      return ret | ((uint64_t) ptr[4] << 32);
+    }
     __fq1 __fq2 static uint64_t read_uint64(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
       return *((uint64_t *) ptr);
@@ -766,8 +770,8 @@ class ptr_bits_reader {
     }
     __fq1 __fq2 uintxx_t get_ptr_block2(uintxx_t node_id) {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * (ptr_lt_blk_width2 + lt_ptr_width);
-      uintxx_t ptr_bit_count = 0;
-      memcpy(&ptr_bit_count, block_ptr, lt_ptr_width); // improve perf
+      uintxx_t ptr_bit_count = gen::read_uint64(block_ptr) & (UINT64_MAX >> (64 - lt_ptr_width * 8));
+      // memcpy(&ptr_bit_count, block_ptr, lt_ptr_width); // improve perf
       uintxx_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
       if (pos)
         ptr_bit_count += cmn::read_uint16(block_ptr + lt_ptr_width + --pos * 2);
@@ -775,8 +779,7 @@ class ptr_bits_reader {
     }
     __fq1 __fq2 uintxx_t get_ptr_block3(uintxx_t node_id) {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * (ptr_lt_blk_width3 + lt_ptr_width);
-      uintxx_t ptr_bit_count = 0;
-      memcpy(&ptr_bit_count, block_ptr, lt_ptr_width);
+      uintxx_t ptr_bit_count = gen::read_uint64(block_ptr) & (UINT64_MAX >> (64 - lt_ptr_width * 8));
       uintxx_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
       if (pos)
         ptr_bit_count += cmn::read_uint24(block_ptr + lt_ptr_width + --pos * 3);

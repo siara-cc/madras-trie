@@ -16,9 +16,6 @@
 
 const static char *dt_formats[] = {"%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y %I:%M %p", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"};
 const static size_t dt_format_lens[] = {8, 8, 8, 19, 19, 19, 19, 19, 19};
-#include <stdint.h>
-#include <string.h>
-#include <time.h>
 
 #define SECONDS_PER_DAY 86400
 
