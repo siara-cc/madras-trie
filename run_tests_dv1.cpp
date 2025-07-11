@@ -27,17 +27,39 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
 
 int main(int argc, char *argv[]) {
 
+  if (argc < 2) {
+    printf("Usage: ./run_tests <file_name> [mode=0*|1|2] [num_tries=3] [asc=0] [leapfrog=0] [num=0] [max_groups=16]\n");
+    return 1;
+  }
+
+  int inner_trie_count = argc > 3 ? atoi(argv[3]) : 1;
+  bool asc = argc > 4 ? atoi(argv[4]) == 1 ? true : false : false;
+  bool leapfrog = argc > 5 ? atoi(argv[5]) == 1 ? true : false : false;
+  // TODO: only 1 level works for as_int
+  bool as_int = argc > 6 ? (atoi(argv[6]) == 1 ? true : false) : false;
+  int max_groups = argc > 7 ? atoi(argv[7]) : 16;
+  bool suffix_coding = argc > 8 ? (atoi(argv[8]) == 1 ? true : false) : true;
+  printf("tries: %d, Asc? %d, Leapfrog?: %d, Int?: %d, Max Grps: %d, Sfx coding: %d\n",
+      inner_trie_count, asc, leapfrog, as_int, max_groups, suffix_coding);
+
+  madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
+  bldr_opts.max_inner_tries = inner_trie_count;
+  bldr_opts.max_groups = max_groups;
+  bldr_opts.sort_nodes_on_freq = asc ? 0 : 1;
+  bldr_opts.leap_frog = leapfrog ? 1 : 0;
+  bldr_opts.partial_sfx_coding = suffix_coding ? 1 : 0;
+
   int what = 0;
   if (argc > 2)
    what = atoi(argv[2]);
 
   madras_dv1::builder *sb;
   if (what == 0)
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "ttii", "uuuu");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "ttii", "uuuu", 0, 1, &bldr_opts);
   else if (what == 1) // Process only key
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
   else if (what == 2) // Insert key as value to compare trie and prefix coding
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu");
+    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu", 0, 1, &bldr_opts);
   sb->set_print_enabled(true);
   vector<pair<uint8_t *, uint32_t>> lines;
 
@@ -66,7 +88,6 @@ int main(int argc, char *argv[]) {
   int64_t ival;
   size_t isize;
   uint8_t istr[10];
-  bool as_int = (argc > 3 && argv[3][0] == 'i' ? true : false);
   int line_count = 0;
   bool is_sorted = true;
   const uint8_t *prev_line = (const uint8_t *) "";

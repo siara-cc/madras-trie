@@ -815,8 +815,9 @@ class tail_ptr_map {
     __fq1 __fq2 virtual bool compare_tail(uintxx_t node_id, input_ctx& in_ctx, uintxx_t& ptr_bit_count) = 0;
     __fq1 __fq2 virtual void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) = 0;
     __fq1 __fq2 static uintxx_t read_len(uint8_t *t) {
-      while (*t > 15 && *t < 32)
+      do {
         t++;
+      } while ((*t > 15 && *t < 32) && (*t & 0x08) == 0);
       t--;
       uintxx_t ret;
       read_len_bw(t, ret);

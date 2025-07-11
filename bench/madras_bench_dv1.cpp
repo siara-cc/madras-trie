@@ -37,6 +37,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
 
   int asc = argc > 4 ? atoi(argv[4]) : 0;
   int leapfrog = argc > 5 ? atoi(argv[5]) : 0;
+  int sfx_coding = argc > 8 ? atoi(argv[8]) : 1;
 
   struct timespec t;
   clock_gettime(CLOCK_REALTIME, &t);
@@ -48,6 +49,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   bldr_opts.max_groups = max_groups;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
   bldr_opts.leap_frog = leapfrog > 0 ? true : false;
+  bldr_opts.partial_sfx_coding = sfx_coding;
   sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
 
   sb->set_print_enabled(false);
