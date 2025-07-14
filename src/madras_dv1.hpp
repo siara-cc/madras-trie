@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#include "common_dv1.hpp"
+
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
 #include <nmmintrin.h>
@@ -19,16 +21,6 @@
 #include <sys/mman.h>
 #endif
 #include <stdint.h>
-
-#include "compiler_util.hpp"
-
-BEGIN_IGNORE_UNUSED_FUNCTION
-#include "common_dv1.hpp"
-#include "bv.hpp"
-#include "vint.hpp"
-#include "gen.hpp"
-#include "flavic48.hpp"
-END_IGNORE_UNUSED_FUNCTION
 
 // Function qualifiers
 #ifndef __fq1

@@ -1,6 +1,15 @@
 #ifndef common_hpp
 #define common_hpp
 
+#include "compiler_util.hpp"
+
+BEGIN_IGNORE_UNUSED_FUNCTION
+#include "bv.hpp"
+#include "vint.hpp"
+#include "gen.hpp"
+#include "flavic48.hpp"
+END_IGNORE_UNUSED_FUNCTION
+
 namespace madras_dv1 {
 
 #ifndef UINTXX_WIDTH
@@ -241,6 +250,53 @@ class simple_word_splitter : public word_split_iface {
 };
 simple_word_splitter dflt_word_splitter;
 
+static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
+  struct tm tm = {0};
+  char dt_txt[gen::dt_format_lens[col_type - MST_DATE_US] + 1];
+  strncpy(dt_txt, (const char *) dt_txt_db, gen::dt_format_lens[col_type - MST_DATE_US]);
+  dt_txt[gen::dt_format_lens[col_type - MST_DATE_US]] = 0;
+  // printf("%s, %s\n", dt_txt, dt_formats[col_type - MST_DATE_US]);
+  char *result = strptime((const char *) dt_txt, gen::dt_formats[col_type - MST_DATE_US], &tm);
+  if (result == nullptr || *result != '\0') {
+    //printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
+    printf("Error parsing date\n");
+    return INT64_MIN;
+  }
+  int64_t dt_val = gen::tm_to_epoch_seconds(&tm);
+  // if (tm.tm_year < 0)
+  //   printf("time_val: %lld, %s, %d-%d-%d\n", dt_val, dt_txt, tm.tm_mday, tm.tm_mon, tm.tm_year);
+  if (col_type >= MST_DATE_US && col_type <= MST_DATE_ISO)
+    dt_val /= 86400;
+  if (col_type == MST_DATETIME_ISO_MS || col_type == MST_DATETIME_ISOT_MS) {
+    dt_val *= 1000;
+    char *dot_pos = (char *) memchr(dt_txt_db, '.', strnlen((const char *) dt_txt_db, 24));
+    if (dot_pos != nullptr)
+      dt_val += atoi(dot_pos + 1);
+  }
+  return dt_val;
+}
+
+static size_t dt_i64_to_str(int64_t i64, char *dt_txt, size_t dt_txt_sz, char col_type) {
+  int64_t original_epoch = i64;
+  // printf("orig epoch: %lld\n", original_epoch);
+  if (col_type >= MST_DATE_US && col_type <= MST_DATE_ISO)
+    original_epoch *= 86400;
+  if (col_type == MST_DATETIME_ISO_MS || col_type == MST_DATETIME_ISOT_MS)
+    original_epoch /= 1000;
+  struct tm out_tm;
+  gen::epoch_seconds_to_tm(original_epoch, &out_tm);
+  strftime(dt_txt, dt_txt_sz, gen::dt_formats[col_type - MST_DATE_US], &out_tm);
+  size_t val_len = strlen(dt_txt);
+  if (col_type == MST_DATETIME_ISO_MS || col_type == MST_DATETIME_ISOT_MS) {
+    original_epoch = i64;
+    dt_txt[val_len++] = '.';
+    dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
+    dt_txt[val_len++] = '0' + ((original_epoch / 10) % 10);
+    dt_txt[val_len++] = '0' + (original_epoch % 10);
+    dt_txt[val_len] = 0;
+  }
+  return val_len;
+}
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif

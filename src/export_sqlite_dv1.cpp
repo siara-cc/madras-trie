@@ -5,9 +5,11 @@
 #include <stdint.h>
 #include <string.h>
 #include <limits.h>
-#include <sqlite3.h>
 #include <inttypes.h>
 #include <sys/stat.h>
+
+#include <sqlite3.h>
+#include <duckdb.h>
 
 #include "../../ds_common/src/gen.hpp"
 
@@ -29,65 +31,6 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
   printf("%s %lf\n", msg, time_taken);
   clock_gettime(CLOCK_REALTIME, &t);
   return t;
-}
-
-const static char *dt_formats[] = {"%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y %I:%M %p", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"};
-const static size_t dt_format_lens[] = {8, 8, 8, 19, 19, 19, 19, 19, 19};
-
-#define SECONDS_PER_DAY 86400
-
-int64_t days_from_civil(int y, int m, int d) {
-    y -= m <= 2;
-    const int era = (y >= 0 ? y : y - 399) / 400;
-    const int yoe = y - era * 400;                       // [0, 399]
-    const int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; // [0, 365]
-    const int doe = yoe * 365 + yoe / 4 - yoe / 100 + yoe / 400 + doy;
-    return era * 146097 + doe - 719468;
-}
-
-int64_t tm_to_epoch_seconds(const struct tm *tm) {
-    int64_t days = days_from_civil(tm->tm_year + 1900,
-                                    tm->tm_mon + 1,
-                                    tm->tm_mday);
-    return days * SECONDS_PER_DAY +
-           tm->tm_hour * 3600 +
-           tm->tm_min * 60 +
-           tm->tm_sec;
-}
-
-void civil_from_days(int64_t z, int *y, int *m, int *d) {
-    z += 719468;
-    const int era = (z >= 0 ? z : z - 146096) / 146097;
-    const int doe = z - era * 146097;                    // [0, 146096]
-    const int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const int y1 = yoe + era * 400;
-    const int doy = doe - (365 * yoe + yoe / 4 - yoe / 100 + yoe / 400);
-    const int mp = (5 * doy + 2) / 153;
-    *d = doy - (153 * mp + 2) / 5 + 1;
-    *m = mp + (mp < 10 ? 3 : -9);
-    *y = y1 + (*m <= 2 ? 1 : 0);
-}
-
-void epoch_seconds_to_tm(int64_t seconds, struct tm *out_tm) {
-    memset(out_tm, 0, sizeof(*out_tm));
-
-    int64_t days = seconds / SECONDS_PER_DAY;
-    int64_t rem = seconds % SECONDS_PER_DAY;
-    if (rem < 0) {
-        rem += SECONDS_PER_DAY;
-        days -= 1;
-    }
-
-    int y, m, d;
-    civil_from_days(days, &y, &m, &d);
-
-    out_tm->tm_year = y - 1900;
-    out_tm->tm_mon  = m - 1;
-    out_tm->tm_mday = d;
-    out_tm->tm_hour = rem / 3600;
-    rem %= 3600;
-    out_tm->tm_min  = rem / 60;
-    out_tm->tm_sec  = rem % 60;
 }
 
 static double round_dbl(const double input, char data_type) {
@@ -166,8 +109,8 @@ class sqlite_reader : public data_iface {
         if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN)
           values[exp_col_idx].i64 = 0;
         else {
-          int64_t i64 = INT64_MIN;
-          memcpy(&values[exp_col_idx], &i64, 8);
+          s64 = INT64_MIN;
+          memcpy(&values[exp_col_idx], &s64, 8);
         }
         value_lens[exp_col_idx] = 0;
       } else if (exp_col_type == MST_TEXT) {
@@ -177,30 +120,9 @@ class sqlite_reader : public data_iface {
         values[exp_col_idx].txt_bin = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
         value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
       } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
-        struct tm tm = {0};
         const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
-        char dt_txt[dt_format_lens[exp_col_type - MST_DATE_US] + 1];
-        strncpy(dt_txt, (const char *) dt_txt_db, dt_format_lens[exp_col_type - MST_DATE_US]);
-        dt_txt[dt_format_lens[exp_col_type - MST_DATE_US]] = 0;
-        // printf("%s, %s\n", dt_txt, dt_formats[exp_col_type - MST_DATE_US]);
-        char *result = strptime((const char *) dt_txt, dt_formats[exp_col_type - MST_DATE_US], &tm);
-        if (result == nullptr || *result != '\0') {
-          printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
-          values[exp_col_idx].i64 = INT64_MIN;
-        } else {
-          int64_t dt_val = tm_to_epoch_seconds(&tm);
-          // if (tm.tm_year < 0)
-          //   printf("time_val: %lld, %s, %d-%d-%d\n", dt_val, dt_txt, tm.tm_mday, tm.tm_mon, tm.tm_year);
-          if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
-            dt_val /= 86400;
-          if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
-            dt_val *= 1000;
-            char *dot_pos = (char *) memchr(dt_txt_db, '.', strnlen((const char *) dt_txt_db, 24));
-            if (dot_pos != nullptr)
-              dt_val += atoi(dot_pos + 1);
-          }
-          values[exp_col_idx].i64 = dt_val;
-        }
+        int64_t dt_val = madras_dv1::dt_str_to_i64(dt_txt_db, exp_col_type);
+        values[exp_col_idx].i64 = dt_val;
         value_lens[exp_col_idx] = 8;
       } else if (exp_col_type == MST_INT) {
         s64 = sqlite3_column_int64(stmt, sql_col_idx);
@@ -237,9 +159,142 @@ class sqlite_reader : public data_iface {
     }
 };
 
+class duckdb_reader : public data_iface {
+  private:
+    duckdb_database db = nullptr;
+    duckdb_connection conn = nullptr;
+    duckdb_result result;
+    duckdb_prepared_statement prep = nullptr;
+    size_t current_row = 0;
+    size_t total_rows = 0;
+
+  public:
+    int init(const char *filename, const char *table_name, const char *sql) {
+      duckdb_state state;
+
+      state = duckdb_open(filename, &db);
+      if (state != DuckDBSuccess) {
+        printf("Can't open DuckDB database\n");
+        return 1;
+      }
+
+      state = duckdb_connect(db, &conn);
+      if (state != DuckDBSuccess) {
+        printf("Can't connect to DuckDB database\n");
+        return 1;
+      }
+
+      state = duckdb_prepare(conn, sql, &prep);
+      if (state != DuckDBSuccess) {
+        printf("SQL prepare error\n");
+        return 1;
+      }
+
+      state = duckdb_execute_prepared(prep, &result);
+      if (state != DuckDBSuccess) {
+        printf("SQL execution error\n");
+        return 1;
+      }
+
+      total_rows = duckdb_row_count(&result);
+      current_row = 0;
+      return 0;
+    }
+
+    int col_count() {
+      return duckdb_column_count(&result);
+    }
+
+    const char *col_name(size_t col_idx) {
+      return duckdb_column_name(&result, col_idx);
+    }
+
+    int col_type(size_t col_idx) {
+      return duckdb_column_type(&result, col_idx);
+    }
+
+    bool is_null(size_t col_idx) {
+      return duckdb_value_is_null(&result, col_idx, current_row);
+    }
+
+    bool next() {
+      if (current_row < total_rows) {
+        ++current_row;
+        return current_row <= total_rows;
+      }
+      return false;
+    }
+
+    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx, char exp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
+      int64_t s64;
+      double dbl;
+      if (duckdb_value_is_null(&result, sql_col_idx, current_row - 1)) {
+        if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN)
+          values[exp_col_idx].i64 = 0;
+        else {
+          s64 = INT64_MIN;
+          memcpy(&values[exp_col_idx], &s64, 8);
+        }
+        value_lens[exp_col_idx] = 0;
+      } else if (exp_col_type == MST_TEXT) {
+        values[exp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
+        value_lens[exp_col_idx] = strlen((const char *)values[exp_col_idx].txt_bin);
+      } else if (exp_col_type == MST_BIN) {
+        values[exp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
+        value_lens[exp_col_idx] = strlen((const char *)values[exp_col_idx].txt_bin);
+      } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+        const char *dt_txt_db = duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
+        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)dt_txt_db, exp_col_type);
+        values[exp_col_idx].i64 = dt_val;
+        value_lens[exp_col_idx] = 8;
+      } else if (exp_col_type == MST_INT) {
+        s64 = duckdb_value_int64(&result, sql_col_idx, current_row - 1);
+        values[exp_col_idx].i64 = s64;
+        value_lens[exp_col_idx] = 8;
+      } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
+        dbl = duckdb_value_double(&result, sql_col_idx, current_row - 1);
+        values[exp_col_idx].dbl = dbl;
+        value_lens[exp_col_idx] = 8;
+      }
+    }
+
+    int64_t get_i64(size_t col_idx) {
+      return duckdb_value_int64(&result, col_idx, current_row - 1);
+    }
+
+    double get_dbl(size_t col_idx) {
+      return duckdb_value_double(&result, col_idx, current_row - 1);
+    }
+
+    const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) {
+      const char *str = duckdb_value_varchar(&result, col_idx, current_row - 1);
+      col_len = strlen(str);
+      return (const uint8_t *)str;
+    }
+
+    void reset() {
+      current_row = 0;
+    }
+
+    void close() {
+      duckdb_destroy_result(&result);
+      if (prep)
+        duckdb_destroy_prepare(&prep);
+      if (conn)
+        duckdb_disconnect(&conn);
+      if (db)
+        duckdb_close(&db);
+      prep = nullptr;
+      conn = nullptr;
+      db = nullptr;
+    }
+};
+
 data_iface *data_iface::get_data_reader(const char *input_type) {
   if (strncmp(input_type, "sqlite3", 7) == 0)
     return new sqlite_reader();
+  if (strncmp(input_type, "duckdb", 7) == 0)
+    return new duckdb_reader();
   return nullptr;
 }
 
@@ -614,25 +669,8 @@ int main(int argc, char* argv[]) {
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
         stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
-        int64_t original_epoch = mv.i64;
-        // printf("orig epoch: %lld\n", original_epoch);
-        if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATE_ISO)
-          original_epoch *= 86400;
-        if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS)
-          original_epoch /= 1000;
         char dt_txt[50];
-        struct tm out_tm;
-        epoch_seconds_to_tm(original_epoch, &out_tm);
-        strftime(dt_txt, sizeof(dt_txt), dt_formats[exp_col_type - MST_DATE_US], &out_tm);
-        val_len = strlen(dt_txt);
-        if (exp_col_type == MST_DATETIME_ISO_MS || exp_col_type == MST_DATETIME_ISOT_MS) {
-          original_epoch = mv.i64;
-          dt_txt[val_len++] = '.';
-          dt_txt[val_len++] = '0' + ((original_epoch / 100) % 10);
-          dt_txt[val_len++] = '0' + ((original_epoch / 10) % 10);
-          dt_txt[val_len++] = '0' + (original_epoch % 10);
-          dt_txt[val_len] = 0;
-        }
+        val_len = madras_dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), exp_col_type);
         if (val_len != sql_val_len) {
           errors[col_val_idx]++;
           if (to_print_mismatch) {
