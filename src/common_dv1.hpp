@@ -13,7 +13,7 @@ END_IGNORE_UNUSED_FUNCTION
 namespace madras_dv1 {
 
 #ifndef UINTXX_WIDTH
-#define UINTXX_WIDTH 64
+#define UINTXX_WIDTH 32
 #endif
 
 #if UINTXX_WIDTH == 32
@@ -259,7 +259,7 @@ static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
   char *result = strptime((const char *) dt_txt, gen::dt_formats[col_type - MST_DATE_US], &tm);
   if (result == nullptr || *result != '\0') {
     //printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
-    printf("Error parsing date\n");
+    printf("Error parsing date: %s\n", dt_txt);
     return INT64_MIN;
   }
   int64_t dt_val = gen::tm_to_epoch_seconds(&tm);

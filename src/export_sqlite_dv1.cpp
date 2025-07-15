@@ -7,6 +7,10 @@
 #include <limits.h>
 #include <inttypes.h>
 #include <sys/stat.h>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
 
 #include <sqlite3.h>
 #include <duckdb.h>
@@ -51,7 +55,7 @@ class data_iface {
     virtual int col_type(size_t col_idx) = 0;
     virtual bool next() = 0;
     virtual bool is_null(size_t col_idx) = 0;
-    virtual void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx, char exp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) = 0;
+    virtual void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) = 0;
     virtual int64_t get_i64(size_t col_idx) = 0;
     virtual double get_dbl(size_t col_idx) = 0;
     virtual const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) = 0;
@@ -59,6 +63,9 @@ class data_iface {
     virtual void close() = 0;
     virtual ~data_iface() {}
     static data_iface *get_data_reader(const char *input_type);
+    static bool is_white_space(char c) {
+      return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+    }
 };
 
 class sqlite_reader : public data_iface {
@@ -102,35 +109,35 @@ class sqlite_reader : public data_iface {
     bool next() {
       return sqlite3_step(stmt) == SQLITE_ROW;
     }
-    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx, char exp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
+    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
       int64_t s64;
       double dbl;
       if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
-        if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN)
-          values[exp_col_idx].i64 = 0;
+        if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN)
+          values[imp_col_idx].i64 = 0;
         else {
           s64 = INT64_MIN;
-          memcpy(&values[exp_col_idx], &s64, 8);
+          memcpy(&values[imp_col_idx], &s64, 8);
         }
-        value_lens[exp_col_idx] = 0;
-      } else if (exp_col_type == MST_TEXT) {
-        values[exp_col_idx].txt_bin = sqlite3_column_text(stmt, sql_col_idx);
-        value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
-      } else if (exp_col_type == MST_BIN) {
-        values[exp_col_idx].txt_bin = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
-        value_lens[exp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
-      } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+        value_lens[imp_col_idx] = 0;
+      } else if (imp_col_type == MST_TEXT) {
+        values[imp_col_idx].txt_bin = sqlite3_column_text(stmt, sql_col_idx);
+        value_lens[imp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
+      } else if (imp_col_type == MST_BIN) {
+        values[imp_col_idx].txt_bin = (const uint8_t *) sqlite3_column_blob(stmt, sql_col_idx);
+        value_lens[imp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
+      } else if (imp_col_type >= MST_DATE_US && imp_col_type <= MST_DATETIME_ISOT_MS) {
         const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
-        int64_t dt_val = madras_dv1::dt_str_to_i64(dt_txt_db, exp_col_type);
-        values[exp_col_idx].i64 = dt_val;
-        value_lens[exp_col_idx] = 8;
-      } else if (exp_col_type == MST_INT) {
+        int64_t dt_val = madras_dv1::dt_str_to_i64(dt_txt_db, imp_col_type);
+        values[imp_col_idx].i64 = dt_val;
+        value_lens[imp_col_idx] = 8;
+      } else if (imp_col_type == MST_INT) {
         s64 = sqlite3_column_int64(stmt, sql_col_idx);
-        values[exp_col_idx].i64 = s64;
-        value_lens[exp_col_idx] = 8;
-      } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
-        values[exp_col_idx].dbl = sqlite3_column_double(stmt, sql_col_idx);
-        value_lens[exp_col_idx] = 8;
+        values[imp_col_idx].i64 = s64;
+        value_lens[imp_col_idx] = 8;
+      } else if (imp_col_type >= MST_DECV && imp_col_type <= MST_DEC9) {
+        values[imp_col_idx].dbl = sqlite3_column_double(stmt, sql_col_idx);
+        value_lens[imp_col_idx] = 8;
       }
     }
     int64_t get_i64(size_t col_idx) {
@@ -225,36 +232,36 @@ class duckdb_reader : public data_iface {
       return false;
     }
 
-    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx, char exp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
+    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
       int64_t s64;
       double dbl;
       if (duckdb_value_is_null(&result, sql_col_idx, current_row - 1)) {
-        if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN)
-          values[exp_col_idx].i64 = 0;
+        if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN)
+          values[imp_col_idx].i64 = 0;
         else {
           s64 = INT64_MIN;
-          memcpy(&values[exp_col_idx], &s64, 8);
+          memcpy(&values[imp_col_idx], &s64, 8);
         }
-        value_lens[exp_col_idx] = 0;
-      } else if (exp_col_type == MST_TEXT) {
-        values[exp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
-        value_lens[exp_col_idx] = strlen((const char *)values[exp_col_idx].txt_bin);
-      } else if (exp_col_type == MST_BIN) {
-        values[exp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
-        value_lens[exp_col_idx] = strlen((const char *)values[exp_col_idx].txt_bin);
-      } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+        value_lens[imp_col_idx] = 0;
+      } else if (imp_col_type == MST_TEXT) {
+        values[imp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
+        value_lens[imp_col_idx] = strlen((const char *)values[imp_col_idx].txt_bin);
+      } else if (imp_col_type == MST_BIN) {
+        values[imp_col_idx].txt_bin = (const uint8_t *)duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
+        value_lens[imp_col_idx] = strlen((const char *)values[imp_col_idx].txt_bin);
+      } else if (imp_col_type >= MST_DATE_US && imp_col_type <= MST_DATETIME_ISOT_MS) {
         const char *dt_txt_db = duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
-        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)dt_txt_db, exp_col_type);
-        values[exp_col_idx].i64 = dt_val;
-        value_lens[exp_col_idx] = 8;
-      } else if (exp_col_type == MST_INT) {
+        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)dt_txt_db, imp_col_type);
+        values[imp_col_idx].i64 = dt_val;
+        value_lens[imp_col_idx] = 8;
+      } else if (imp_col_type == MST_INT) {
         s64 = duckdb_value_int64(&result, sql_col_idx, current_row - 1);
-        values[exp_col_idx].i64 = s64;
-        value_lens[exp_col_idx] = 8;
-      } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
+        values[imp_col_idx].i64 = s64;
+        value_lens[imp_col_idx] = 8;
+      } else if (imp_col_type >= MST_DECV && imp_col_type <= MST_DEC9) {
         dbl = duckdb_value_double(&result, sql_col_idx, current_row - 1);
-        values[exp_col_idx].dbl = dbl;
-        value_lens[exp_col_idx] = 8;
+        values[imp_col_idx].dbl = dbl;
+        value_lens[imp_col_idx] = 8;
       }
     }
 
@@ -290,11 +297,404 @@ class duckdb_reader : public data_iface {
     }
 };
 
+class deli_reader : public data_iface {
+private:
+  std::istream* input = nullptr;
+  std::ifstream file;
+  std::string current_line;
+  std::vector<std::string> headers;
+  std::vector<std::string> current_row;
+  size_t row_number = 0;
+  char delimiter = ',';
+  bool has_header = true;
+  bool is_all_empty(std::string cell) {
+    for (size_t i = 0; i < cell.length(); i++) {
+      char c = cell[i];
+      if (c != ' ' && c != '\n' && c != '\t' && c != '\r')
+        return false;
+    }
+    return true;
+  }
+  std::vector<std::string> parse_line(const std::string &line) {
+      std::vector<std::string> result;
+      std::string cell;
+      bool in_quotes = false;
+      for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (in_quotes) {
+          if (c == '"') {
+            if (i + 1 < line.size() && line[i + 1] == '"') {
+              cell += '"';
+              ++i;
+            } else {
+              in_quotes = false;
+              while (i < line.size() && line[i] != delimiter) {
+                i++;
+              }
+              i--;
+            }
+          } else {
+            cell += c;
+          }
+        } else {
+          if (c == '"' && is_all_empty(cell)) {
+            cell.clear();
+            in_quotes = true;
+          } else if (c == delimiter) {
+            result.push_back(cell);
+            cell.clear();
+          } else {
+            cell += c;
+          }
+        }
+      }
+      result.push_back(cell); // Add the last field
+      return result;
+  }
+
+public:
+  deli_reader(char delim = ',', bool header = true) {
+    delimiter = delim;
+    has_header = header;
+  }
+  int init(const char *filename, const char *table_name, const char *sql) {
+    if (strncmp(filename, "stdin", 5) == 0) {
+      input = &std::cin;
+    } else {
+      file.open(filename);
+      if (!file.is_open()) {
+        printf("Can't open file: %s\n", filename);
+        return 1;
+      }
+      input = &file;
+    }
+    if (has_header && std::getline(*input, current_line))
+      headers = parse_line(current_line);
+    return 0;
+  }
+
+  void set_header(const std::vector<std::string> &header_vec) {
+    headers = header_vec;
+  }
+
+  int col_count() {
+    return headers.size();
+  }
+
+  const char *col_name(size_t col_idx) {
+    return headers[col_idx].c_str();
+  }
+
+  int col_type(size_t) {
+    return MST_TEXT;
+  }
+
+  bool is_null(size_t col_idx) {
+    if (col_idx >= current_row.size())
+      return true;
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return true;
+    return false;    
+  }
+
+  bool next() {
+    if (!std::getline(*input, current_line))
+      return false;
+    current_row = parse_line(current_line);
+    ++row_number;
+    return true;
+  }
+
+  void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
+                       char exp_col_type, char encoding_type, size_t ins_seq_id, size_t col_idx) {
+    if (col_idx >= current_row.size()) {
+      values[exp_col_idx].i64 = 0;
+      value_lens[exp_col_idx] = 0;
+      return;
+    }
+    const std::string &cell = current_row[col_idx];
+    if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
+      if (strncmp(cell.data(), "\\N", 2) == 0) {
+        values[exp_col_idx].txt_bin = madras_dv1::NULL_VALUE;
+        value_lens[exp_col_idx] = madras_dv1::NULL_VALUE_LEN;
+      } else {
+        values[exp_col_idx].txt_bin = (const uint8_t *) cell.data();
+        value_lens[exp_col_idx] = cell.size();
+      }
+    } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].i64 = INT64_MIN;
+      else {
+        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
+        values[exp_col_idx].i64 = dt_val;
+        value_lens[exp_col_idx] = 8;
+      }
+    } else if (exp_col_type == MST_INT) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].i64 = INT64_MIN;
+      else {
+        try {
+          values[exp_col_idx].i64 = std::stoll(cell);
+        } catch (...) {
+          printf("Error converting to int at row: %zu, col: %zu, val: %s\n", ins_seq_id, col_idx, cell.c_str());
+        }
+      }
+      value_lens[exp_col_idx] = 8;
+    } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].dbl = -0.0;
+      else {
+        try {
+          values[exp_col_idx].dbl = std::stod(cell);
+        } catch (...) {
+          printf("Error converting to double at row: %zu, col: %zu, val: %s\n", ins_seq_id, col_idx, cell.c_str());
+        }
+      }
+      value_lens[exp_col_idx] = 8;
+    }
+  }
+
+  int64_t get_i64(size_t col_idx) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return INT64_MIN;
+    int64_t i64 = 0;
+    try {
+      i64 = std::stoll(current_row[col_idx]);
+    } catch (...) {
+      printf("Error converting to int at row: %zu, col: %zu, val: %s\n", row_number, col_idx, current_row[col_idx].c_str());
+    }
+    return i64;
+  }
+
+  double get_dbl(size_t col_idx) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return -0.0;
+    double dbl = 0;
+    try {
+      dbl = std::stod(current_row[col_idx]);
+    } catch (...) {
+      printf("Error converting to double at row: %zu, col: %zu, val: %s\n", row_number, col_idx, current_row[col_idx].c_str());
+    }
+    return dbl;
+  }
+
+  const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0) {
+      col_len = madras_dv1::NULL_VALUE_LEN;
+      return madras_dv1::NULL_VALUE;
+    }
+    const std::string &cell = current_row[col_idx];
+    col_len = cell.size();
+    return (const uint8_t *)cell.data();
+  }
+
+  void reset() {
+    input->clear();
+    input->seekg(0);
+    if (has_header && std::getline(*input, current_line))
+      headers = parse_line(current_line);
+    row_number = 0;
+  }
+
+  void close() {
+    if (input != &std::cin)
+      file.close();
+    headers.clear();
+    current_row.clear();
+  }
+};
+
+class xml_reader : public data_iface {
+private:
+  std::istream* input = nullptr;
+  std::ifstream file;
+  std::string current_line;
+  std::vector<std::string> headers;
+  std::vector<std::string> current_row;
+  size_t row_number = 0;
+  bool is_eof = false;
+  std::vector<std::string> parse_record(const std::string &line) {
+    std::vector<std::string> result;
+    std::string cell;
+    return result;
+  }
+  bool is_white_space(char c) {
+    return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+  }
+  char skip_white_space() {
+    int ch;
+    while ((ch = input->get()) != EOF) {
+      char c = static_cast<char>(ch);
+      if (!is_white_space(c))
+        break;
+    }
+    return static_cast<char>(ch);
+  }
+  void skip_root() {
+  }
+  bool read_first_record() {
+    return false;
+  }
+  bool read_record() {
+    return false;
+  }
+
+public:
+  xml_reader() {
+  }
+  int init(const char *filename, const char *table_name, const char *sql) {
+    if (strncmp(filename, "stdin", 5) == 0) {
+      input = &std::cin;
+    } else {
+      file.open(filename);
+      if (!file.is_open()) {
+        printf("Can't open file: %s\n", filename);
+        return 1;
+      }
+      input = &file;
+    }
+    skip_root();
+    is_eof = read_first_record();
+    return 0;
+  }
+
+  void set_header(const std::vector<std::string> &header_vec) {
+    headers = header_vec;
+  }
+
+  int col_count() {
+    return headers.size();
+  }
+
+  const char *col_name(size_t col_idx) {
+    return headers[col_idx].c_str();
+  }
+
+  int col_type(size_t) {
+    return MST_TEXT;
+  }
+
+  bool is_null(size_t col_idx) {
+    if (col_idx >= current_row.size())
+      return true;
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return true;
+    return false;    
+  }
+
+  bool next() {
+    bool is_next = is_eof;
+    is_eof = read_record();
+    ++row_number;
+    return is_next;
+  }
+
+  void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
+                       char exp_col_type, char encoding_type, size_t ins_seq_id, size_t col_idx) {
+    if (col_idx >= current_row.size()) {
+      values[exp_col_idx].i64 = 0;
+      value_lens[exp_col_idx] = 0;
+      return;
+    }
+    const std::string &cell = current_row[col_idx];
+    if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
+      if (strncmp(cell.data(), "\\N", 2) == 0) {
+        values[exp_col_idx].txt_bin = madras_dv1::NULL_VALUE;
+        value_lens[exp_col_idx] = madras_dv1::NULL_VALUE_LEN;
+      } else {
+        values[exp_col_idx].txt_bin = (const uint8_t *) cell.data();
+        value_lens[exp_col_idx] = cell.size();
+      }
+    } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].i64 = INT64_MIN;
+      else {
+        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
+        values[exp_col_idx].i64 = dt_val;
+        value_lens[exp_col_idx] = 8;
+      }
+    } else if (exp_col_type == MST_INT) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].i64 = INT64_MIN;
+      else {
+        try {
+          values[exp_col_idx].i64 = std::stoll(cell);
+        } catch (...) {
+          printf("Error converting to int at row: %zu, col: %zu, val: %s\n", ins_seq_id, col_idx, cell.c_str());
+        }
+      }
+      value_lens[exp_col_idx] = 8;
+    } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
+      if (strncmp(cell.c_str(), "\\N", 2) == 0)
+        values[exp_col_idx].dbl = -0.0;
+      else {
+        try {
+          values[exp_col_idx].dbl = std::stod(cell);
+        } catch (...) {
+          printf("Error converting to double at row: %zu, col: %zu, val: %s\n", ins_seq_id, col_idx, cell.c_str());
+        }
+      }
+      value_lens[exp_col_idx] = 8;
+    }
+  }
+
+  int64_t get_i64(size_t col_idx) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return INT64_MIN;
+    int64_t i64 = 0;
+    try {
+      i64 = std::stoll(current_row[col_idx]);
+    } catch (...) {
+      printf("Error converting to int at row: %zu, col: %zu, val: %s\n", row_number, col_idx, current_row[col_idx].c_str());
+    }
+    return i64;
+  }
+
+  double get_dbl(size_t col_idx) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0)
+      return -0.0;
+    double dbl = 0;
+    try {
+      dbl = std::stod(current_row[col_idx]);
+    } catch (...) {
+      printf("Error converting to double at row: %zu, col: %zu, val: %s\n", row_number, col_idx, current_row[col_idx].c_str());
+    }
+    return dbl;
+  }
+
+  const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) {
+    if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0) {
+      col_len = madras_dv1::NULL_VALUE_LEN;
+      return madras_dv1::NULL_VALUE;
+    }
+    const std::string &cell = current_row[col_idx];
+    col_len = cell.size();
+    return (const uint8_t *)cell.data();
+  }
+
+  void reset() {
+    input->clear();
+    input->seekg(0);
+    row_number = 0;
+  }
+
+  void close() {
+    if (input != &std::cin)
+      file.close();
+    headers.clear();
+    current_row.clear();
+  }
+};
+
 data_iface *data_iface::get_data_reader(const char *input_type) {
   if (strncmp(input_type, "sqlite3", 7) == 0)
     return new sqlite_reader();
-  if (strncmp(input_type, "duckdb", 7) == 0)
+  if (strncmp(input_type, "duckdb", 6) == 0)
     return new duckdb_reader();
+  if (strncmp(input_type, "csv", 3) == 0)
+    return new deli_reader(',', true);
+  if (strncmp(input_type, "tsv", 3) == 0)
+    return new deli_reader('\t', true);
   return nullptr;
 }
 
@@ -375,9 +775,20 @@ int main(int argc, char* argv[]) {
   char what_to_do = DO_BOTH;
   if (strlen(argv[2]) > 0)
     what_to_do = argv[2][0];
+  if (what_to_do != DO_BOTH && what_to_do != DO_IMPORT && what_to_do != DO_VERIFY) {
+    printf("Action can only be 'i' or 'v' or 'b'\n");
+    return 1;
+  }
+
+  const char *filename = argv[3];
+  if (strncmp(filename, "stdin", 5) == 0 && what_to_do == DO_BOTH) {
+    printf("If reading from stdin, cannot do only either of import or verification and not both\n");
+    return 1;
+  }
+
   std::string out_file = argv[4];
   if (out_file.length() > 0 && out_file[0] == '.') {
-    out_file = argv[3];
+    out_file = filename;
     out_file += ".mdx";
   }
 
@@ -392,7 +803,7 @@ int main(int argc, char* argv[]) {
     table_name = arg_sel_or_tbl;
   }
 
-  rc = data_reader->init(argv[3], table_name, sql.c_str());
+  rc = data_reader->init(filename, table_name, sql.c_str());
   if (rc) {
     data_reader->close();
     return 1;
@@ -464,7 +875,7 @@ int main(int argc, char* argv[]) {
   std::string col_types;
   std::string col_encodings;
   size_t sec_col_count = 0;
-  size_t exp_col_count = 0;
+  size_t imp_col_count = 0;
   for (size_t i = 0; i < col_positions.size(); i++) {
     uint16_t col_pos = col_positions[i];
     if (col_pos < sql_column_count) {
@@ -474,7 +885,7 @@ int main(int argc, char* argv[]) {
     }
     col_types.append(1, storage_types[col_pos]);
     col_encodings.append(1, encoding_types[col_pos]);
-    exp_col_count++;
+    imp_col_count++;
     if (storage_types[col_pos] == MST_SEC_2WAY) {
       sec_col_count++;
       if (encoding_types[col_pos] != MSE_TRIE_2WAY) {
@@ -489,23 +900,23 @@ int main(int argc, char* argv[]) {
     }
   }
   printf("Col Count: %lu, PK Col Count: %lu, Table/Key/Column names: %s, types: %s, encodings: %s\n",
-    exp_col_count, pk_col_count, column_names.c_str(), col_types.c_str(), col_encodings.c_str());
+    imp_col_count, pk_col_count, column_names.c_str(), col_types.c_str(), col_encodings.c_str());
 
-  if (exp_col_count == 0) {
+  if (imp_col_count == 0) {
     printf("At least 1 column to be specified for import\n");
     data_reader->close();
     return 1;
   }
 
-  size_t exp_col_idx = 0;
+  size_t imp_col_idx = 0;
   size_t ins_seq_id = 0;
-  madras_dv1::mdx_val_in values[exp_col_count];
-  size_t value_lens[exp_col_count];
+  madras_dv1::mdx_val_in values[imp_col_count];
+  size_t value_lens[imp_col_count];
 
   madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
   bldr_opts.inner_tries = true;
   bldr_opts.sort_nodes_on_freq = false;
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), exp_col_count, 
+  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), imp_col_count, 
       col_types.c_str(), col_encodings.c_str(), 0, pk_col_count,
       &bldr_opts, &madras_dv1::dflt_word_splitter, sk_col_positions);
 
@@ -514,13 +925,13 @@ int main(int argc, char* argv[]) {
     mb.open_file();
 
     while (data_reader->next()) {
-      exp_col_idx = 0;
+      imp_col_idx = 0;
       for (size_t i = 0; i < col_positions.size(); i++) {
         size_t sql_col_idx = col_positions[i];
-        char exp_col_type = storage_types[sql_col_idx];
+        char imp_col_type = storage_types[sql_col_idx];
         char encoding_type = encoding_types[sql_col_idx];
-        data_reader->populate_values(values, value_lens, exp_col_idx, exp_col_type, encoding_type, ins_seq_id, sql_col_idx);
-        exp_col_idx++;
+        data_reader->populate_values(values, value_lens, imp_col_idx, imp_col_type, encoding_type, ins_seq_id, sql_col_idx);
+        imp_col_idx++;
       }
       if (mb.insert_record(values, value_lens)) {
         printf("Unexpected: Record found: %zu. Check Primary key definition.\n", ins_seq_id);
@@ -559,7 +970,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  data_reader->reset();
+  if (strncmp(filename, "stdin", 5) != 0)
+    data_reader->reset();
 
   ins_seq_id = 0;
   madras_dv1::input_ctx in_ctx;
@@ -580,10 +992,10 @@ int main(int argc, char* argv[]) {
       gen::byte_vec key_rec;
       for (size_t i = 0; i < pk_col_count; i++) {
         size_t sql_col_idx = col_positions[i];
-        char exp_col_type = storage_types[sql_col_idx];
+        char imp_col_type = storage_types[sql_col_idx];
         char encoding_type = encoding_types[sql_col_idx];
-        data_reader->populate_values(values, value_lens, i, exp_col_type, encoding_type, ins_seq_id, sql_col_idx);
-        mb.append_rec_value(exp_col_type, encoding_type, values[i], value_lens[i],
+        data_reader->populate_values(values, value_lens, i, imp_col_type, encoding_type, ins_seq_id, sql_col_idx);
+        mb.append_rec_value(imp_col_type, encoding_type, values[i], value_lens[i],
             key_rec, i < (pk_col_count - 1) ? APPEND_REC_KEY_MIDDLE : APPEND_REC_KEY_LAST);
       }
       in_ctx.key = key_rec.data();
@@ -599,9 +1011,9 @@ int main(int argc, char* argv[]) {
       node_id = in_ctx.node_id;
     }
     size_t col_val_idx = pk_col_count;
-    for (size_t i = pk_col_count; i < (exp_col_count - sec_col_count); i++) {
+    for (size_t i = pk_col_count; i < (imp_col_count - sec_col_count); i++) {
       size_t sql_col_idx = col_positions[i];
-      char exp_col_type = storage_types[sql_col_idx];
+      char imp_col_type = storage_types[sql_col_idx];
       char encoding_type = encoding_types[sql_col_idx];
       if (data_reader->is_null(sql_col_idx)) {
         uint8_t val_buf[stm.get_max_val_len()];
@@ -611,7 +1023,7 @@ int main(int argc, char* argv[]) {
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         size_t null_value_len;
         uint8_t *null_value = stm.get_null_value(null_value_len);
-        if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
+        if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN) {
           if (val_len != null_value_len || memcmp(val_buf, null_value, null_value_len) != 0) {
             errors[col_val_idx]++;
             if (to_print_mismatch) {
@@ -628,7 +1040,7 @@ int main(int argc, char* argv[]) {
           }
         }
       } else
-      if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
+      if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN) {
         size_t sql_val_len = 0;
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
         size_t val_len = stm.get_max_val_len(col_val_idx) + 1;
@@ -663,14 +1075,14 @@ int main(int argc, char* argv[]) {
             }
           }
         }
-      } else if (exp_col_type >= MST_DATE_US && exp_col_type <= MST_DATETIME_ISOT_MS) {
+      } else if (imp_col_type >= MST_DATE_US && imp_col_type <= MST_DATETIME_ISOT_MS) {
         size_t sql_val_len = 0;
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
         stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
         char dt_txt[50];
-        val_len = madras_dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), exp_col_type);
+        val_len = madras_dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), imp_col_type);
         if (val_len != sql_val_len) {
           errors[col_val_idx]++;
           if (to_print_mismatch) {
@@ -688,7 +1100,7 @@ int main(int argc, char* argv[]) {
             }
           }
         }
-      } else if (exp_col_type == MST_INT) {
+      } else if (imp_col_type == MST_INT) {
         int64_t sql_val = data_reader->get_i64(sql_col_idx);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
@@ -700,8 +1112,8 @@ int main(int argc, char* argv[]) {
             printf("Int not matching: nid: %" PRIuXX ", seq: %zu, col: %zu - e%lld:a%lld\n", node_id, ins_seq_id, col_val_idx, sql_val, i64);
         }
         int_sums[col_val_idx] += i64;
-      } else if (exp_col_type >= MST_DECV && exp_col_type <= MST_DEC9) {
-        double sql_val = round_dbl(data_reader->get_dbl(sql_col_idx), exp_col_type);
+      } else if (imp_col_type >= MST_DECV && imp_col_type <= MST_DEC9) {
+        double sql_val = round_dbl(data_reader->get_dbl(sql_col_idx), imp_col_type);
         size_t val_len;
         madras_dv1::mdx_val mv;
         stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
