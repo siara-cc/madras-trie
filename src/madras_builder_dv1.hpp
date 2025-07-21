@@ -17,14 +17,14 @@
 #include <functional> // for std::function
 
 #include "common_dv1.hpp"
-#include "../../leopard-trie/src/leopard.hpp"
+#include "leopard-trie/src/leopard.hpp"
 
-#include "../../flavic48/src/flavic48.hpp"
+#include "allflic48/src/allflic48.hpp"
 
-#include "../../ds_common/src/bv.hpp"
-#include "../../ds_common/src/gen.hpp"
-#include "../../ds_common/src/vint.hpp"
-#include "../../ds_common/src/huffman.hpp"
+#include "ds_common/src/bv.hpp"
+#include "ds_common/src/gen.hpp"
+#include "ds_common/src/vint.hpp"
+#include "ds_common/src/huffman.hpp"
 
 namespace madras_dv1 {
 
@@ -478,7 +478,7 @@ class ptr_groups {
         grp_data_vec.push_back(val[k]);
       // grp_data_vec.push_back(0);
       // uint64_t u64;
-      // flavic48::simple_decode(grp_data_vec.data() + ptr, 1, &u64);
+      // allflic48::simple_decode(grp_data_vec.data() + ptr, 1, &u64);
       // printf("Grp: %d, u64: %llu, len: %u, %u\n", grp_no, u64, len, ptr);
       return ptr;
     }
@@ -1749,7 +1749,7 @@ class fast_vint {
           dbl = 0;
           ptr_grps->set_null(node_id);
         }
-        uint8_t frac_width = flavic48::cvt_dbl2_i64(dbl, i64);
+        uint8_t frac_width = allflic48::cvt_dbl2_i64(dbl, i64);
         if (frac_width == UINT8_MAX || std::abs(i64) > 18014398509481983LL) {
           dbl_exceptions.push_back(1);
           is_dbl_exceptions = true;
@@ -1762,7 +1762,7 @@ class fast_vint {
         }
         dbl_data.push_back(dbl);
       } else {
-        flavic48::simple_decode(data_pos, 1, &i64);
+        allflic48::simple_decode(data_pos, 1, &i64);
         dbl_exceptions.push_back(0);
         if (i64 == -1) { // null
           i64 = 0;
@@ -1794,17 +1794,17 @@ class fast_vint {
           int64_t i64;
           double dbl = dbl_data[i];
               // printf("dbl: %lu, %lf\n", i, dbl);
-          i64 = static_cast<int64_t>(dbl * flavic48::tens()[dec_count]);
+          i64 = static_cast<int64_t>(dbl * allflic48::tens()[dec_count]);
           if (dbl_exceptions[i] == 0) {
             double dbl_back = static_cast<double>(i64);
-            dbl_back /= flavic48::tens()[dec_count];
+            dbl_back /= allflic48::tens()[dec_count];
             if (dbl != dbl_back) {
               dbl_exceptions[i] = 1;
               is_dbl_exceptions = true;
             }
           }
           if (dbl_exceptions[i] == 0) {
-            i64 = flavic48::zigzag_encode(i64);
+            i64 = allflic48::zigzag_encode(i64);
             i64_data.push_back(i64);
             if (i64 > INT32_MAX) {
               is64bit = true;
@@ -1814,7 +1814,7 @@ class fast_vint {
           } else {
             // printf("Exception: %lf\n", dbl);
             memcpy(&i64, &dbl, 8);
-            i64 = flavic48::zigzag_encode(i64);
+            i64 = allflic48::zigzag_encode(i64);
             i64_data.push_back(i64);
             is64bit = true;
             isAll32bit = false;
@@ -1847,9 +1847,9 @@ class fast_vint {
       // printf("Dec_count: %d\n", dec_count);
       size_t blk_size;
       if (is64bit)
-        blk_size = flavic48::encode(i64_data.data(), count, block_data->data() + last_size + hdr_size, for_val, dbl_exceptions.data());
+        blk_size = allflic48::encode(i64_data.data(), count, block_data->data() + last_size + hdr_size, for_val, dbl_exceptions.data());
       else
-        blk_size = flavic48::encode(i32_data.data(), count, block_data->data() + last_size + hdr_size, for_val);
+        blk_size = allflic48::encode(i32_data.data(), count, block_data->data() + last_size + hdr_size, for_val);
       // printf("Total blk size: %lu, cur size: %lu\n", block_data->size(), blk_size);
       block_data->resize(last_size + blk_size + hdr_size);
       return blk_size + hdr_size;
@@ -2820,8 +2820,8 @@ class builder : public builder_fwd {
               data_len += 2;
               if (encoding_type != MSE_DICT_DELTA) {
                 int64_t i64;
-                flavic48::simple_decode(data_pos, 1, &i64);
-                i64 = flavic48::zigzag_decode(i64);
+                allflic48::simple_decode(data_pos, 1, &i64);
+                i64 = allflic48::zigzag_decode(i64);
                 // printf("%lld\n", i64);
                 if (*data_pos == 0xFF && data_len == 9) {
                   data_len = 1;
@@ -3161,8 +3161,8 @@ class builder : public builder_fwd {
                 if (*data_pos == 0xFF && data_len == 9) {
                   i64 = INT64_MIN;
                 } else {
-                  flavic48::simple_decode(data_pos, 1, &i64);
-                  i64 = flavic48::zigzag_decode(i64);
+                  allflic48::simple_decode(data_pos, 1, &i64);
+                  i64 = allflic48::zigzag_decode(i64);
                 }
                 if (cur_col_idx == col_idx) {
                   if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
@@ -3170,7 +3170,7 @@ class builder : public builder_fwd {
                       set_min_max(-0.0, min_dbl, max_dbl, null_count);
                     else {
                       double dbl = static_cast<double>(i64);
-                      dbl /= flavic48::tens()[data_type - MST_DEC0];
+                      dbl /= allflic48::tens()[data_type - MST_DEC0];
                       set_min_max(dbl, min_dbl, max_dbl, null_count);
                     }
                   } else
@@ -3225,8 +3225,8 @@ class builder : public builder_fwd {
           } break;
           case MSE_DICT_DELTA: {
             int64_t i64;
-            uint8_t frac_width = flavic48::simple_decode_single(data_pos, &i64);
-            int64_t col_val = flavic48::zigzag_decode(i64);
+            uint8_t frac_width = allflic48::simple_decode_single(data_pos, &i64);
+            int64_t col_val = allflic48::zigzag_decode(i64);
             int64_t delta_val = col_val;
             if ((node_id / nodes_per_bv_block_n) == (prev_val_node_id / nodes_per_bv_block_n))
               delta_val -= prev_ival;
@@ -3234,8 +3234,8 @@ class builder : public builder_fwd {
             prev_val_node_id = node_id;
             // printf("Node id: %u, delta value: %lld\n", node_id, delta_val);
             uint8_t v64[10];
-            i64 = flavic48::zigzag_encode(delta_val);
-            uint8_t *v_end = flavic48::simple_encode_single(i64, v64, 0);
+            i64 = allflic48::zigzag_encode(delta_val);
+            uint8_t *v_end = allflic48::simple_encode_single(i64, v64, 0);
             data_len = (v_end - v64);
             data_pos = (*new_vals)[new_vals->push_back(v64, data_len)];
             n.set_col_val(data_pos - (*new_vals)[0]);
@@ -4565,9 +4565,9 @@ class builder : public builder_fwd {
                   double dbl = value.dbl;
                   i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
                 }
-                i64 = flavic48::zigzag_encode(i64);
+                i64 = allflic48::zigzag_encode(i64);
                 uint8_t v64[10];
-                uint8_t *v_end = flavic48::simple_encode_single(i64, v64, 0);
+                uint8_t *v_end = allflic48::simple_encode_single(i64, v64, 0);
                 value_len = (v_end - v64);
                 for (size_t vi = 0; vi < value_len; vi++)
                   rec.push_back(v64[vi]);

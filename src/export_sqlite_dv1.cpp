@@ -15,7 +15,7 @@
 #include <sqlite3.h>
 #include <duckdb.h>
 
-#include "../../ds_common/src/gen.hpp"
+#include "ds_common/src/gen.hpp"
 
 #include "madras_dv1.hpp"
 #include "madras_builder_dv1.hpp"

@@ -4,10 +4,10 @@
 #include "compiler_util.hpp"
 
 BEGIN_IGNORE_UNUSED_FUNCTION
-#include "bv.hpp"
-#include "vint.hpp"
-#include "gen.hpp"
-#include "flavic48.hpp"
+#include "ds_common/src/bv.hpp"
+#include "ds_common/src/vint.hpp"
+#include "ds_common/src/gen.hpp"
+#include "allflic48/src/allflic48.hpp"
 END_IGNORE_UNUSED_FUNCTION
 
 namespace madras_dv1 {

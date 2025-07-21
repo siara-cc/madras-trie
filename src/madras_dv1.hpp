@@ -362,7 +362,7 @@ class cmn {
           int64_t i64 = gen::read_svint60(val_loc);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
-            dbl /= flavic48::tens()[data_type - MST_DEC0];
+            dbl /= allflic48::tens()[data_type - MST_DEC0];
             ret_val.dbl = dbl;
           } else
             memcpy(&ret_val, &i64, sizeof(int64_t));
@@ -2310,9 +2310,9 @@ class fast_vint_block_retriever : public block_retriever_base {
       size_t block_size;
       while (len > 0) {
         if ((*data & 0x80) == 0) {
-          block_size = flavic48::decode(data + offset, data[1], i32_vals);
+          block_size = allflic48::decode(data + offset, data[1], i32_vals);
           for (size_t i = 0; i < data[1]; i++) {
-            i64 = flavic48::zigzag_decode(i32_vals[i]);
+            i64 = allflic48::zigzag_decode(i32_vals[i]);
             if constexpr (operation == 'a' && type_id == 'i')
                out[out_pos++] = i64;
             else {
@@ -2326,11 +2326,11 @@ class fast_vint_block_retriever : public block_retriever_base {
             memset(byts, '\0', 64);
         } else {
           if constexpr (type_id == '.')
-            block_size = flavic48::decode(data + offset, data[1], i64_vals, byts);
+            block_size = allflic48::decode(data + offset, data[1], i64_vals, byts);
           else
-            block_size = flavic48::decode(data + offset, data[1], i64_vals);
+            block_size = allflic48::decode(data + offset, data[1], i64_vals);
           for (size_t i = 0; i < data[1]; i++) {
-            i64 = flavic48::zigzag_decode(i64_vals[i]);
+            i64 = allflic48::zigzag_decode(i64_vals[i]);
             if constexpr (operation == 'a' && type_id == 'i')
                out[out_pos++] = i64;
             else {
@@ -2349,11 +2349,11 @@ class fast_vint_block_retriever : public block_retriever_base {
                 memcpy(&dbl, i64_vals + i, 8);
               } else {
                 dbl = static_cast<double>(i64_vals[i]);
-                dbl /= flavic48::tens()[data[2]];
+                dbl /= allflic48::tens()[data[2]];
               }
             } else {
               dbl = static_cast<double>(i64_vals[i]);
-              dbl /= flavic48::tens()[val_retriever->data_type - MST_DEC0];
+              dbl /= allflic48::tens()[val_retriever->data_type - MST_DEC0];
             }
             if constexpr (operation == 's')
               sum_dbl += dbl;
@@ -2392,9 +2392,9 @@ class fast_vint_block_retriever : public block_retriever_base {
         offset = 2;
       size_t block_size;
       while (len > 0) {
-        block_size = flavic48::decode(data + offset, data[1], i32_vals);
+        block_size = allflic48::decode(data + offset, data[1], i32_vals);
         for (size_t i = 0; i < data[1]; i++) {
-          i32 = (int32_t) flavic48::zigzag_decode(i32_vals[i]);
+          i32 = (int32_t) allflic48::zigzag_decode(i32_vals[i]);
           if constexpr (operation == 'a')
               out[out_pos++] = i32;
           else {
@@ -2409,10 +2409,10 @@ class fast_vint_block_retriever : public block_retriever_base {
           for (size_t i = 0; i < data[1]; i++) {
             if constexpr (type_id == '.') {
               flt = static_cast<float>(i32_vals[i]);
-              flt /= flavic48::tens()[data[2]];
+              flt /= allflic48::tens()[data[2]];
             } else {
               flt = static_cast<float>(i32_vals[i]);
-              flt /= flavic48::tens()[val_retriever->data_type - MST_DEC0];
+              flt /= allflic48::tens()[val_retriever->data_type - MST_DEC0];
             }
             if constexpr (operation == 's')
               sum_flt += flt;
@@ -2452,14 +2452,14 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       vctx.dec_count = data[2]; // only for data_type MST_DECV
       size_t offset = (Parent::data_type == MST_DECV ? 3 : 2);
       if ((*data & 0x80) == 0) {
-        flavic48::decode(data + offset, vctx.count, vctx.i32_vals);
+        allflic48::decode(data + offset, vctx.count, vctx.i32_vals);
         for (size_t i = 0; i < vctx.count; i++)
-          vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i32_vals[i]);
+          vctx.i64_vals[i] = allflic48::zigzag_decode(vctx.i32_vals[i]);
         memset(vctx.byts, '\0', vctx.count); // not setting lens, just 0s
       } else {
-        flavic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
+        allflic48::decode(data + offset, vctx.count, vctx.i64_vals, vctx.byts);
         for (size_t i = 0; i < vctx.count; i++)
-          vctx.i64_vals[i] = flavic48::zigzag_decode(vctx.i64_vals[i]);
+          vctx.i64_vals[i] = allflic48::zigzag_decode(vctx.i64_vals[i]);
       }
     }
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
@@ -2509,14 +2509,14 @@ class fast_vint_retriever : public value_retriever<pri_key> {
             *((uint64_t *) vctx.val) = i64;
           } else {
             double dbl = static_cast<double>(i64);
-            dbl /= flavic48::tens()[vctx.dec_count];
+            dbl /= allflic48::tens()[vctx.dec_count];
             *((double *) vctx.val) = dbl;
             // printf("%.2lf\n", *((double *) vctx.val));
           }
         } break;
         case MST_DEC0 ... MST_DEC9: {
           double dbl = static_cast<double>(i64);
-          dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
+          dbl /= allflic48::tens()[Parent::data_type - MST_DEC0];
           *((double *) vctx.val) = dbl;
           // printf("%.2lf\n", *((double *) vctx.val));
         } break;
@@ -2675,12 +2675,12 @@ class uniq_ifp_retriever : public value_retriever<pri_key> {
       if (!Parent::is_repeat(vctx)) {
         uint8_t *val_loc = Parent::get_val_loc(vctx);
         int64_t i64;
-        flavic48::simple_decode(val_loc, 1, &i64);
-        i64 = flavic48::zigzag_decode(i64);
+        allflic48::simple_decode(val_loc, 1, &i64);
+        i64 = allflic48::zigzag_decode(i64);
         // printf("i64: %lld\n", i64);
         if (Parent::data_type >= MST_DEC0 && Parent::data_type <= MST_DEC9 && i64 != INT64_MIN) {
           double dbl = static_cast<double>(i64);
-          dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
+          dbl /= allflic48::tens()[Parent::data_type - MST_DEC0];
           *((double *)vctx.val) = dbl;
         } else
           memcpy(vctx.val, &i64, sizeof(int64_t));
@@ -2719,8 +2719,8 @@ class delta_val_retriever : public value_retriever<pri_key> {
         if (*val_loc == 0xF8 && val_loc[1] == 1) {
           i64 = INT64_MIN;
         } else {
-          flavic48::simple_decode(val_loc, 1, &i64);
-          i64 = flavic48::zigzag_decode(i64);
+          allflic48::simple_decode(val_loc, 1, &i64);
+          i64 = allflic48::zigzag_decode(i64);
         }
         // printf("Delta node id: %u, value: %lld\n", delta_node_id, delta_val);
         vctx.i64_delta = i64;
@@ -2735,7 +2735,7 @@ class delta_val_retriever : public value_retriever<pri_key> {
         *((int64_t *) vctx.val) = vctx.i64;
       } else {
         double dbl = static_cast<double>(vctx.i64);
-        dbl /= flavic48::tens()[Parent::data_type - MST_DEC0];
+        dbl /= allflic48::tens()[Parent::data_type - MST_DEC0];
         *((double *) vctx.val) = dbl;
       }
       return Parent::skip_to_next_leaf(vctx);
