@@ -2,7 +2,6 @@
 #define STATIC_TRIE_H
 
 #include <fcntl.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -3126,22 +3125,27 @@ class static_trie_map : public static_trie {
       load(filename);
       return trie_bytes;
 #else
-      struct stat buf;
-      int fd = open(filename, O_RDONLY);
-      if (fd < 0) {
-        perror("open: ");
-        return nullptr;
-      }
-      fstat(fd, &buf);
-      sz = buf.st_size;
-      uint8_t *map_buf = (uint8_t *) mmap(0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
-      if (map_buf == MAP_FAILED) {
-        perror("mmap: ");
-        close(fd);
-        return nullptr;
-      }
-      close(fd);
-      return map_buf;
+    FILE* fp = fopen(filename, "rb");
+    if (!fp) {
+        perror("fopen");
+        return NULL;
+    }
+    int fd = fileno(fp);  // Convert FILE* to file descriptor
+    struct stat buf;
+    if (fstat(fd, &buf) < 0) {
+        perror("fstat");
+        fclose(fp);
+        return NULL;
+    }
+    sz = buf.st_size;
+    uint8_t* map_buf = (uint8_t*)mmap(0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (map_buf == MAP_FAILED) {
+        perror("mmap");
+        fclose(fp);
+        return NULL;
+    }
+    fclose(fp);  // Safe to close after mmap
+    return map_buf;
 #endif
     }
 
