@@ -5,7 +5,7 @@
 
 #include "../src/madras_dv1.hpp"
 #include "../src/madras_builder_dv1.hpp"
-#include "../../ds_common/src/vint.hpp"
+#include "../src/ds_common/src/vint.hpp"
 
 using namespace std;
 

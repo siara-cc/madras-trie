@@ -1,30 +1,34 @@
 ./export_sqlite ~/git2/sqlite_dbs/daily_weather.db dw 0 itet..........i uutuvvvvvvvvvvu
 
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db -countries 0 ---w--------------- dttwdduuuuuuuuuuuut
-./export_sqlite ~/git2/sqlite_dbs/df2016_sales_data.db sd 0 eii5i uuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/df2016_sales_data.db . sd 0 eii5i uuuuu
 
-./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 ittiiiiihhtt dwwuuuuddduw
-./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 1 ittiiiiihhtt uwwuuuuddduw
-./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 ittiiiiihhtt vwwvvvvvvvuw - not working hh
-./export_sqlite /Users/arun/git2/sqlite_dbs/so_users.db so_users 0 -----------t tttuuuutttuw
+./export_sqlite sqlite3 b /Users/arun/git2/sqlite_dbs/so_users.db . so_users 0 ittiiiiihhtt dwwuuuuddduw
+./export_sqlite sqlite3 b /Users/arun/git2/sqlite_dbs/so_users.db . so_users 1 ittiiiiihhtt uwwuuuuddduw
+./export_sqlite sqlite3 b /Users/arun/git2/sqlite_dbs/so_users.db . so_users 0 ittiiiiihhtt vwwvvvvvvvuw - not working hh
+./export_sqlite sqlite3 b /Users/arun/git2/sqlite_dbs/so_users.db . so_users 0 -----------t tttuuuutttuw
 + key_col 1 not working
 
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti uwttuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 1 tttt2i22iti ttttuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti twuuuuuuuuu
-./export_sqlite ~/git2/sqlite_dbs/amazon_products.db products 0 tttt2i22iti TWTTTTTTTTT
+./export_sqlite duckdb b ~/git2/sqlite_dbs/amazon_products.ddb . products 0 tttt2i22iti uwttddduduu
+./export_sqlite duckdb b ~/git2/sqlite_dbs/amazon_products.ddb . products 0 tttt2i22iti TWTTTTTTTTT
+
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/amazon_products.db . products 0 tttt2i22iti uwttuuuuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/amazon_products.db . products 1 tttt2i22iti ttttuuuuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/amazon_products.db . products 0 tttt2i22iti twuuuuuuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/amazon_products.db . products 0 tttt2i22iti TWTTTTTTTTT
 
 ~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
-./export_sqlite ~/git2/sqlite_dbs/allCountries.db countries 1 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 1 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
 
 ./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 uudddduuuuuu
 ./export_sqlite ~/git2/sqlite_dbs/census.db surnames 0 itii22222222 utdddduuuuuu
 
-./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti1 uutuuuu
-./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 2+3 ittiti1 uuuuuuu
+./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti2 uutuuuu
+./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 2+3 ittiti2 uuuuuuu
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 2+3 ittiti1 vuuvuvd
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti. vuuvuvv
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti1 uutuuud
+
+./export_sqlite csv b ~/Downloads/popular_movies.csv . popular_movies 0 tiwtw4tbiit5itt wuwuuwtdduwddww 10
