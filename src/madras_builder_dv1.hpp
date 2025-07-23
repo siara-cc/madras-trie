@@ -3160,7 +3160,6 @@ class builder : public builder_fwd {
                   set_min_max(*((double *) data_pos), min_dbl, max_dbl, null_count);
               } break;
               case MST_INT:
-              case MST_DECV:
               case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
               case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
               case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
