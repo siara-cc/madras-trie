@@ -352,12 +352,8 @@ class cmn {
     __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, mdx_val &ret_val, size_t *ret_len, uint8_t *null_val, size_t null_len) {
       switch (data_type) {
         case MST_INT:
-        case MST_DECV: case MST_DEC0: case MST_DEC1: case MST_DEC2:
-        case MST_DEC3: case MST_DEC4: case MST_DEC5: case MST_DEC6:
-        case MST_DEC7: case MST_DEC8: case MST_DEC9:
-        case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
-        case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
-        case MST_DATETIME_ISOT: case MST_DATETIME_ISO_MS: case MST_DATETIME_ISOT_MS: {
+        case MST_DECV ... MST_DEC9:
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           *ret_len = 8;
           if (*val_loc == 0x00) {
             ret_val.i64 = INT64_MIN;
@@ -698,11 +694,7 @@ class bvlt_rank {
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
       uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n) * multiplier];
       // return rank + __popcountdi2(bm & (mask - 1));
-      #ifdef _WIN32
-      return rank + static_cast<uintxx_t>(__popcnt64(bm & mask));
-      #else
       return rank + static_cast<uintxx_t>(__builtin_popcountll(bm & mask));
-      #endif
     }
     __fq1 __fq2 uint8_t *get_rank_loc() {
       return lt_rank_loc;
@@ -862,7 +854,7 @@ class tail_ptr_map {
         if (*tail == 15)
           return true;
         uintxx_t sfx_len = read_len(tail);
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
         uint8_t *sfx_buf = new uint8_t[sfx_len];
         #else
         uint8_t sfx_buf[sfx_len];
@@ -870,12 +862,12 @@ class tail_ptr_map {
         read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
         if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
           in_ctx.key_pos += sfx_len;
-          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
           delete [] sfx_buf;
           #endif
           return true;
         }
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
         delete [] sfx_buf;
         #endif
       } else {
@@ -1684,7 +1676,7 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf = nullptr) {
       gen::byte_str tail;
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *tail_bytes = new uint8_t[max_tail_len + 1];
       #else
       uint8_t tail_bytes[max_tail_len + 1];
@@ -1701,7 +1693,7 @@ class static_trie : public inner_trie {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
                 if (ctx.cur_idx == 0) {
-                  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+                  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
                   delete [] tail_bytes;
                   #endif
                   return -2;
@@ -1723,7 +1715,7 @@ class static_trie : public inner_trie {
             if (key_buf != nullptr)
               memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
-            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
             delete [] tail_bytes;
             #endif
             return ctx.key_len;
@@ -1741,7 +1733,7 @@ class static_trie : public inner_trie {
           push_to_ctx(ctx, tail, node_id);
         }
       }
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       delete [] tail_bytes;
       #endif
       return -2;
@@ -1791,7 +1783,7 @@ class static_trie : public inner_trie {
       in_ctx.key_len = prefix_len;
       in_ctx.node_id = 0;
       lookup(in_ctx);
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       uint8_t *tail_buf = new uint8_t[max_tail_len];
       #else
       uint8_t tail_buf[max_tail_len];
@@ -1819,7 +1811,7 @@ class static_trie : public inner_trie {
         ctx.last_tail_len[ctx.cur_idx] = 0;
         ctx.to_skip_first_leaf = false;
       }
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
       delete [] tail_buf;
       #endif
       return in_ctx.node_id;
@@ -2508,9 +2500,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       i64 = *(vctx.i64_vals + to_skip);
       switch (Parent::data_type) {
         case MST_INT:
-        case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
-        case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
-        case MST_DATETIME_ISOT: case MST_DATETIME_ISO_MS: case MST_DATETIME_ISOT_MS: {
+        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
           *((int64_t *) vctx.val) = i64;
           // printf("%lld\n", i64);
         } break;
@@ -2524,9 +2514,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
             // printf("%.2lf\n", *((double *) vctx.val));
           }
         } break;
-        case MST_DEC0: case MST_DEC1: case MST_DEC2:
-        case MST_DEC3: case MST_DEC4: case MST_DEC5: case MST_DEC6:
-        case MST_DEC7: case MST_DEC8: case MST_DEC9: {
+        case MST_DEC0 ... MST_DEC9: {
           double dbl = static_cast<double>(i64);
           dbl /= allflic48::tens()[Parent::data_type - MST_DEC0];
           *((double *) vctx.val) = dbl;
