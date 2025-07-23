@@ -3291,7 +3291,7 @@ class static_trie_map : public static_trie {
             case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
             case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
             case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
-            case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
+            case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS:
               if (encoding_type == MSE_DICT_DELTA) {
                 if (pk_col_count > 0)
                   val_retriever = new delta_val_retriever<'Y'>();
