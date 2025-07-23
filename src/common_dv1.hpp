@@ -1,6 +1,9 @@
 #ifndef common_hpp
 #define common_hpp
 
+#include <sstream>
+#include <stdint.h>
+
 #include "ds_common/src/compiler_util.hpp"
 
 BEGIN_IGNORE_UNUSED_FUNCTION
@@ -261,7 +264,7 @@ static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
   dt_txt[gen::dt_format_lens[col_type - MST_DATE_US]] = 0;
   // printf("%s, %s\n", dt_txt, dt_formats[col_type - MST_DATE_US]);
   #if defined(_WIN32)
-  std::istream is(dt_txt);
+  std::istringstream is(dt_txt);
   is >> std::get_time(&tm, gen::dt_formats[col_type - MST_DATE_US]);
   if (is.fail()) {
     printf("Error parsing date: %s\n", dt_txt);
