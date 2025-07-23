@@ -2503,7 +2503,11 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       if constexpr (pri_key == 'N') {
         to_skip = vctx.node_id % nodes_per_bv_block_n;
       } else {
+        #ifdef _WIN32
+        to_skip = __popcnt64(vctx.bm_leaf & (vctx.bm_mask - 1));
+        #else
         to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
+        #endif
       }
       i64 = *(vctx.i64_vals + to_skip);
       switch (Parent::data_type) {
