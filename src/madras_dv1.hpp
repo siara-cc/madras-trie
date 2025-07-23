@@ -3139,39 +3139,79 @@ class static_trie_map : public static_trie {
     }
 
 #if !defined(ESP32)
-    __fq1 __fq2 uint8_t *map_file(const char *filename, off_t& sz) {
-#ifdef _WIN32
-      load(filename);
-      return trie_bytes;
-#else
-    FILE* fp = fopen(filename, "rb");
-    if (!fp) {
+    __fq1 __fq2 uint8_t* map_file(const char* filename, off_t& sz) {
+    #ifdef _WIN32
+      HANDLE hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ,
+                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                                NULL);
+      if (hFile == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "CreateFileA failed: %lu\n", GetLastError());
+        return NULL;
+      }
+
+      LARGE_INTEGER filesize;
+      if (!GetFileSizeEx(hFile, &filesize)) {
+        fprintf(stderr, "GetFileSizeEx failed: %lu\n", GetLastError());
+        CloseHandle(hFile);
+        return NULL;
+      }
+      sz = static_cast<off_t>(filesize.QuadPart);
+
+      HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY,
+                                      0, 0, NULL);
+      if (!hMap) {
+        fprintf(stderr, "CreateFileMappingA failed: %lu\n", GetLastError());
+        CloseHandle(hFile);
+        return NULL;
+      }
+
+      uint8_t* map_buf = (uint8_t*)MapViewOfFile(hMap, FILE_MAP_READ,
+                                                0, 0, 0);
+      if (!map_buf) {
+        fprintf(stderr, "MapViewOfFile failed: %lu\n", GetLastError());
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return NULL;
+      }
+
+      CloseHandle(hMap);
+      CloseHandle(hFile);
+      return map_buf;
+
+    #else
+      FILE* fp = fopen(filename, "rb");
+      if (!fp) {
         perror("fopen");
         return NULL;
-    }
-    int fd = fileno(fp);  // Convert FILE* to file descriptor
-    struct stat buf;
-    if (fstat(fd, &buf) < 0) {
+      }
+
+      int fd = fileno(fp);
+      struct stat buf;
+      if (fstat(fd, &buf) < 0) {
         perror("fstat");
         fclose(fp);
         return NULL;
-    }
-    sz = buf.st_size;
-    uint8_t* map_buf = (uint8_t*)mmap(0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (map_buf == MAP_FAILED) {
+      }
+      sz = buf.st_size;
+
+      uint8_t* map_buf = (uint8_t*)mmap(0, sz, PROT_READ, MAP_PRIVATE,
+                                        fd, 0);
+      if (map_buf == MAP_FAILED) {
         perror("mmap");
         fclose(fp);
         return NULL;
-    }
-    fclose(fp);  // Safe to close after mmap
-    return map_buf;
-#endif
+      }
+
+      fclose(fp);
+      return map_buf;
+    #endif
+    trie_size = sz;
+
     }
 
     __fq1 __fq2 void map_file_to_mem(const char *filename) {
       off_t dict_size;
       trie_bytes = map_file(filename, dict_size);
-      trie_size = dict_size;
       //       int len_will_need = (dict_size >> 2);
       //       //madvise(trie_bytes, len_will_need, MADV_WILLNEED);
       // #ifndef _WIN32
@@ -3182,14 +3222,22 @@ class static_trie_map : public static_trie {
     }
 
     __fq1 __fq2 void map_unmap() {
-      // #ifndef _WIN32
-      //       munlock(trie_bytes, dict_size >> 2);
-      //       int err = munmap(trie_bytes, dict_size);
-      //       if(err != 0){
-      //         printf("UnMapping trie_bytes Failed\n");
-      //         return;
-      //       }
-      // #endif
+    #ifdef _WIN32
+      if (trie_bytes) {
+        if (!UnmapViewOfFile(trie_bytes)) {
+          fprintf(stderr, "UnmapViewOfFile failed: %lu\n", GetLastError());
+        }
+      }
+    #else
+      if (trie_bytes) {
+        // munlock(trie_bytes, dict_size >> 2);  // optional; ignore errors
+        int err = munmap(trie_bytes, trie_size);
+        if (err != 0) {
+          perror("munmap");
+          printf("UnMapping trie_bytes Failed\n");
+        }
+      }
+    #endif
       trie_bytes = nullptr;
       is_mmapped = false;
     }
