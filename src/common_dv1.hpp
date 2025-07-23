@@ -252,16 +252,33 @@ simple_word_splitter dflt_word_splitter;
 
 static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
   struct tm tm = {0};
+  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+  char *dt_txt = new char[gen::dt_format_lens[col_type - MST_DATE_US] + 1];
+  #else
   char dt_txt[gen::dt_format_lens[col_type - MST_DATE_US] + 1];
+  #endif
   strncpy(dt_txt, (const char *) dt_txt_db, gen::dt_format_lens[col_type - MST_DATE_US]);
   dt_txt[gen::dt_format_lens[col_type - MST_DATE_US]] = 0;
   // printf("%s, %s\n", dt_txt, dt_formats[col_type - MST_DATE_US]);
+  #if defined(_WIN32)
+  std::istream is(dt_txt);
+  is >> std::get_time(&tm, gen::dt_formats[col_type - MST_DATE_US]);
+  if (is.fail()) {
+    printf("Error parsing date: %s\n", dt_txt);
+    delete [] dt_txt;
+    return INT64_MIN;
+  }
+  #else
   char *result = strptime((const char *) dt_txt, gen::dt_formats[col_type - MST_DATE_US], &tm);
   if (result == nullptr || *result != '\0') {
     //printf(" e%lu/%lu", ins_seq_id, sql_col_idx);
     printf("Error parsing date: %s\n", dt_txt);
+    #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+      delete [] dt_txt;
+    #endif
     return INT64_MIN;
   }
+  #endif
   int64_t dt_val = gen::tm_to_epoch_seconds(&tm);
   // if (tm.tm_year < 0)
   //   printf("time_val: %lld, %s, %d-%d-%d\n", dt_val, dt_txt, tm.tm_mday, tm.tm_mon, tm.tm_year);
@@ -273,6 +290,9 @@ static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
     if (dot_pos != nullptr)
       dt_val += atoi(dot_pos + 1);
   }
+  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
+    delete [] dt_txt;
+  #endif
   return dt_val;
 }
 
