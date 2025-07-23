@@ -12,6 +12,10 @@
 
 #include "common_dv1.hpp"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
 #include <nmmintrin.h>
