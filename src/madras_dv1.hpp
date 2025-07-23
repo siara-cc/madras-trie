@@ -2642,7 +2642,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
     }
     __fq1 __fq2 const uint8_t *get_text_val(uint8_t *val_loc, uint8_t grp_no, uint8_t *ret_val, size_t& val_len) {
 
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
       uint8_t *val_str_buf = new uint8_t[Parent::max_len];
       #else
       uint8_t val_str_buf[Parent::max_len];
@@ -2655,7 +2655,7 @@ class uniq_text_retriever : public value_retriever<pri_key> {
         get_val_str(val_str, (uintxx_t) (val_loc - val_start), grp_no, Parent::max_len);
       val_len = val_str.length();
       memcpy(ret_val, val_str.data(), val_len);
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__)
+      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
       delete [] val_str_buf;
       #endif
       return ret_val;
