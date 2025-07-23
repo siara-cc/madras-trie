@@ -1562,8 +1562,12 @@ class val_sort_callbacks : public sort_callbacks {
           v += vlen;
         } break;
         case MST_INT:
-        case MST_DECV ... MST_DEC9:
-        case MST_DATE_US ... MST_DATETIME_ISOT_MS:
+        case MST_DECV:
+        case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+        case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
+        case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+        case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+        case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS:
           len = *v & 0x07;
           len += 2;
           break;
@@ -2814,8 +2818,12 @@ class builder : public builder_fwd {
               data_pos += len_len;
             } break;
             case MST_INT:
-            case MST_DECV ... MST_DEC9:
-            case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+            case MST_DECV:
+            case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+            case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
+            case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+            case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+            case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
               data_len = *data_pos & 0x07;
               data_len += 2;
               if (encoding_type != MSE_DICT_DELTA) {
@@ -3152,8 +3160,12 @@ class builder : public builder_fwd {
                   set_min_max(*((double *) data_pos), min_dbl, max_dbl, null_count);
               } break;
               case MST_INT:
-              case MST_DEC0 ... MST_DEC9:
-              case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+              case MST_DECV:
+              case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+              case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
+              case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+              case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+              case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
                 data_len = *data_pos & 0x07;
                 data_len += 2;
                 pos += data_len;
@@ -4546,8 +4558,12 @@ class builder : public builder_fwd {
             rec.push_back(0);
         } break;
         case MST_INT:
-        case MST_DECV ... MST_DEC9:
-        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+        case MST_DECV:
+        case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+        case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
+        case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+        case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+        case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
           if (val_type == APPEND_REC_NOKEY) {
             if (type == MST_DECV) {
               uint8_t *v64 = (uint8_t *) &value.dbl;

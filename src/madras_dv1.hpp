@@ -2997,13 +2997,16 @@ class static_trie_map : public static_trie {
       block_retriever_base *inst;
       switch (val_retriever->data_type) {
         case MST_INT:
-        case MST_DATE_US ... MST_DATETIME_ISOT_MS: {
+        case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+        case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+        case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
           inst = new fast_vint_block_retriever<'i', int64_t, operation>(val_retriever);
         } break;
         case MST_DECV: {
           inst = new fast_vint_block_retriever<'.', double, operation>(val_retriever);
         } break;
-        case MST_DEC0 ... MST_DEC9: {
+        case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+        case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9: {
           inst = new fast_vint_block_retriever<'x', double, operation>(val_retriever);
         } break;
       }
@@ -3283,8 +3286,12 @@ class static_trie_map : public static_trie {
                 val_retriever = new uniq_text_retriever<'N'>();
               break;
             case MST_INT:
-            case MST_DECV ... MST_DEC9:
-            case MST_DATE_US ... MST_DATETIME_ISOT_MS:
+            case MST_DECV:
+            case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
+            case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9:
+            case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
+            case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
+            case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
               if (encoding_type == MSE_DICT_DELTA) {
                 if (pk_col_count > 0)
                   val_retriever = new delta_val_retriever<'Y'>();
