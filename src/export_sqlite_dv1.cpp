@@ -705,7 +705,7 @@ void print_usage() {
   printf("  <input_type>      - One of sqlite3, duckdb, csv, tsv, ndjson, xml\n\n");
   printf("  <what_to_do>      - i = import, v = verify, b = both\n\n");
   printf("  <in_file>         - File name [with path]\n\n");
-  printf("  <out_file>        - Output File name (if ., then creates <file_name>.mdx)\n\n");
+  printf("  <out_file>        - Output File name (if ., then creates <file_name>.mdsi)\n\n");
   printf("  <table_or_select> - Name of table or select statement\n");
   printf("                      Optionally, table name can be followed with\n");
   printf("                          comma-separated list of column names\n\n");
@@ -789,7 +789,7 @@ int main(int argc, char* argv[]) {
   std::string out_file = argv[4];
   if (out_file.length() > 0 && out_file[0] == '.') {
     out_file = filename;
-    out_file += ".mdx";
+    out_file += ".mdsi";
   }
 
   const char *table_name = "vtab";

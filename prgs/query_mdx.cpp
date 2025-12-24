@@ -205,10 +205,10 @@ int main(int argc, char *argv[]) {
   if (data_type == MST_INT) {
     int64_t sum = 0;
     if (enc_type == MSE_VINTGB) {
-      madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever<'s'>(column_idx);
-      madras_dv1::mdx_val sum_val;
-      block_retriever->block_operation32(0, node_count, sum_val);
-      sum = sum_val.i64;
+      madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever(column_idx);
+      std::vector<int32_t> decoded(node_count);
+      block_retriever->block_operation32(0, node_count, decoded.data());
+      for (size_t i = 0; i < node_count; i++) sum += decoded[i];
     } else {
       vctx.init(32, true, true);
       bool has_next = true;
@@ -223,10 +223,10 @@ int main(int argc, char *argv[]) {
   } else {
     double sum = 0;
     if (enc_type == MSE_VINTGB) {
-      madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever<'s'>(column_idx);
-      madras_dv1::mdx_val sum_val;
-      block_retriever->block_operation(0, node_count, sum_val);
-      sum = sum_val.dbl;
+      madras_dv1::block_retriever_base *block_retriever = dict_reader.get_block_retriever(column_idx);
+      std::vector<double> decoded(node_count);
+      block_retriever->block_operation(0, node_count, (int64_t *) decoded.data());
+      for (size_t i = 0; i < node_count; i++) sum += decoded[i];
     } else {
       vctx.init(32, true, true);
       bool has_next = true;

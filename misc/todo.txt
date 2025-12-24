@@ -184,6 +184,12 @@ x ODBC driver
 - Fix CUDA demo
 - GUI crashing on linux
 - so_users sum incorrect Id (d)
+- amazon_products crashing with tail tries
+- surnames 2 itii22222222 TuTTTTTTTTTT
+- iMDb names pk 'u' mismatch
+- handling empty value for val (!)
+- empty dates
+- out file size mismatch allCountries between linux and macos
 
 + Word encoding for tails
 + Emscripten support
@@ -219,6 +225,7 @@ madras_flutter todos
 - Search on date not working
 - Sqlite/DuckDB version
 - Find on PK not working for partial matches
+- Find not working after 64-bit
 
 + web_bridge
 - SQL interface
@@ -238,6 +245,8 @@ madras_flutter todos
 - Standardise limits and format
 - Check release and leaks
 - Check null and empty values consistency
+- Verify date/time data types with data fusion
+- Use same format as arrow for null bitmaps
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit

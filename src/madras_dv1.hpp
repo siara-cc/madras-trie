@@ -147,14 +147,16 @@ class val_ctx {
     uint8_t is64 = 0;
     uint8_t count;
     uint8_t dec_count;
-    ~val_ctx() {
+    virtual ~val_ctx() {
       unallocate();
     }
     void unallocate() {
       if (to_alloc) {
         if (alloc_len > 0)
           delete [] val->txt_bin;
+        delete val;
         delete val_len;
+        val = nullptr;
         alloc_len = 0;
         to_alloc = 0;
       }
@@ -164,6 +166,7 @@ class val_ctx {
         delete [] byts;
         to_alloc_uxx = 0;
       }
+      is_init = 0;
     }
     void init_pbc_vars() {
       grp_no = 0;
@@ -202,6 +205,7 @@ class val_ctx {
       if (to_alloc) {
         if (alloc_len > 0)
           delete[] val->txt_bin;
+        alloc_len = 0;
         delete val;
         delete val_len;
       }
@@ -274,6 +278,13 @@ struct min_pos_stats {
 
 class cmn {
   public:
+    __fq1 __fq2 static int pop_cnt(uint64_t bm) {
+      #ifdef _WIN32
+      return __popcnt64(bm);
+      #else
+      return __builtin_popcountll(bm);
+      #endif
+    }
     __fq1 __fq2 static uintxx_t read_uint16(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
       return *((uint16_t *) ptr); // faster endian dependent
@@ -353,7 +364,7 @@ class cmn {
         *vlen = 5 - len;
       return ret;
     }
-    __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, mdx_val &ret_val, size_t *ret_len, uint8_t *null_val, size_t null_len) {
+    __fq1 __fq2 static void convert_back(char data_type, uint8_t *val_loc, mdx_val &ret_val, size_t *ret_len) {
       switch (data_type) {
         case MST_INT:
         case MST_DECV: case MST_DEC0: case MST_DEC1: case MST_DEC2:
@@ -373,7 +384,7 @@ class cmn {
             dbl /= allflic48::tens()[data_type - MST_DEC0];
             ret_val.dbl = dbl;
           } else
-            memcpy(&ret_val, &i64, sizeof(int64_t));
+            ret_val.i64 = i64;
         } break;
       }
     }
@@ -702,11 +713,7 @@ class bvlt_rank {
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
       uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n) * multiplier];
       // return rank + __popcountdi2(bm & (mask - 1));
-      #ifdef _WIN32
-      return rank + static_cast<uintxx_t>(__popcnt64(bm & mask));
-      #else
-      return rank + static_cast<uintxx_t>(__builtin_popcountll(bm & mask));
-      #endif
+      return rank + static_cast<uintxx_t>(cmn::pop_cnt(bm & mask));
     }
     __fq1 __fq2 uint8_t *get_rank_loc() {
       return lt_rank_loc;
@@ -1278,6 +1285,9 @@ class bvlt_select : public bvlt_rank {
         return bv_pos;
       uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
       return bv_pos + bm_select1(remaining, bm);
+    }
+    uint64_t get_bm(uintxx_t node_id) {
+      return bm_loc[(node_id / 64) * multiplier];
     }
     __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
@@ -1944,7 +1954,7 @@ class value_retriever_base : public ptr_group_map {
     __fq1 __fq2 virtual ~value_retriever_base() {}
     __fq1 __fq2 virtual void load_bm(uintxx_t node_id, val_ctx& vctx) = 0;
     __fq1 __fq2 virtual void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
-            uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) = 0;
+            uint64_t *_bm_ptr_loc, uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) = 0;
     __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
     __fq1 __fq2 virtual void fill_val_ctx(uintxx_t node_id, val_ctx& vctx) = 0;
     __fq1 __fq2 virtual const uint8_t *get_val(uintxx_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) = 0;
@@ -2086,10 +2096,10 @@ class value_retriever : public value_retriever_base {
       return skip_non_leaf_nodes(vctx);
     }
     __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
-                uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) {
+                uint64_t *_bm_ptr_loc, uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) {
       key_count = _key_count;
       node_count = _node_count;
-      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_loc, val_loc, _key_count, _node_count, false);
+      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_ptr_loc, val_loc, _key_count, _node_count, false);
       uint8_t *data_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_DATA_LOC);
       uint8_t *ptrs_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_PTRS_LOC);
       uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint64(val_loc + TV_NULL_BV_LOC));
@@ -2164,6 +2174,36 @@ class stored_val_retriever : public value_retriever<pri_key> {
 };
 
 template<char pri_key>
+class main_trie_retriever : public value_retriever<pri_key> {
+  public:
+    using Parent = value_retriever<pri_key>;
+    __fq1 __fq2 virtual ~main_trie_retriever() {}
+    __fq1 __fq2 bool next_val(val_ctx& vctx) {
+      uint8_t val_loc[16];
+      if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN)
+        vctx.val->txt_bin = val_loc;
+      ((static_trie *) Parent::dict_obj)->reverse_lookup_from_node_id(vctx.node_id, vctx.val_len, vctx.val->txt_bin);
+      if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
+        cmn::convert_back(Parent::data_type, vctx.val->txt_bin, *vctx.val, vctx.val_len);
+      }
+      return Parent::skip_to_next_leaf(vctx);
+    }
+    __fq1 __fq2 void fill_val_ctx(uintxx_t node_id, val_ctx& vctx) {
+      vctx.node_id = node_id;
+      Parent::load_bm(node_id, vctx);
+      Parent::skip_non_leaf_nodes(vctx);
+    }
+    __fq1 __fq2 const uint8_t *get_val(uintxx_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
+      val_ctx vctx;
+      vctx.init(0, false, false);
+      vctx.set_ptrs(&ret_val, in_size_out_value_len);
+      fill_val_ctx(node_id, vctx);
+      next_val(vctx);
+      return vctx.val->txt_bin;
+    }
+};
+
+template<char pri_key>
 class col_trie_retriever : public value_retriever<pri_key> {
   public:
     using Parent = value_retriever<pri_key>;
@@ -2179,9 +2219,7 @@ class col_trie_retriever : public value_retriever<pri_key> {
         vctx.val->txt_bin = val_loc;
       ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val->txt_bin, true);
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
-        size_t null_len;
-        uint8_t *null_val = ((static_trie *) Parent::dict_obj)->get_null_value(null_len);
-        cmn::convert_back(Parent::data_type, vctx.val->txt_bin, *vctx.val, vctx.val_len, null_val, null_len);
+        cmn::convert_back(Parent::data_type, vctx.val->txt_bin, *vctx.val, vctx.val_len);
       }
       return Parent::skip_to_next_leaf(vctx);
     }
@@ -2291,11 +2329,11 @@ class words_retriever : public value_retriever<pri_key> {
 class block_retriever_base {
   public:
     __fq1 __fq2 virtual ~block_retriever_base() {}
-    __fq1 __fq2 virtual void block_operation(uintxx_t node_id, int len, mdx_val &sum_out, int64_t *out = nullptr) = 0;
-    __fq1 __fq2 virtual void block_operation32(uintxx_t node_id, int len, mdx_val &sum_out, int32_t *out = nullptr) = 0;
+    __fq1 __fq2 virtual void block_operation(uintxx_t node_id, int len, int64_t *out) = 0;
+    __fq1 __fq2 virtual void block_operation32(uintxx_t node_id, int len, int32_t *out) = 0;
 };
 
-template <char type_id, typename T, char operation>
+template <char type_id, typename T>
 class fast_vint_block_retriever : public block_retriever_base {
   private:
     value_retriever_base *val_retriever;
@@ -2303,9 +2341,7 @@ class fast_vint_block_retriever : public block_retriever_base {
     __fq1 __fq2 fast_vint_block_retriever(value_retriever_base *_val_retriever) {
       val_retriever = _val_retriever;
     }
-    __fq1 __fq2 void block_operation(uintxx_t node_id, int len, mdx_val &sum_out, int64_t *out = nullptr) {
-      int64_t sum_int = 0;
-      double sum_dbl = 0;
+    __fq1 __fq2 void block_operation(uintxx_t node_id, int len, int64_t *out) {
       int64_t i64;
       int32_t *i32_vals = new int32_t[64];
       int64_t *i64_vals = new int64_t[64];
@@ -2325,13 +2361,10 @@ class fast_vint_block_retriever : public block_retriever_base {
           block_size = allflic48::decode(data + offset, data[1], i32_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = allflic48::zigzag_decode(i32_vals[i]);
-            if constexpr (operation == 'a' && type_id == 'i')
-               out[out_pos++] = i64;
-            else {
-              if constexpr (type_id != 'i')
-                i64_vals[i] = i64;
-              if constexpr (type_id == 'i')
-                sum_int += i64;
+            if constexpr (type_id == 'i') {
+              out[out_pos++] = i64;
+            } else {
+              i64_vals[i] = i64;
             }
           }
           if constexpr (type_id == '.')
@@ -2343,13 +2376,10 @@ class fast_vint_block_retriever : public block_retriever_base {
             block_size = allflic48::decode(data + offset, data[1], i64_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = allflic48::zigzag_decode(i64_vals[i]);
-            if constexpr (operation == 'a' && type_id == 'i')
+            if constexpr (type_id == 'i')
                out[out_pos++] = i64;
             else {
-              if constexpr (type_id != 'i')
-                i64_vals[i] = i64;
-              if constexpr (type_id == 'i')
-                sum_int += i64;
+              i64_vals[i] = i64;
             }
           }
         }
@@ -2367,12 +2397,8 @@ class fast_vint_block_retriever : public block_retriever_base {
               dbl = static_cast<double>(i64_vals[i]);
               dbl /= allflic48::tens()[val_retriever->data_type - MST_DEC0];
             }
-            if constexpr (operation == 's')
-              sum_dbl += dbl;
-            if constexpr (operation == 'a') {
-              memcpy(out + out_pos, &dbl, 8);
-              out_pos++;
-            }
+            memcpy(out + out_pos, &dbl, 8);
+            out_pos++;
           }
         }
         len -= data[1];
@@ -2383,18 +2409,8 @@ class fast_vint_block_retriever : public block_retriever_base {
       delete [] i64_vals;
       if constexpr (type_id == '.')
         delete[] byts;
-      if constexpr (operation == 's') {
-        if constexpr (type_id == 'i')
-          sum_out.i64 = sum_int;
-        else
-          sum_out.dbl = sum_dbl;
-      }
     }
-    __fq1 __fq2 void block_operation32(uintxx_t node_id, int len, mdx_val &sum_out, int32_t *out = nullptr) {
-      int64_t sum_int = 0;
-      double sum_flt = 0;
-      int32_t i32;
-      int32_t *i32_vals = new int32_t[64];
+    __fq1 __fq2 void block_operation32(uintxx_t node_id, int len, int32_t *out) {
       uint8_t *data = val_retriever->get_grp_data(0) + val_retriever->get_ptr_reader()->get_ptr_block3(node_id) + 2;
       size_t out_pos = 0;
       size_t offset;
@@ -2404,44 +2420,27 @@ class fast_vint_block_retriever : public block_retriever_base {
         offset = 2;
       size_t block_size;
       while (len > 0) {
-        block_size = allflic48::decode(data + offset, data[1], i32_vals);
+        block_size = allflic48::decode(data + offset, data[1], out + out_pos);
         for (size_t i = 0; i < data[1]; i++) {
-          i32 = (int32_t) allflic48::zigzag_decode(i32_vals[i]);
-          if constexpr (operation == 'a')
-              out[out_pos++] = i32;
-          else {
-            if constexpr (type_id != 'i')
-              i32_vals[i] = i32;
-            if constexpr (type_id == 'i')
-              sum_int += i32;
-          }
-        }
-        if constexpr (type_id != 'i') {
-          float flt;
-          for (size_t i = 0; i < data[1]; i++) {
+          int32_t i32 = (int32_t) allflic48::zigzag_decode(out[out_pos]);
+          if constexpr (type_id == 'i') {
+            out[out_pos] = i32;
+          } else {
+            float flt;
             if constexpr (type_id == '.') {
-              flt = static_cast<float>(i32_vals[i]);
+              flt = static_cast<float>(i32);
               flt /= allflic48::tens()[data[2]];
             } else {
-              flt = static_cast<float>(i32_vals[i]);
+              flt = static_cast<float>(i32);
               flt /= allflic48::tens()[val_retriever->data_type - MST_DEC0];
             }
-            if constexpr (operation == 's')
-              sum_flt += flt;
-            if constexpr (operation == 'a')
-              memcpy(i32_vals + i, &flt, 4);
+            memcpy(out + out_pos, &flt, 4);
           }
+          out_pos++;
         }
         len -= data[1];
         data += block_size;
         data += offset;
-      }
-      delete [] i32_vals;
-      if constexpr (operation == 's') {
-        if constexpr (type_id == 'i')
-          sum_out.i64 = sum_int;
-        else
-          sum_out.dbl = sum_flt;
       }
     }
 };
@@ -2507,11 +2506,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       if constexpr (pri_key == 'N') {
         to_skip = vctx.node_id % nodes_per_bv_block_n;
       } else {
-        #ifdef _WIN32
-        to_skip = __popcnt64(vctx.bm_leaf & (vctx.bm_mask - 1));
-        #else
-        to_skip = __builtin_popcountll(vctx.bm_leaf & (vctx.bm_mask - 1));
-        #endif
+        to_skip = cmn::pop_cnt(vctx.bm_leaf & (vctx.bm_mask - 1));
       }
       i64 = *(vctx.i64_vals + to_skip);
       switch (Parent::data_type) {
@@ -2911,9 +2906,7 @@ class static_trie_map : public static_trie {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
         if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, val.txt_bin))
           return nullptr;
-        size_t null_len;
-        uint8_t *null_val = get_null_value(null_len);
-        cmn::convert_back(get_column_type(col_val_idx), val.txt_bin, val, in_size_out_value_len, null_val, null_len);
+        cmn::convert_back(get_column_type(col_val_idx), val.txt_bin, val, in_size_out_value_len);
         return (const uint8_t *) val.txt_bin;
       }
       return val_map[col_val_idx]->get_val(node_id, in_size_out_value_len, val);
@@ -2997,7 +2990,6 @@ class static_trie_map : public static_trie {
       return val_map[col_val_idx];
     }
 
-    template <char operation>
     __fq1 __fq2 block_retriever_base *get_block_retriever(size_t col_val_idx) {
       if (get_column_encoding(col_val_idx) != MSE_VINTGB)
         return nullptr;
@@ -3008,14 +3000,14 @@ class static_trie_map : public static_trie {
         case MST_DATE_US: case MST_DATE_EUR: case MST_DATE_ISO:
         case MST_DATETIME_US: case MST_DATETIME_EUR: case MST_DATETIME_ISO:
         case MST_DATETIME_ISOT: case MST_DATETIME_ISOT_MS: {
-          inst = new fast_vint_block_retriever<'i', int64_t, operation>(val_retriever);
+          inst = new fast_vint_block_retriever<'i', int64_t>(val_retriever);
         } break;
         case MST_DECV: {
-          inst = new fast_vint_block_retriever<'.', double, operation>(val_retriever);
+          inst = new fast_vint_block_retriever<'.', double>(val_retriever);
         } break;
         case MST_DEC0: case MST_DEC1: case MST_DEC2: case MST_DEC3: case MST_DEC4:
         case MST_DEC5: case MST_DEC6: case MST_DEC7: case MST_DEC8: case MST_DEC9: {
-          inst = new fast_vint_block_retriever<'x', double, operation>(val_retriever);
+          inst = new fast_vint_block_retriever<'x', double>(val_retriever);
         } break;
       }
       return inst;
@@ -3146,13 +3138,11 @@ class static_trie_map : public static_trie {
     __fq1 __fq2 uint8_t* map_file(const char* filename, off_t& sz) {
     #ifdef _WIN32
       HANDLE hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ,
-                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-                                NULL);
+                      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
       if (hFile == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "CreateFileA failed: %lu\n", GetLastError());
         return NULL;
       }
-
       LARGE_INTEGER filesize;
       if (!GetFileSizeEx(hFile, &filesize)) {
         fprintf(stderr, "GetFileSizeEx failed: %lu\n", GetLastError());
@@ -3160,35 +3150,30 @@ class static_trie_map : public static_trie {
         return NULL;
       }
       sz = static_cast<off_t>(filesize.QuadPart);
-
-      HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY,
-                                      0, 0, NULL);
+      HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
       if (!hMap) {
         fprintf(stderr, "CreateFileMappingA failed: %lu\n", GetLastError());
         CloseHandle(hFile);
         return NULL;
       }
-
-      uint8_t* map_buf = (uint8_t*)MapViewOfFile(hMap, FILE_MAP_READ,
-                                                0, 0, 0);
+      uint8_t* map_buf = (uint8_t*)MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
       if (!map_buf) {
         fprintf(stderr, "MapViewOfFile failed: %lu\n", GetLastError());
         CloseHandle(hMap);
         CloseHandle(hFile);
         return NULL;
       }
-
       CloseHandle(hMap);
       CloseHandle(hFile);
+      sz = filesize;
+      trie_size = sz;
       return map_buf;
-
     #else
       FILE* fp = fopen(filename, "rb");
       if (!fp) {
         perror("fopen");
         return NULL;
       }
-
       int fd = fileno(fp);
       struct stat buf;
       if (fstat(fd, &buf) < 0) {
@@ -3197,25 +3182,22 @@ class static_trie_map : public static_trie {
         return NULL;
       }
       sz = buf.st_size;
-
-      uint8_t* map_buf = (uint8_t*)mmap(0, sz, PROT_READ, MAP_PRIVATE,
-                                        fd, 0);
+      uint8_t* map_buf = (uint8_t*)mmap(0, sz, PROT_READ, MAP_PRIVATE, fd, 0);
       if (map_buf == MAP_FAILED) {
         perror("mmap");
         fclose(fp);
         return NULL;
       }
-
       fclose(fp);
+      trie_size = sz;
       return map_buf;
     #endif
-    trie_size = sz;
-
     }
 
-    __fq1 __fq2 void map_file_to_mem(const char *filename) {
+    __fq1 __fq2 bool map_file_to_mem(const char *filename) {
       off_t dict_size;
       trie_bytes = map_file(filename, dict_size);
+      if (trie_bytes == nullptr) return false;
       //       int len_will_need = (dict_size >> 2);
       //       //madvise(trie_bytes, len_will_need, MADV_WILLNEED);
       // #ifndef _WIN32
@@ -3223,6 +3205,7 @@ class static_trie_map : public static_trie {
       // #endif
       load_into_vars();
       is_mmapped = true;
+      return true;
     }
 
     __fq1 __fq2 void map_unmap() {
@@ -3300,8 +3283,13 @@ class static_trie_map : public static_trie {
 
     }
 
-    value_retriever_base *new_value_retriever(char data_type, char encoding_type) {
+    value_retriever_base *new_value_retriever(size_t col_idx, char data_type, char encoding_type) {
       value_retriever_base *val_retriever = nullptr;
+      if (col_idx < pk_col_count) {
+        encoding_type = MSE_TRIE;
+        val_retriever = new main_trie_retriever<'Y'>();
+        return val_retriever;
+      }
       switch (encoding_type) {
         case MSE_TRIE: case MSE_TRIE_2WAY:
           if (pk_col_count > 0)
@@ -3380,15 +3368,24 @@ class static_trie_map : public static_trie {
 
       val_map = new value_retriever_base*[val_count]();
       for (size_t i = 0; i < val_count; i++) {
-        val_map[i] = new_value_retriever(get_column_type(i), get_column_encoding(i));
+        val_map[i] = new_value_retriever(i, get_column_type(i), get_column_encoding(i));
         uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
-        if (i < pk_col_count) // why can't this be set in the builder?
-          vl64 = 0;
-        // printf("Val idx: %lu, %llu\n", i, vl64);
-        uint8_t *val_loc = trie_bytes + vl64;
-        if (val_loc == trie_bytes)
-          continue;
-        val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, val_loc, key_count, node_count);
+        if (i < pk_col_count) {
+          uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
+          uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
+          uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
+          uint8_t *tails_loc = trie_tail_ptrs_data_loc + 16;
+          val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, trie_level == 0 ? multiplier : 1, tf_ptr_loc, tails_loc, key_count, node_count);
+          val_map[i]->data_type = get_column_type(i);
+          val_map[i]->encoding_type = get_column_encoding(i);
+        } else {
+          uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
+          // printf("Val idx: %lu, %llu\n", i, vl64);
+          uint8_t *val_loc = trie_bytes + vl64;
+          if (val_loc == trie_bytes)
+            continue;
+          val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, nullptr, val_loc, key_count, node_count);
+        }
       }
     }
 };

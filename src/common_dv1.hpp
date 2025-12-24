@@ -328,9 +328,9 @@ typedef struct {
   union {
     double dbl;
     int64_t i64;
-    uint8_t *txt_bin;
     bool bool_val;
   };
+  uint8_t *txt_bin;
 } mdx_val;
 
 typedef struct {

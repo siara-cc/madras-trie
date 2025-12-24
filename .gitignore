@@ -35,4 +35,5 @@ test*
 /export_sqlite*
 emscripten/*.js
 emscripten/*.wasm
+prgs/duckdb_arrow
 

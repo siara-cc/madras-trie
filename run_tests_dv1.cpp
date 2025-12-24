@@ -153,7 +153,7 @@ int main(int argc, char *argv[]) {
   std::cout << std::endl;
 
   std::string out_file = argv[1];
-  out_file += ".mdx";
+  out_file += ".mdsi";
   if (what == 2) {
     sb->build_kv();
     sb->write_kv(true, out_file.c_str());

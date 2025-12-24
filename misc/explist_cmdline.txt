@@ -22,8 +22,8 @@
 ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
 ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 1 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
 
-./export_sqlite ~/git2/sqlite_dbs/census.db surnames 2 itii22222222 uudddduuuuuu
-./export_sqlite ~/git2/sqlite_dbs/census.db surnames 0 itii22222222 utdddduuuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/census.db . surnames 2 itii22222222 uudddduuuuuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/census.db . surnames 0 itii22222222 utdddduuuuuu
 
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti2 uutuuuu
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 2+3 ittiti2 uuuuuuu
@@ -32,3 +32,5 @@
 ./export_sqlite ~/git2/sqlite_dbs/babynames.db gendered_names 0 ittiti1 uutuuud
 
 ./export_sqlite csv b ~/Downloads/popular_movies.csv . popular_movies 0 tiwtw4tbiit5itt wuwuuwtdduwddww 10
+
+https://www.reddit.com/r/python/top.json?limit=100&t=month
