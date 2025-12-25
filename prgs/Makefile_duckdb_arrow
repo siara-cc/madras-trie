@@ -1,6 +1,6 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -pthread -std=c++17 -march=native
+CXXFLAGS = -pthread -std=c++11 -march=native
 INCLUDES = -I/opt/homebrew/Cellar/duckdb/1.2.1/include -I../src -I../../ds_common/src -I../../flavic48/src -I/usr/local/include
 L_FLAGS = -L/opt/homebrew/Cellar/duckdb/1.2.1/lib -L /usr/local/lib
 M_FLAGS = -lduckdb -larrow

@@ -1951,6 +1951,11 @@ class static_trie : public inner_trie {
 
 };
 
+template<char param>
+constexpr char template_val() {
+    return param;
+}
+
 class value_retriever_base : public ptr_group_map {
   public:
     __fq1 __fq2 virtual ~value_retriever_base() {}
@@ -2065,7 +2070,7 @@ class value_retriever : public value_retriever_base {
     }
 
     void load_bm(uintxx_t node_id, val_ctx& vctx) {
-      if constexpr (pri_key == 'Y') {
+      if (template_val<pri_key>() == 'Y') {
         vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
         vctx.bm_leaf = UINT64_MAX;
         vctx.bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
@@ -2073,7 +2078,7 @@ class value_retriever : public value_retriever_base {
     }
 
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
-      if constexpr (pri_key == 'Y') {
+      if (template_val<pri_key>() == 'Y') {
         while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
           vctx.node_id++;
           vctx.bm_mask <<= 1;
@@ -2081,7 +2086,7 @@ class value_retriever : public value_retriever_base {
       }
       if (vctx.node_id >= node_count)
         return false;
-      if constexpr (pri_key == 'N') {
+      if (template_val<pri_key>() == 'N') {
         return true;
       } else {
         if (vctx.bm_mask != 0)
@@ -2092,7 +2097,7 @@ class value_retriever : public value_retriever_base {
     }
     __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       vctx.node_id++;
-      if constexpr (pri_key == 'Y') {
+      if (template_val<pri_key>() == 'Y') {
         vctx.bm_mask <<= 1;
       }
       return skip_non_leaf_nodes(vctx);
@@ -2348,12 +2353,12 @@ class fast_vint_block_retriever : public block_retriever_base {
       int32_t *i32_vals = new int32_t[64];
       int64_t *i64_vals = new int64_t[64];
       uint8_t *byts;
-      if constexpr (type_id == '.')
+      if (template_val<type_id>() == '.')
         byts = new uint8_t[64];
       uint8_t *data = val_retriever->get_grp_data(0) + val_retriever->get_ptr_reader()->get_ptr_block3(node_id) + 2;
       size_t out_pos = 0;
       size_t offset;
-      if constexpr (type_id == '.')
+      if (template_val<type_id>() == '.')
         offset = 3;
       else
         offset = 2;
@@ -2363,32 +2368,32 @@ class fast_vint_block_retriever : public block_retriever_base {
           block_size = allflic48::decode(data + offset, data[1], i32_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = allflic48::zigzag_decode(i32_vals[i]);
-            if constexpr (type_id == 'i') {
+            if (template_val<type_id>() == 'i') {
               out[out_pos++] = i64;
             } else {
               i64_vals[i] = i64;
             }
           }
-          if constexpr (type_id == '.')
+          if (template_val<type_id>() == '.')
             memset(byts, '\0', 64);
         } else {
-          if constexpr (type_id == '.')
+          if (template_val<type_id>() == '.')
             block_size = allflic48::decode(data + offset, data[1], i64_vals, byts);
           else
             block_size = allflic48::decode(data + offset, data[1], i64_vals);
           for (size_t i = 0; i < data[1]; i++) {
             i64 = allflic48::zigzag_decode(i64_vals[i]);
-            if constexpr (type_id == 'i')
+            if (template_val<type_id>() == 'i')
                out[out_pos++] = i64;
             else {
               i64_vals[i] = i64;
             }
           }
         }
-        if constexpr (type_id != 'i') {
+        if (template_val<type_id>() != 'i') {
           double dbl;
           for (size_t i = 0; i < data[1]; i++) {
-            if constexpr (type_id == '.') {
+            if (template_val<type_id>() == '.') {
               if (byts[i] == 7) {
                 memcpy(&dbl, i64_vals + i, 8);
               } else {
@@ -2409,14 +2414,14 @@ class fast_vint_block_retriever : public block_retriever_base {
       }
       delete [] i32_vals;
       delete [] i64_vals;
-      if constexpr (type_id == '.')
+      if (template_val<type_id>() == '.')
         delete[] byts;
     }
     __fq1 __fq2 void block_operation32(uintxx_t node_id, int len, int32_t *out) {
       uint8_t *data = val_retriever->get_grp_data(0) + val_retriever->get_ptr_reader()->get_ptr_block3(node_id) + 2;
       size_t out_pos = 0;
       size_t offset;
-      if constexpr (type_id == '.')
+      if (template_val<type_id>() == '.')
         offset = 3;
       else
         offset = 2;
@@ -2425,11 +2430,11 @@ class fast_vint_block_retriever : public block_retriever_base {
         block_size = allflic48::decode(data + offset, data[1], out + out_pos);
         for (size_t i = 0; i < data[1]; i++) {
           int32_t i32 = (int32_t) allflic48::zigzag_decode(out[out_pos]);
-          if constexpr (type_id == 'i') {
+          if (template_val<type_id>() == 'i') {
             out[out_pos] = i32;
           } else {
             float flt;
-            if constexpr (type_id == '.') {
+            if (template_val<type_id>() == '.') {
               flt = static_cast<float>(i32);
               flt /= allflic48::tens()[data[2]];
             } else {
@@ -2476,7 +2481,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       }
     }
     __fq1 __fq2 bool skip_non_leaf_nodes(val_ctx& vctx) {
-      if constexpr (pri_key == 'Y') {
+      if (template_val<pri_key>() == 'Y') {
         while (vctx.bm_mask && (vctx.bm_leaf & vctx.bm_mask) == 0) {
           vctx.node_id++;
           vctx.bm_mask <<= 1;
@@ -2484,7 +2489,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
       }
       if (vctx.node_id >= Parent::node_count)
         return false;
-      if constexpr (pri_key == 'N') {
+      if (template_val<pri_key>() == 'N') {
         if ((vctx.node_id % nodes_per_bv_block_n) == 0)
           retrieve_block(vctx.node_id, vctx);
         return true;
@@ -2497,7 +2502,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
     }
     __fq1 __fq2 bool skip_to_next_leaf(val_ctx& vctx) {
       vctx.node_id++;
-      if constexpr (pri_key == 'Y') {
+      if (template_val<pri_key>() == 'Y') {
         vctx.bm_mask <<= 1;
       }
       return skip_non_leaf_nodes(vctx);
@@ -2505,7 +2510,7 @@ class fast_vint_retriever : public value_retriever<pri_key> {
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
       int64_t i64;
       int to_skip;
-      if constexpr (pri_key == 'N') {
+      if (template_val<pri_key>() == 'N') {
         to_skip = vctx.node_id % nodes_per_bv_block_n;
       } else {
         to_skip = cmn::pop_cnt(vctx.bm_leaf & (vctx.bm_mask - 1));
