@@ -289,7 +289,9 @@ class cmn {
     }
     __fq1 __fq2 static uintxx_t read_uint16(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
-      return *((uint16_t *) ptr); // faster endian dependent
+      uint16_t tmp;
+      memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
+      return tmp;                       // endian dependent
       #else
       uintxx_t ret = *ptr++;
       ret |= (*ptr << 8);
@@ -298,7 +300,9 @@ class cmn {
     }
     __fq1 __fq2 static uintxx_t read_uint24(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
-      return *((uintxx_t *) ptr) & 0x00FFFFFF; // faster endian dependent
+      uint32_t tmp = 0;
+      memcpy(&tmp, ptr, 3);             // safe, partial copy
+      return tmp & 0x00FFFFFF;          // endian dependent
       #else
       uintxx_t ret = *ptr++;
       ret |= (*ptr++ << 8);
@@ -308,7 +312,9 @@ class cmn {
     }
     __fq1 __fq2 static uintxx_t read_uint32(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
-      return *((uint32_t *) ptr);
+      uint32_t tmp;
+      memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
+      return tmp;
       // TODO: fix
       // #else
       // uintxx_t ret = *ptr++;
@@ -319,12 +325,15 @@ class cmn {
       // #endif
     }
     __fq1 __fq2 static uint64_t read_uint40(uint8_t *ptr) {
-      uint64_t ret = *((uint32_t *) ptr);
-      return ret | ((uint64_t) ptr[4] << 32);
+      uint32_t lo;
+      memcpy(&lo, ptr, sizeof(lo));     // safe
+      return (uint64_t)lo | ((uint64_t)ptr[4] << 32);
     }
     __fq1 __fq2 static uint64_t read_uint64(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
-      return *((uint64_t *) ptr);
+      uint64_t tmp;
+      memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
+      return tmp;
       // #else
       // uint64_t ret = *ptr++;
       // ret |= (*ptr++ << 8);
@@ -875,22 +884,15 @@ class tail_ptr_map {
         if (*tail == 15)
           return true;
         uintxx_t sfx_len = read_len(tail);
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-        uint8_t *sfx_buf = new uint8_t[sfx_len];
-        #else
-        uint8_t sfx_buf[sfx_len];
-        #endif
+        uint8_t stack_buf[FAST_STACK_BUF];
+        uint8_t* heap_buf = nullptr;
+        uint8_t *sfx_buf = get_fast_buffer<uint8_t>(sfx_len, stack_buf, heap_buf);
+        BufferGuard<uint8_t> guard(heap_buf);
         read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
         if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
           in_ctx.key_pos += sfx_len;
-          #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-          delete [] sfx_buf;
-          #endif
           return true;
         }
-        #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-        delete [] sfx_buf;
-        #endif
       } else {
         uintxx_t bin_len;
         read_len_bw(tail++, bin_len);
@@ -1414,6 +1416,8 @@ class inner_trie : public inner_trie_fwd {
       node_count = cmn::read_uint64(trie_bytes + NODE_COUNT_LOC);
       uintxx_t node_set_count = cmn::read_uint64(trie_bytes + NS_COUNT_LOC);
       uintxx_t key_count = cmn::read_uint64(trie_bytes + KEY_COUNT_LOC);
+      lt_not_given = 0;
+      tail_map = nullptr;
       if (key_count > 0) {
         uintxx_t rev_cache_count = cmn::read_uint64(trie_bytes + RC_COUNT_LOC);
         uintxx_t rev_cache_max_node_id = cmn::read_uint64(trie_bytes + RC_MAX_NID_LOC);
@@ -1451,7 +1455,6 @@ class inner_trie : public inner_trie_fwd {
           tail_map = tail_grp_map;
         }
 
-        lt_not_given = 0;
         if (term_select_lkup_loc == trie_bytes) term_select_lkup_loc = nullptr;
         if (term_lt_loc == trie_bytes) term_lt_loc = nullptr;
         if (child_select_lkup_loc == trie_bytes) child_select_lkup_loc = nullptr;
@@ -1700,11 +1703,10 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 int next(iter_ctx& ctx, uint8_t *key_buf = nullptr) {
       gen::byte_str tail;
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      uint8_t *tail_bytes = new uint8_t[max_tail_len + 1];
-      #else
-      uint8_t tail_bytes[max_tail_len + 1];
-      #endif
+      uint8_t stack_buf[FAST_STACK_BUF];
+      uint8_t* heap_buf = nullptr;
+      uint8_t *tail_bytes = get_fast_buffer<uint8_t>(max_tail_len + 1, stack_buf, heap_buf);
+      BufferGuard<uint8_t> guard(heap_buf);
       tail.set_buf_max_len(tail_bytes, max_tail_len);
       uintxx_t node_id = read_from_ctx(ctx, tail);
       while (node_id < node_count) {
@@ -1717,9 +1719,6 @@ class static_trie : public inner_trie {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
                 if (ctx.cur_idx == 0) {
-                  #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-                  delete [] tail_bytes;
-                  #endif
                   return -2;
                 }
                 node_id = pop_from_ctx(ctx, tail);
@@ -1739,9 +1738,6 @@ class static_trie : public inner_trie {
             if (key_buf != nullptr)
               memcpy(key_buf, ctx.key, ctx.key_len);
             ctx.to_skip_first_leaf = true;
-            #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-            delete [] tail_bytes;
-            #endif
             return ctx.key_len;
           }
         }
@@ -1757,9 +1753,6 @@ class static_trie : public inner_trie {
           push_to_ctx(ctx, tail, node_id);
         }
       }
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      delete [] tail_bytes;
-      #endif
       return -2;
     }
 
@@ -1807,11 +1800,10 @@ class static_trie : public inner_trie {
       in_ctx.key_len = prefix_len;
       in_ctx.node_id = 0;
       lookup(in_ctx);
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      uint8_t *tail_buf = new uint8_t[max_tail_len];
-      #else
-      uint8_t tail_buf[max_tail_len];
-      #endif
+      uint8_t stack_buf[FAST_STACK_BUF];
+      uint8_t* heap_buf = nullptr;
+      uint8_t *tail_buf = get_fast_buffer<uint8_t>(max_tail_len + 1, stack_buf, heap_buf);
+      BufferGuard<uint8_t> guard(heap_buf);
       ctx.cur_idx = 0;
       gen::byte_str tail(tail_buf, max_tail_len);
       uintxx_t node_id = in_ctx.node_id;
@@ -1835,9 +1827,6 @@ class static_trie : public inner_trie {
         ctx.last_tail_len[ctx.cur_idx] = 0;
         ctx.to_skip_first_leaf = false;
       }
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      delete [] tail_buf;
-      #endif
       return in_ctx.node_id;
     }
 
@@ -1971,7 +1960,6 @@ class value_retriever_base : public ptr_group_map {
 template<char pri_key>
 class value_retriever : public value_retriever_base {
   protected:
-    std::vector<uint8_t> prev_val;
     uintxx_t node_count;
     uintxx_t key_count;
     gen::int_bv_reader *int_ptr_bv = nullptr;
@@ -2647,12 +2635,10 @@ class uniq_text_retriever : public value_retriever<pri_key> {
         *out_str-- = *(t + pfx_len);
     }
     __fq1 __fq2 const uint8_t *get_text_val(uint8_t *val_loc, uint8_t grp_no, uint8_t *ret_val, size_t& val_len) {
-
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      uint8_t *val_str_buf = new uint8_t[Parent::max_len];
-      #else
-      uint8_t val_str_buf[Parent::max_len];
-      #endif
+      uint8_t stack_buf[FAST_STACK_BUF];
+      uint8_t* heap_buf = nullptr;
+      uint8_t *val_str_buf = get_fast_buffer<uint8_t>(Parent::max_len, stack_buf, heap_buf);
+      BufferGuard<uint8_t> guard(heap_buf);
       gen::byte_str val_str(val_str_buf, Parent::max_len);
       uint8_t *val_start = Parent::grp_data[grp_no];
       if (*val_start != 0)
@@ -2661,9 +2647,6 @@ class uniq_text_retriever : public value_retriever<pri_key> {
         get_val_str(val_str, (uintxx_t) (val_loc - val_start), grp_no, Parent::max_len);
       val_len = val_str.length();
       memcpy(ret_val, val_str.data(), val_len);
-      #if defined(__CUDA_ARCH__) || defined(__EMSCRIPTEN__) || defined(_WIN32)
-      delete [] val_str_buf;
-      #endif
       return ret_val;
     }
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
@@ -3018,6 +3001,41 @@ class static_trie_map : public static_trie {
         } break;
       }
       return inst;
+    }
+
+    typedef void (*emit_node_id_func)(void *, uintxx_t);
+    static __fq1 __fq2 void emit_rev_nids(static_trie_map *rev_trie_map, uintxx_t ct_node_id,
+            emit_node_id_func emit_nid_func, void *cb_ctx = nullptr) {
+      uint8_t ct_dummy[32];
+      mdx_val ct_val;
+      ct_val.txt_bin = ct_dummy;
+      size_t out_rev_len;
+      const uint8_t *ct_rev_key = rev_trie_map->get_col_val(ct_node_id, 1, &out_rev_len, ct_val); // , &ptr_count[col_val_idx]);
+      uintxx_t prev_nid = 0;
+      for (size_t ct_nid_ctr = 0; ct_nid_ctr < out_rev_len;) {
+         size_t nid_len;
+         uintxx_t nid_start = gen::read_vint32(ct_rev_key + ct_nid_ctr, &nid_len);
+         nid_start += (prev_nid << 1);
+         prev_nid = (nid_start >> 1) + 1;
+         // printf("main nid: %u, len: %lu, ", nid_start >> 1, nid_len);
+         emit_nid_func(cb_ctx, nid_start >> 1);
+         ct_nid_ctr += nid_len;
+         if (nid_start & 1) {
+            uintxx_t nid_end = gen::read_vint32(ct_rev_key + ct_nid_ctr, &nid_len);
+            nid_end += prev_nid;
+            nid_end++;
+            prev_nid = nid_end;
+            nid_start >>= 1;
+            nid_start++;
+            // printf("end nid: %u, len: %lu\n", nid_end, nid_len);
+            while (nid_start < nid_end) {
+               emit_nid_func(cb_ctx, nid_start);
+               nid_start++;
+            }
+            ct_nid_ctr += nid_len;
+         }
+         // printf("\n");
+      }
     }
 
     __fq1 __fq2 bool read_rev_node_list(uintxx_t ct_node_id, rev_nodes_ctx& rev_ctx) {
@@ -3376,7 +3394,6 @@ class static_trie_map : public static_trie {
       val_map = new value_retriever_base*[val_count]();
       for (size_t i = 0; i < val_count; i++) {
         val_map[i] = new_value_retriever(i, get_column_type(i), get_column_encoding(i));
-        uint64_t vl64 = cmn::read_uint64(val_table_loc + i * sizeof(uint64_t));
         if (i < pk_col_count) {
           uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
           uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
