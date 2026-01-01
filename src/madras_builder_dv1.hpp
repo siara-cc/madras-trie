@@ -2403,20 +2403,13 @@ class builder : public builder_fwd {
       uintxx_t node_id;
     } word_refs;
 
-    void add_rev_node_id(byte_vec& rev_nids, uintxx_t node_start, uintxx_t node_end, uintxx_t prev_node_start_id) {
-      if (node_start == 0)
-        return;
+    void add_rev_node_id(byte_vec& rev_nids, uintxx_t node_start, uintxx_t node_end, uintxx_t prev_node_id) {
       if (node_end != UINTXX_MAX) {
         node_end -= node_start;
         node_end--;
       }
-      if (node_start == prev_node_start_id) {
-        // printf("multiple words same node id: %u\n", node_start);
-        return;
-      }
-      node_start -= prev_node_start_id;
-      if (prev_node_start_id > 0)
-        node_start--;
+      node_start -= prev_node_id;
+      // printf("ns: %zu, ne: %zu, pnid: %zu\n", node_start, node_end, prev_node_id);
       gen::append_vint32(rev_nids, (node_start << 1) | (node_end != UINTXX_MAX ? 1 : 0));
       if (node_end != UINTXX_MAX)
          gen::append_vint32(rev_nids, node_end);
@@ -2438,8 +2431,7 @@ class builder : public builder_fwd {
       rev_col_vals->reset();
       rev_col_vals->push_back("\xFF\xFF", 2);
       uintxx_t prev_node_id = 0;
-      uintxx_t prev_node_start_id = 0;
-      uintxx_t node_start = 0;
+      uintxx_t node_start = UINTXX_MAX;
       uintxx_t node_end = UINTXX_MAX;
 
       uintxx_t tot_freq = 0;
@@ -2449,9 +2441,6 @@ class builder : public builder_fwd {
       uintxx_t prev_val_len = it->word_len;
       while (it != words_for_sort.end()) {
         int cmp = gen::compare(it->word_pos, it->word_len, prev_val, prev_val_len);
-        // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0) {
-        //   printf("[%.*s], nid: %u\n", (int) it->word_len, it->word_pos, it->node_id);
-        // }
         if (cmp != 0) {
           uniq_info_base *ui_ptr = new uniq_info_base({0, prev_val_len, (uintxx_t) uniq_words_vec.size()});
           ui_ptr->freq_count = freq_count;
@@ -2463,37 +2452,37 @@ class builder : public builder_fwd {
           prev_val_len = it->word_len;
               // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0)
               //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_start_id);
-              add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
-              // printf("Rev nids size: %lu\n", rev_nids.size());
+              add_rev_node_id(rev_nids, node_start, node_end, prev_node_id);
+              // if (memcmp(prev_val, (const uint8_t *) "Himalaya", gen::min(8, prev_val_len)) == 0)
+              //   printf("Rev nids size: %lu\n", rev_nids.size());
               ui_ptr->ptr = rev_col_vals->push_back_with_vlen(rev_nids.data(), rev_nids.size());
               // printf("Rev nids ptr\t%u\t%lu\n", ui_ptr->ptr, rev_nids.size());
               rev_nids.clear();
               prev_node_id = 0;
-              prev_node_start_id = 0;
               node_end = UINTXX_MAX;
-              node_start = 0;
+              node_start = UINTXX_MAX;
         }
+        // if (memcmp(it->word_pos, (const uint8_t *) "Himalaya", gen::min(8, it->word_len)) == 0) {
+        //   printf("[%.*s], nid: %u\n", (int) it->word_len, it->word_pos, it->node_id);
+        // }
         uintxx_t cur_node_id = it->node_id >> get_opts()->sec_idx_nid_shift_bits;
-        if (prev_node_id == 0) {
+        if (node_start == UINTXX_MAX) {
           node_start = cur_node_id;
-        } else if (cur_node_id - prev_node_id < 2) {
+        } else if (cur_node_id - (node_end == UINTXX_MAX ? node_start : node_end) < 2) {
           node_end = cur_node_id;
         } else {
-          // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0)
-          //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_start_id);
-          add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
-          prev_node_start_id = node_start;
-          if (node_end != UINTXX_MAX)
-            prev_node_start_id = node_end;
+          // if (memcmp(it->word_pos, (const uint8_t *) "Himalaya", gen::min(8, it->word_len)) == 0)
+          //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_id);
+          add_rev_node_id(rev_nids, node_start, node_end, prev_node_id);
+          prev_node_id = (node_end == UINTXX_MAX ? node_start : node_end) + 1;
           node_start = cur_node_id;
           node_end = UINTXX_MAX;
         }
-        prev_node_id = cur_node_id;
         freq_count++; // += it->freq;
         word_ptrs[it->word_ptr_pos] = uniq_words_vec.size();
         it++;
       }
-      add_rev_node_id(rev_nids, node_start, node_end, prev_node_start_id);
+      add_rev_node_id(rev_nids, node_start, node_end, prev_node_id);
       printf("Size of rev nids: %zu\n", rev_nids.size());
       uniq_info_base *ui_ptr = new uniq_info_base({0, prev_val_len, (uintxx_t) uniq_words_vec.size()});
       ui_ptr->freq_count = freq_count;
@@ -2697,16 +2686,20 @@ class builder : public builder_fwd {
       uintxx_t word_count_pos = word_ptrs.size();
       word_ptrs.push_back(0); // initially 0
       uintxx_t *word_positions = new uintxx_t[word_str_len];
-      uintxx_t word_count = word_splitter->split_into_words(word_str, word_str_len, word_positions, word_str_len);
+      splitter_result sr = word_splitter->split_into_words(word_str, word_str_len, word_str_len, word_positions);
+      word_positions[sr.word_count] = word_str_len;
       uintxx_t ref_id = 0;
-      for (size_t i = 0; i < word_count; i++) {
+      // printf("Word str: %.*s\n", word_str_len, word_str);
+      for (size_t i = 0; i < sr.word_count; i++) {
         ref_id = word_ptrs.size();
         word_ptrs.push_back(0);
-        words_for_sort.push_back((word_refs) {word_str + word_positions[i], word_positions[i + 1] - word_positions[i], ref_id, node_id});
+        uintxx_t word_len = word_positions[i + 1] - word_positions[i];
+        // printf("Word: %.*s, len: %zu\n", word_len, word_str + word_positions[i], word_len);
+        words_for_sort.push_back((word_refs) {word_str + word_positions[i], word_len, ref_id, node_id});
       }
-      if (max_word_count < word_count)
-        max_word_count = word_count;
-      word_ptrs[word_count_pos] = word_count;
+      if (max_word_count < sr.word_count)
+        max_word_count = sr.word_count;
+      word_ptrs[word_count_pos] = sr.word_count;
     }
 
     bool lookup_memtrie(const uint8_t *key, size_t key_len, leopard::node_set_vars& nsv) {

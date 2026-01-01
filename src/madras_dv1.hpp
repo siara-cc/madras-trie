@@ -2155,12 +2155,10 @@ class stored_val_retriever : public value_retriever<pri_key> {
         node_id_from++;
         vctx.bm_mask <<= 1;
       }
-      // unallocate any allocations as value is read directly
-      vctx.unallocate();
     }
     __fq1 __fq2 const uint8_t *get_val(uintxx_t node_id, size_t *in_size_out_value_len, mdx_val &ret_val) {
       val_ctx vctx;
-      vctx.init(8, false, false);
+      vctx.init(0, false, false);
       vctx.set_ptrs(&ret_val, in_size_out_value_len);
       fill_val_ctx(node_id, vctx);
       next_val(vctx);
@@ -3006,18 +3004,17 @@ class static_trie_map : public static_trie {
     typedef void (*emit_node_id_func)(void *, uintxx_t);
     static __fq1 __fq2 void emit_rev_nids(static_trie_map *rev_trie_map, uintxx_t ct_node_id,
             emit_node_id_func emit_nid_func, void *cb_ctx = nullptr) {
-      uint8_t ct_dummy[32];
       mdx_val ct_val;
-      ct_val.txt_bin = ct_dummy;
       size_t out_rev_len;
       const uint8_t *ct_rev_key = rev_trie_map->get_col_val(ct_node_id, 1, &out_rev_len, ct_val); // , &ptr_count[col_val_idx]);
+      // printf("Out rev len: %zu\n", out_rev_len);
       uintxx_t prev_nid = 0;
       for (size_t ct_nid_ctr = 0; ct_nid_ctr < out_rev_len;) {
          size_t nid_len;
          uintxx_t nid_start = gen::read_vint32(ct_rev_key + ct_nid_ctr, &nid_len);
          nid_start += (prev_nid << 1);
          prev_nid = (nid_start >> 1) + 1;
-         // printf("main nid: %u, len: %lu, ", nid_start >> 1, nid_len);
+        //  printf("main nid: %u, len: %lu, ", nid_start >> 1, nid_len);
          emit_nid_func(cb_ctx, nid_start >> 1);
          ct_nid_ctr += nid_len;
          if (nid_start & 1) {
@@ -3027,7 +3024,7 @@ class static_trie_map : public static_trie {
             prev_nid = nid_end;
             nid_start >>= 1;
             nid_start++;
-            // printf("end nid: %u, len: %lu\n", nid_end, nid_len);
+            // printf("end nid: %u, len: %lu", nid_end, nid_len);
             while (nid_start < nid_end) {
                emit_nid_func(cb_ctx, nid_start);
                nid_start++;
@@ -3035,6 +3032,32 @@ class static_trie_map : public static_trie {
             ct_nid_ctr += nid_len;
          }
          // printf("\n");
+      }
+    }
+
+    __fq1 __fq2 void shortlist_phrase_records(int col_idx, const char *phrase, size_t phrase_len,
+            emit_node_id_func emit_nid_func, void *cb_ctx = nullptr, word_split_iface *splitter = &dflt_word_splitter) {
+      splitter_result sr = splitter->split_into_words((const uint8_t *) phrase, phrase_len, UINT32_MAX);
+      const char *longest_word = phrase + sr.max_word_len_pos;
+      static_trie_map **stm_rev_tries = get_trie_groups(col_idx);
+      size_t trie_no = get_trie_start_group(col_idx);
+      size_t group_count = get_group_count(col_idx);
+      // printf("Group count: %zu\n", group_count);
+      // printf("Longest word: %zu, %.*s\n", sr.max_word_len, sr.max_word_len, longest_word);
+      madras_dv1::static_trie_map *cur_trie = nullptr;
+      while (trie_no < group_count) {
+        cur_trie = stm_rev_tries[trie_no];
+        iter_ctx it_ctx;
+        it_ctx.init(cur_trie->get_max_key_len(), cur_trie->get_max_level());
+        cur_trie->find_first((const uint8_t *) longest_word, sr.max_word_len, it_ctx, true);
+        int trie_key_len = cur_trie->next(it_ctx);
+        while (trie_key_len != 2 && memcmp(longest_word, it_ctx.key, sr.max_word_len) == 0) {
+          // printf("Trie key: %.*s, len: $zu\n", it_ctx.key_len, (const char *) it_ctx.key, it_ctx.key_len);
+          uintxx_t node_id = it_ctx.node_path[it_ctx.cur_idx];
+          emit_rev_nids(cur_trie, node_id, emit_nid_func, cb_ctx);
+          trie_key_len = cur_trie->next(it_ctx);
+        }
+        trie_no++;
       }
     }
 

@@ -216,9 +216,16 @@ const static bldr_options word_tries_dflt_opts =
 const static bldr_options inner_tries_dflt_opts =
   { true, false,  true, false, false, false, false,  true, false,  4,  3,  3, 127,  2,  3,  1, 16,  0,  0,  0, 1, 0, 64};
 
+typedef struct {
+  uintxx_t max_word_len;
+  uintxx_t max_word_len_pos;
+  uintxx_t word_count;
+} splitter_result;
+
 class word_split_iface {
   public:
-    virtual uintxx_t split_into_words(const uint8_t *str, uintxx_t str_len, uintxx_t *out_word_positions, uintxx_t max_word_count) = 0;
+    virtual splitter_result split_into_words(const uint8_t *str, uintxx_t str_len,
+      uintxx_t max_word_count, uintxx_t *out_word_positions = nullptr) = 0;
     virtual ~word_split_iface() {
     }
 };
@@ -230,25 +237,36 @@ class simple_word_splitter : public word_split_iface {
     void set_min_word_len(uintxx_t _min_len) {
       min_word_len = _min_len;
     }
-    uintxx_t split_into_words(const uint8_t *str, uintxx_t str_len, uintxx_t *out_word_positions, uintxx_t max_word_count) {
-      uintxx_t word_count = 0;
+    splitter_result split_into_words(const uint8_t *str, uintxx_t str_len, uintxx_t max_word_count, uintxx_t *out_word_positions = nullptr) {
+      splitter_result sr = {};
+      if (str_len == 0) return sr;
       uintxx_t last_word_len = 0;
-      bool is_prev_non_word = false;
-      out_word_positions[word_count++] = 0;
+      bool add_word = false;
+      if (out_word_positions != nullptr) out_word_positions[sr.word_count] = 0;
+      sr.word_count++;
       for (uintxx_t i = 0; i < str_len; i++) {
         uint8_t c = str[i];
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
-          if (is_prev_non_word && last_word_len >= min_word_len && word_count < max_word_count) {
-            out_word_positions[word_count++] = i;
-            is_prev_non_word = false;
+          if (add_word && last_word_len >= min_word_len && sr.word_count < max_word_count) {
+            if (sr.max_word_len < last_word_len) {
+              sr.max_word_len = last_word_len;
+              sr.max_word_len_pos = i - last_word_len;
+            }
+            if (out_word_positions != nullptr) out_word_positions[sr.word_count] = i;
+            sr.word_count++;
+            add_word = false;
             last_word_len = 0;
           }
         } else
-          is_prev_non_word = true;
+          add_word = true;
         last_word_len++;
       }
-      out_word_positions[word_count] = str_len;
-      return word_count;
+      if (sr.max_word_len < last_word_len) {
+        sr.max_word_len = last_word_len;
+        sr.max_word_len_pos = str_len - last_word_len;
+      }
+      if (out_word_positions != nullptr) out_word_positions[sr.word_count] = str_len;
+      return sr;
     }
 };
 simple_word_splitter dflt_word_splitter;
