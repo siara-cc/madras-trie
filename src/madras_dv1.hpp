@@ -3035,10 +3035,8 @@ class static_trie_map : public static_trie {
       }
     }
 
-    __fq1 __fq2 void shortlist_phrase_records(int col_idx, const char *phrase, size_t phrase_len,
-            emit_node_id_func emit_nid_func, void *cb_ctx = nullptr, word_split_iface *splitter = &dflt_word_splitter) {
-      splitter_result sr = splitter->split_into_words((const uint8_t *) phrase, phrase_len, UINT32_MAX);
-      const char *longest_word = phrase + sr.max_word_len_pos;
+    __fq1 __fq2 void shortlist_word_records(int col_idx, const char *word, size_t word_len,
+            emit_node_id_func emit_nid_func, void *cb_ctx = nullptr) {
       static_trie_map **stm_rev_tries = get_trie_groups(col_idx);
       size_t trie_no = get_trie_start_group(col_idx);
       size_t group_count = get_group_count(col_idx);
@@ -3049,9 +3047,9 @@ class static_trie_map : public static_trie {
         cur_trie = stm_rev_tries[trie_no];
         iter_ctx it_ctx;
         it_ctx.init(cur_trie->get_max_key_len(), cur_trie->get_max_level());
-        cur_trie->find_first((const uint8_t *) longest_word, sr.max_word_len, it_ctx, true);
+        cur_trie->find_first((const uint8_t *) word, word_len, it_ctx, true);
         int trie_key_len = cur_trie->next(it_ctx);
-        while (trie_key_len != 2 && memcmp(longest_word, it_ctx.key, sr.max_word_len) == 0) {
+        while (trie_key_len != 2 && memcmp(word, it_ctx.key, word_len) == 0) {
           // printf("Trie key: %.*s, len: %zu\n", it_ctx.key_len, (const char *) it_ctx.key, it_ctx.key_len);
           uintxx_t node_id = it_ctx.node_path[it_ctx.cur_idx];
           emit_rev_nids(cur_trie, node_id, emit_nid_func, cb_ctx);
