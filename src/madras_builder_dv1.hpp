@@ -621,6 +621,7 @@ class ptr_groups {
     }
     void write_grp_data(uintxx_t offset, bool is_tail, FILE* fp, byte_vec *out_vec) {
       int grp_count = grp_data.size() + inner_tries.size();
+      printf("Group count: %d\n", grp_count);
       output_byte(grp_count, fp, out_vec);
       if (inner_trie_start_grp > 0) {
         output_byte(inner_trie_start_grp - 1, fp, out_vec);
@@ -1042,20 +1043,53 @@ class tail_val_maps {
       // uintxx_t cumu_freq_idx = 0;
       //printf("%.1f\t%d\t%u\t%u\n", ceil(log2(freq_idx)), freq_idx, ftot, tail_len_tot);
       if (ptr_grps.inner_trie_start_grp == 0) {
-        std::sort(uniq_freq_vec.begin(), uniq_freq_vec.begin() + cumu_freq_idx, [](const struct uniq_info_base *lhs, const struct uniq_info_base *rhs) -> bool {
-          return (lhs->grp_no == rhs->grp_no) ? (lhs->arr_idx > rhs->arr_idx) : (lhs->grp_no < rhs->grp_no);
-        });
-        std::sort(uniq_freq_vec.begin() + cumu_freq_idx, uniq_freq_vec.end(), [](const struct uniq_info_base *lhs, const struct uniq_info_base *rhs) -> bool {
-          uintxx_t lhs_freq = lhs->freq_count / (lhs->len == 0 ? 1 : lhs->len);
-          uintxx_t rhs_freq = rhs->freq_count / (rhs->len == 0 ? 1 : rhs->len);
-          lhs_freq = ceil(log10(lhs_freq));
-          rhs_freq = ceil(log10(rhs_freq));
-          return (lhs_freq == rhs_freq) ? (lhs->arr_idx > rhs->arr_idx) : (lhs_freq > rhs_freq);
-        });
+
+          std::sort(
+              uniq_freq_vec.begin(),
+              uniq_freq_vec.begin() + cumu_freq_idx,
+              [](const uniq_info_base* lhs, const uniq_info_base* rhs) {
+                  if (lhs->grp_no != rhs->grp_no)
+                      return lhs->grp_no < rhs->grp_no;
+                  return lhs->arr_idx > rhs->arr_idx;
+              }
+          );
+
+          std::sort(
+              uniq_freq_vec.begin() + cumu_freq_idx,
+              uniq_freq_vec.end(),
+              [](const uniq_info_base* lhs, const uniq_info_base* rhs) {
+                  const uint64_t lhs_len = lhs->len ? lhs->len : 1;
+                  const uint64_t rhs_len = rhs->len ? rhs->len : 1;
+
+                  const uint64_t lhs_freq = lhs->freq_count / lhs_len;
+                  const uint64_t rhs_freq = rhs->freq_count / rhs_len;
+
+                  const uint64_t lhs_bucket = ceil_log10(lhs_freq);
+                  const uint64_t rhs_bucket = ceil_log10(rhs_freq);
+
+                  if (lhs_bucket != rhs_bucket)
+                      return lhs_bucket > rhs_bucket;
+
+                  return lhs->arr_idx > rhs->arr_idx;
+              }
+          );
+
       }
       t = gen::print_time_taken(t, "Time taken for uniq_freq: ");
       return cumu_freq_idx;
 
+    }
+
+    static inline uint64_t ceil_log10(uint64_t v) {
+        // v > 0 guaranteed
+        uint64_t p = 1;
+        uint64_t r = 0;
+
+        while (p < v) {
+            p *= 10;
+            ++r;
+        }
+        return r;
     }
 
     void check_remaining_text(uniq_info_vec& uniq_freq_vec, gen::byte_blocks& uniq_data, bool is_tail) {
@@ -1149,6 +1183,7 @@ class tail_val_maps {
               prev_ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
             continue;
           }
+          // printf("%lu, [%.*s]\n", ti->len, ti->len, uniq_data[ti->pos]);
           int cmp_ret = (is_tail ? 
             gen::compare_rev(uniq_data[prev_ti->pos], prev_ti->len, uniq_data[ti->pos], ti->len)
             : gen::compare(uniq_data[prev_ti->pos], prev_ti->len, uniq_data[ti->pos], ti->len));

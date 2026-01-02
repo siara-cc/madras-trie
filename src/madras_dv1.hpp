@@ -3052,7 +3052,7 @@ class static_trie_map : public static_trie {
         cur_trie->find_first((const uint8_t *) longest_word, sr.max_word_len, it_ctx, true);
         int trie_key_len = cur_trie->next(it_ctx);
         while (trie_key_len != 2 && memcmp(longest_word, it_ctx.key, sr.max_word_len) == 0) {
-          // printf("Trie key: %.*s, len: $zu\n", it_ctx.key_len, (const char *) it_ctx.key, it_ctx.key_len);
+          // printf("Trie key: %.*s, len: %zu\n", it_ctx.key_len, (const char *) it_ctx.key, it_ctx.key_len);
           uintxx_t node_id = it_ctx.node_path[it_ctx.cur_idx];
           emit_rev_nids(cur_trie, node_id, emit_nid_func, cb_ctx);
           trie_key_len = cur_trie->next(it_ctx);

@@ -22,5 +22,5 @@ clean:
 	rm run_tests
 	rm -rf run_tests.dSYM
 
-run_tests: run_tests_dv1.cpp src/common_dv1.hpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ../leopard-trie/src/leopard.hpp ../ds_common/src/*.hpp
+run_tests: run_tests_dv1.cpp src/common_dv1.hpp src/madras_dv1.hpp src/madras_builder_dv1.hpp ./src/leopard-trie/src/leopard.hpp ./src/ds_common/src/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++17 run_tests_dv1.cpp -o run_tests $(L_FLAGS) $(M_FLAGS)

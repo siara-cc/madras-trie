@@ -22,5 +22,5 @@ clean:
 	rm export_sqlite
 	rm -rf export_sqlite.dSYM
 
-export_sqlite: src/export_sqlite_dv1.cpp src/*.hpp ../leopard-trie/src/leopard.hpp ../ds_common/src/*.hpp
+export_sqlite: src/export_sqlite_dv1.cpp src/*.hpp ./src/leopard-trie/src/leopard.hpp ./src/ds_common/src/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) src/export_sqlite_dv1.cpp -o export_sqlite $(L_FLAGS)
