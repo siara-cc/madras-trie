@@ -1164,12 +1164,14 @@ int main(int argc, char* argv[]) {
           if (to_print_mismatch)
             printf("Trie value not found: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
         } else {
-          std::unique_ptr<uint64_t> rec_node_id(new uint64_t(node_id));
-          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, rec_node_id.get());
-          if (*rec_node_id != UINT64_MAX) {
+          uint64_t rec_node_id = node_id;
+          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, &rec_node_id);
+          if (rec_node_id != UINT64_MAX) {
             errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
-              printf("Col trie reverse lookup fail: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
+              size_t sql_val_len = 0;
+              const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
+              printf("Col trie reverse lookup fail: node_id: %" PRIuXX ", col: %zu, value: [%.*s] len: %zu\n", node_id, col_idx, (int) sql_val_len, sql_val, key_rec.size());
             }
           }
         }
