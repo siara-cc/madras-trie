@@ -15,7 +15,7 @@ debug: run_tests
 release: CXXFLAGS += -O2 -funroll-loops -DNDEBUG
 release: run_tests
 
-asan: CXXFLAGS += -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer
+asan: CXXFLAGS += -fno-inline -O0 -g -fsanitize=undefined,address -fno-omit-frame-pointer
 asan: run_tests
 
 clean:

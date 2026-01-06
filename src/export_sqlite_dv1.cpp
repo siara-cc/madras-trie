@@ -698,6 +698,15 @@ data_iface *data_iface::get_data_reader(const char *input_type) {
   return nullptr;
 }
 
+bool emit_nid_cb_func(void *ctx, uintxx_t node_id) {
+   uint64_t *rec_node_id = (uint64_t *) ctx;
+   if (*rec_node_id == static_cast<uint64_t>(node_id)) {
+    *rec_node_id = UINT64_MAX;
+    return true;
+   }
+   return false;
+}
+
 void print_usage() {
   printf("\nUsage: import_to_mdx <input_type> <file> <what_to_do> <in_file>\n");
   printf("              <out_file>  <table_or_select> <pk_cols>\n");
@@ -942,7 +951,7 @@ int main(int argc, char* argv[]) {
         break;
       ins_seq_id++;
       if ((ins_seq_id % 100000) == 0) {
-        printf(".");
+        putchar('.');
         fflush(stdout);
       }
     }
@@ -980,6 +989,7 @@ int main(int argc, char* argv[]) {
   int64_t int_sums[column_count];
   double dbl_sums[column_count];
   size_t errors[column_count];
+  bool has_error = false;
   memset(ptr_count, '\xFF', sizeof(uintxx_t) * column_count);
   memset(int_sums, '\0', sizeof(int64_t) * column_count);
   memset(dbl_sums, '\0', sizeof(double) * column_count);
@@ -1002,7 +1012,7 @@ int main(int argc, char* argv[]) {
       in_ctx.key_len = key_rec.size();
       bool is_found = stm.lookup(in_ctx);
       if (!is_found) {
-        errors[0]++;
+        errors[0]++; has_error = true;
         if (to_print_mismatch)
           printf("Key not found: nid: %" PRIuXX ", seq: %zu, len: %zu\n", in_ctx.node_id, ins_seq_id, key_rec.size());
         ins_seq_id++;
@@ -1010,9 +1020,8 @@ int main(int argc, char* argv[]) {
       }
       node_id = in_ctx.node_id;
     }
-    size_t col_val_idx = pk_col_count;
-    for (size_t i = pk_col_count; i < (imp_col_count - sec_col_count); i++) {
-      size_t sql_col_idx = col_positions[i];
+    for (size_t col_idx = pk_col_count; col_idx < (imp_col_count - sec_col_count); col_idx++) {
+      size_t sql_col_idx = col_positions[col_idx];
       char imp_col_type = storage_types[sql_col_idx];
       char encoding_type = encoding_types[sql_col_idx];
       if (data_reader->is_null(sql_col_idx)) {
@@ -1020,58 +1029,75 @@ int main(int argc, char* argv[]) {
         madras_dv1::mdx_val mv;
         mv.txt_bin = val_buf;
         size_t val_len = 8;
-        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         size_t null_value_len;
         uint8_t *null_value = stm.get_null_value(null_value_len);
         if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN) {
           if (val_len != null_value_len || memcmp(val_buf, null_value, null_value_len) != 0) {
-            errors[col_val_idx]++;
+            errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
-              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, val_buf, null_value_len);
+              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_idx, val_len, (int) val_len, val_buf, null_value_len);
               printf("%d, %d\n", val_buf[0], val_buf[1]);
             }
           }
         } else {
           int64_t i64 = mv.i64;
           if (i64 != INT64_MIN) {
-            errors[col_val_idx]++;
+            errors[col_idx]++; has_error = true;
             if (to_print_mismatch)
-              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A: %lld\n", node_id, ins_seq_id, col_val_idx, i64);
+              printf("Val not null: nid: %" PRIuXX ", seq: %lu, col: %lu, A: %lld\n", node_id, ins_seq_id, col_idx, i64);
           }
         }
       } else
       if (imp_col_type == MST_TEXT || imp_col_type == MST_BIN) {
         size_t sql_val_len = 0;
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
-        size_t val_len = stm.get_max_val_len(col_val_idx) + 1;
+        size_t val_len = stm.get_max_val_len(col_idx) + 1;
         uint8_t val_buf[val_len];
         madras_dv1::mdx_val mv;
         mv.txt_bin = val_buf;
-        const uint8_t *ret_buf = stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
+        const uint8_t *ret_buf = stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         if (sql_val == nullptr) {
           size_t empty_value_len;
           uint8_t *empty_value = stm.get_empty_value(empty_value_len);
           if (val_len != empty_value_len || memcmp(ret_buf, empty_value, empty_value_len) != 0) {
-            errors[col_val_idx]++;
+            errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
-              printf("Val not empty: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_val_idx, val_len, (int) val_len, ret_buf, empty_value_len);
+              printf("Val not empty: nid: %" PRIuXX ", seq: %lu, col: %lu, A:%lu,[%.*s]/%lu\n", node_id, ins_seq_id, col_idx, val_len, (int) val_len, ret_buf, empty_value_len);
               printf("%d, %d\n", ret_buf[0], ret_buf[1]);
             }
           }
         } else if (val_len != sql_val_len) {
-          errors[col_val_idx]++;
+          errors[col_idx]++; has_error = true;
           if (to_print_mismatch) {
-            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_idx, sql_val_len, val_len);
             printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
             printf("Found: [%.*s]\n", (int) val_len, ret_buf);
           }
         } else {
           if (memcmp(sql_val, ret_buf, val_len) != 0) {
-            errors[col_val_idx]++;
+            errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
-              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_idx, sql_val_len, val_len);
               printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
               printf("Found: [%.*s]\n", (int) val_len, ret_buf);
+            }
+          }
+        }
+        if (encoding_type == MSE_WORDS_2WAY) {
+          std::vector<uintxx_t> word_positions(sql_val_len + 1);
+          madras_dv1::splitter_result sr = madras_dv1::dflt_word_splitter.split_into_words(sql_val, sql_val_len,
+                    UINT32_MAX, word_positions.data());
+          for (size_t i = 0; i < sr.word_count; i++) {
+            uint64_t rec_node_id = node_id;
+            const char *word = (const char *) sql_val + word_positions[i];
+            size_t word_len = word_positions[i + 1] - word_positions[i];
+            stm.shortlist_word_records(col_idx, word, word_len, emit_nid_cb_func, &rec_node_id);
+            if (rec_node_id != UINT64_MAX) {
+              errors[col_idx]++; has_error = true;
+              if (to_print_mismatch) {
+                printf("Word reverse lookkup fail: %zu, [%.*s], [%.*s]\n", sql_val_len, (int) sql_val_len, sql_val, (int) word_len, word);
+              }
             }
           }
         }
@@ -1080,21 +1106,21 @@ int main(int argc, char* argv[]) {
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         char dt_txt[50];
         val_len = madras_dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), imp_col_type);
         if (val_len != sql_val_len) {
-          errors[col_val_idx]++;
+          errors[col_idx]++; has_error = true;
           if (to_print_mismatch) {
-            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+            printf("Val len mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_idx, sql_val_len, val_len);
             printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
             printf("Found: [%.*s]\n", (int) val_len, dt_txt);
           }
         } else {
           if (memcmp(sql_val, dt_txt, val_len) != 0) {
-            errors[col_val_idx]++;
+            errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
-              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_val_idx, sql_val_len, val_len);
+              printf("Val mismatch: nid: %" PRIuXX ", seq: %lu, col: %lu, E:%lu/A:%lu\n", node_id, ins_seq_id, col_idx, sql_val_len, val_len);
               printf("Expected: [%s]\n", (sql_val == nullptr ? "nullptr" : (const char *) sql_val));
               printf("Found: [%.*s]\n", (int) val_len, dt_txt);
             }
@@ -1104,33 +1130,60 @@ int main(int argc, char* argv[]) {
         int64_t sql_val = data_reader->get_i64(sql_col_idx);
         size_t val_len = 8;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         int64_t i64 = mv.i64;
         if (i64 != sql_val) {
-          errors[col_val_idx]++;
+          errors[col_idx]++; has_error = true;
           if (to_print_mismatch)
-            printf("Int not matching: nid: %" PRIuXX ", seq: %zu, col: %zu - e%lld:a%lld\n", node_id, ins_seq_id, col_val_idx, sql_val, i64);
+            printf("Int not matching: nid: %" PRIuXX ", seq: %zu, col: %zu - e%lld:a%lld\n", node_id, ins_seq_id, col_idx, sql_val, i64);
         }
-        int_sums[col_val_idx] += i64;
+        int_sums[col_idx] += i64;
       } else if (imp_col_type >= MST_DECV && imp_col_type <= MST_DEC9) {
         double sql_val = round_dbl(data_reader->get_dbl(sql_col_idx), imp_col_type);
         size_t val_len;
         madras_dv1::mdx_val mv;
-        stm.get_col_val(node_id, col_val_idx, &val_len, mv); // , &ptr_count[col_val_idx]);
+        stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         double dbl_val = mv.dbl;
         if (dbl_val != sql_val) {
-          errors[col_val_idx]++;
+          errors[col_idx]++; has_error = true;
           if (to_print_mismatch)
-            printf("Dbl not matching: nid: %" PRIuXX ", seq: %zu, col: %zu - e%lf:a%lf\n", node_id, ins_seq_id, col_val_idx, sql_val, dbl_val);
+            printf("Dbl not matching: nid: %" PRIuXX ", seq: %zu, col: %zu - e%lf:a%lf\n", node_id, ins_seq_id, col_idx, sql_val, dbl_val);
         }
-        dbl_sums[col_val_idx] += dbl_val;
+        dbl_sums[col_idx] += dbl_val;
       }
-      col_val_idx++;
+      if (encoding_type == MSE_TRIE_2WAY) {
+        gen::byte_vec key_rec;
+        data_reader->populate_values(values, value_lens, col_idx, imp_col_type, encoding_type, ins_seq_id, sql_col_idx);
+        mb.append_rec_value(imp_col_type, encoding_type, values[col_idx], value_lens[col_idx], key_rec, APPEND_REC_KEY_LAST);
+        in_ctx.key = key_rec.data();
+        in_ctx.key_len = key_rec.size();
+        madras_dv1::static_trie_map *col_trie = stm.get_col_trie_map(col_idx);
+        bool is_found = col_trie->lookup(in_ctx);
+        if (!is_found) {
+          errors[col_idx]++; has_error = true;
+          if (to_print_mismatch)
+            printf("Trie value not found: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
+        } else {
+          std::unique_ptr<uint64_t> rec_node_id(new uint64_t(node_id));
+          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, rec_node_id.get());
+          if (*rec_node_id != UINT64_MAX) {
+            errors[col_idx]++; has_error = true;
+            if (to_print_mismatch) {
+              printf("Col trie reverse lookup fail: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
+            }
+          }
+        }
+      }
     }
     // if (errors[0] > 0)
     //   printf("errors > 0: %lu\n", ins_seq_id);
     ins_seq_id++;
+    if ((ins_seq_id % 10000) == 0) {
+      putchar(has_error ? 'x' : '.');
+      fflush(stdout);
+    }
   }
+  printf("\n");
   printf("Totals:");
   for (int i = 0; i < stm_col_count; i++) {
     printf(" %s:", stm.get_column_name(i));
@@ -1150,6 +1203,8 @@ int main(int argc, char* argv[]) {
   }
   if (mm_count == 0)
     printf("No mismatch");
+  else
+    printf("Use `export MDX_PRINT_MISMATCH=yes` to print mismatches");
   printf("\n");
   // encoding_types = stm.get_column_encodings();
   // for (int i = 0; i < stm_col_count; i++) {

@@ -221,10 +221,9 @@ class val_ctx {
 };
 
 class iter_ctx {
-  private:
-    // __fq1 __fq2 iter_ctx(iter_ctx const&);
-    // __fq1 __fq2 iter_ctx& operator=(iter_ctx const&);
   public:
+    __fq1 __fq2 iter_ctx(iter_ctx const&) = delete;
+    __fq1 __fq2 iter_ctx& operator=(iter_ctx const&) = delete;
     int32_t cur_idx;
     uint16_t key_len;
     uint8_t *key;
@@ -802,8 +801,10 @@ class ptr_bits_reader {
       uint8_t *block_ptr = ptr_lt_loc + (node_id / nodes_per_ptr_block) * (ptr_lt_blk_width3 + lt_ptr_width);
       uintxx_t ptr_bit_count = gen::read_uint64(block_ptr) & (UINT64_MAX >> (64 - lt_ptr_width * 8));
       uintxx_t pos = (node_id / nodes_per_ptr_block_n) % (nodes_per_ptr_block / nodes_per_ptr_block_n);
-      if (pos)
-        ptr_bit_count += cmn::read_uint24(block_ptr + lt_ptr_width + --pos * 3);
+      if (pos) {
+        uintxx_t pbc_block_n = cmn::read_uint24(block_ptr + lt_ptr_width + --pos * 3);
+        ptr_bit_count += pbc_block_n;
+      }
       return ptr_bit_count;
     }
     __fq1 __fq2 ptr_bits_reader() {
@@ -3001,7 +3002,7 @@ class static_trie_map : public static_trie {
       return inst;
     }
 
-    typedef void (*emit_node_id_func)(void *, uintxx_t);
+    typedef bool (*emit_node_id_func)(void *, uintxx_t);
     static __fq1 __fq2 void emit_rev_nids(static_trie_map *rev_trie_map, uintxx_t ct_node_id,
             emit_node_id_func emit_nid_func, void *cb_ctx = nullptr) {
       mdx_val ct_val;
@@ -3015,7 +3016,7 @@ class static_trie_map : public static_trie {
          nid_start += (prev_nid << 1);
          prev_nid = (nid_start >> 1) + 1;
         //  printf("main nid: %u, len: %lu, ", nid_start >> 1, nid_len);
-         emit_nid_func(cb_ctx, nid_start >> 1);
+         if (emit_nid_func(cb_ctx, nid_start >> 1)) return;
          ct_nid_ctr += nid_len;
          if (nid_start & 1) {
             uintxx_t nid_end = gen::read_vint32(ct_rev_key + ct_nid_ctr, &nid_len);
@@ -3026,7 +3027,7 @@ class static_trie_map : public static_trie {
             nid_start++;
             // printf("end nid: %u, len: %lu", nid_end, nid_len);
             while (nid_start < nid_end) {
-               emit_nid_func(cb_ctx, nid_start);
+               if (emit_nid_func(cb_ctx, nid_start)) return;
                nid_start++;
             }
             ct_nid_ctr += nid_len;
@@ -3049,7 +3050,7 @@ class static_trie_map : public static_trie {
         it_ctx.init(cur_trie->get_max_key_len(), cur_trie->get_max_level());
         cur_trie->find_first((const uint8_t *) word, word_len, it_ctx, true);
         int trie_key_len = cur_trie->next(it_ctx);
-        while (trie_key_len != 2 && memcmp(word, it_ctx.key, word_len) == 0) {
+        while (trie_key_len != -2 && word_len <= it_ctx.key_len && memcmp(word, it_ctx.key, word_len) == 0) {
           // printf("Trie key: %.*s, len: %zu\n", it_ctx.key_len, (const char *) it_ctx.key, it_ctx.key_len);
           uintxx_t node_id = it_ctx.node_path[it_ctx.cur_idx];
           emit_rev_nids(cur_trie, node_id, emit_nid_func, cb_ctx);

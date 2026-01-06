@@ -17,11 +17,11 @@
 ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/amazon_products.db . products 0 tttt2i22iti TWTTTTTTTTT
 
 ~/git2/sqlite_dbs/allCountries.db countries 0 ---t--------------- dtttdduuuuuuuuuuuut 
-./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
-./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
-./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
-./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 1 ittt..ttttttttiiitt uWwwvvuuuuuuuuvvvuu
-./export_sqlite sqlite3 b ~/git2/sqlite_dbs/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 ittt77ttttttttiiitt dwwwdduuuuuuuuddduu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 ittt77ttttttttiiitt TWWWTTTTTTTTTTTTTTT
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 ittt..ttttttttiiitt uwwwvvuuuuuuuuvvvuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 1 ittt..ttttttttiiitt uWwwvvuuuuuuuuvvvuu
+./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT
 
 ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/census.db . surnames 2 itii22222222 uudddduuuuuu
 ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/census.db . surnames 0 itii22222222 utdddduuuuuu

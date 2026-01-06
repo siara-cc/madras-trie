@@ -703,9 +703,10 @@ class ptr_groups {
     }
     void append_plt_count16(uintxx_t *bit_counts, size_t u16_arr_count, char encoding_type) {
       for (size_t j = 0; j < u16_arr_count; j++) {
-        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB)
+        if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
+          if (bit_counts[j] > 16777215) std::cout << "UNEXPECTED: PTR_LOOKUP_TBL bit_count4 overflow: " << bit_counts[j] << std::endl;
           gen::append_uint24(bit_counts[j], ptr_lookup_tbl);
-        else
+        } else
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
     }
@@ -2485,11 +2486,11 @@ class builder : public builder_fwd {
           freq_count = 0;
           prev_val = it->word_pos;
           prev_val_len = it->word_len;
-              // if (memcmp(it->word_pos, (const uint8_t *) "Etching", 7) == 0)
-              //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_start_id);
               add_rev_node_id(rev_nids, node_start, node_end, prev_node_id);
-              // if (memcmp(prev_val, (const uint8_t *) "Himalaya", gen::min(8, prev_val_len)) == 0)
+              // if (memcmp(prev_val, (const uint8_t *) "Portugal (", gen::min(10, prev_val_len)) == 0) {
+              //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_id);
               //   printf("Rev nids size: %lu\n", rev_nids.size());
+              // }
               ui_ptr->ptr = rev_col_vals->push_back_with_vlen(rev_nids.data(), rev_nids.size());
               // printf("Rev nids ptr\t%u\t%lu\n", ui_ptr->ptr, rev_nids.size());
               rev_nids.clear();
@@ -2506,8 +2507,10 @@ class builder : public builder_fwd {
         } else if (cur_node_id - (node_end == UINTXX_MAX ? node_start : node_end) < 2) {
           node_end = cur_node_id;
         } else {
-          // if (memcmp(it->word_pos, (const uint8_t *) "Himalaya", gen::min(8, it->word_len)) == 0)
+          // if (memcmp(prev_val, (const uint8_t *) "Portugal (", gen::min(10, prev_val_len)) == 0) {
           //   printf("ns: %u, ne: %u, pns: %u\n", node_start, node_end, prev_node_id);
+          //   printf("Rev nids size: %lu\n", rev_nids.size());
+          // }
           add_rev_node_id(rev_nids, node_start, node_end, prev_node_id);
           prev_node_id = (node_end == UINTXX_MAX ? node_start : node_end) + 1;
           node_start = cur_node_id;
@@ -2720,7 +2723,7 @@ class builder : public builder_fwd {
       bool is_prev_non_word = false;
       uintxx_t word_count_pos = word_ptrs.size();
       word_ptrs.push_back(0); // initially 0
-      uintxx_t *word_positions = new uintxx_t[word_str_len];
+      uintxx_t *word_positions = new uintxx_t[word_str_len + 1];
       splitter_result sr = word_splitter->split_into_words(word_str, word_str_len, word_str_len, word_positions);
       word_positions[sr.word_count] = word_str_len;
       uintxx_t ref_id = 0;
@@ -4609,7 +4612,7 @@ class builder : public builder_fwd {
                   i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
                 }
                 i64 = allflic48::zigzag_encode(i64);
-                uint8_t v64[10];
+                uint8_t v64[16];
                 uint8_t *v_end = allflic48::simple_encode_single(i64, v64, 0);
                 value_len = (v_end - v64);
                 for (size_t vi = 0; vi < value_len; vi++)
@@ -4621,8 +4624,13 @@ class builder : public builder_fwd {
               rec.push_back(0);
               value_len = 1;
             } else {
-              gen::append_svint60(rec, value.i64);
-              value_len = gen::get_svint60_len(value.i64);
+              int64_t i64 = value.i64;
+              if (type >= MST_DEC0 && type <= MST_DEC9) {
+                double dbl = value.dbl;
+                i64 = static_cast<int64_t>(dbl * gen::pow10(type - MST_DEC0));
+              }
+              gen::append_svint60(rec, i64);
+              value_len = gen::get_svint60_len(i64);
             }
           }
         } break;
@@ -4683,7 +4691,7 @@ class builder : public builder_fwd {
         append_rec_value('*', 'T', sec_val, sec_rec.size(), rec, APPEND_REC_NOKEY);
       }
       if (pk_col_count == 0) {
-        uintxx_t val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size());
+        uintxx_t val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size(), 8);
         rec_pos_vec.push_back(val_pos);
         leopard::node_set_handler::create_node_set(memtrie.all_node_sets, 1);
         leopard::node_set_handler nsh(memtrie.all_node_sets, cur_seq_idx);
@@ -4713,7 +4721,7 @@ class builder : public builder_fwd {
           return true;
         }
         if (to_append) {
-          val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size());
+          val_pos = all_vals->push_back_with_vlen(rec.data(), rec.size(), 8);
           rec_pos_vec.push_back(val_pos);
           memtrie.insert(key_rec.data(), key_rec.size(), val_pos);
           if (exists)
