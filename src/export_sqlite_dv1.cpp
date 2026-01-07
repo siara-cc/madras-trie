@@ -699,10 +699,10 @@ data_iface *data_iface::get_data_reader(const char *input_type) {
 }
 
 bool emit_nid_cb_func(void *ctx, uintxx_t node_id) {
-   uint64_t *rec_node_id = (uint64_t *) ctx;
-   if (*rec_node_id == static_cast<uint64_t>(node_id)) {
-    *rec_node_id = UINT64_MAX;
-    return true;
+   uintxx_t *rec_node_id = (uintxx_t *) ctx;
+   if (*rec_node_id == node_id) {
+     *rec_node_id = UINTXX_MAX;
+     return true;
    }
    return false;
 }
@@ -1089,11 +1089,11 @@ int main(int argc, char* argv[]) {
           madras_dv1::splitter_result sr = madras_dv1::dflt_word_splitter.split_into_words(sql_val, sql_val_len,
                     UINT32_MAX, word_positions.data());
           for (size_t i = 0; i < sr.word_count; i++) {
-            uint64_t rec_node_id = node_id;
+            volatile uintxx_t rec_node_id = node_id;
             const char *word = (const char *) sql_val + word_positions[i];
             size_t word_len = word_positions[i + 1] - word_positions[i];
-            stm.shortlist_word_records(col_idx, word, word_len, emit_nid_cb_func, &rec_node_id);
-            if (rec_node_id != UINT64_MAX) {
+            stm.shortlist_word_records(col_idx, word, word_len, emit_nid_cb_func, (void *) &rec_node_id);
+            if (rec_node_id != UINTXX_MAX) {
               errors[col_idx]++; has_error = true;
               if (to_print_mismatch) {
                 printf("Word reverse lookkup fail: %zu, [%.*s], [%.*s]\n", sql_val_len, (int) sql_val_len, sql_val, (int) word_len, word);
@@ -1164,9 +1164,9 @@ int main(int argc, char* argv[]) {
           if (to_print_mismatch)
             printf("Trie value not found: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
         } else {
-          uint64_t rec_node_id = node_id;
-          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, &rec_node_id);
-          if (rec_node_id != UINT64_MAX) {
+          volatile uintxx_t rec_node_id = node_id;
+          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, (void *) &rec_node_id);
+          if (rec_node_id != UINTXX_MAX) {
             errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
               size_t sql_val_len = 0;
