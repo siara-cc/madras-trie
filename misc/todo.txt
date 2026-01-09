@@ -228,11 +228,11 @@ madras_flutter todos
 - Find not working after 64-bit
 
 + web_bridge
-- SQL interface
-- JDBC driver
++ SQL interface (duckdb)
+* JDBC driver (duckdb)
 - Implement 64 bit
-- CSV/NDJSON/XML export?
-- Rust / Go / Python / Java / .Net bindings
+* CSV/NDJSON/XML export? (duckdb)
+x Rust / Go / Python / Java / .Net bindings
 - ESP32 version
 
 - Fix grouping logic
@@ -245,8 +245,12 @@ madras_flutter todos
 - Standardise limits and format
 - Check release and leaks
 - Check null and empty values consistency
-- Verify date/time data types with data fusion
-- Use same format as arrow for null bitmaps
+x Verify date/time data types with data fusion
+
+- Use same format as duckdb for null bitmaps
+- Align to duckdb for date time format and types
+- Use 64 values (leaf id) for PK types?
+- CTAS for duckdb
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit
@@ -267,3 +271,4 @@ Issues:
 - ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/babynames.db . gendered_names 2+3 ittiti1 vuuvuvd MISMATCHES: per_100k_in_state: (119296),
 - bit_len = 0: 
 - Infinite loop: ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT 1
+- Aaliyahmarie not found select count(*) from read_madras('/Users/arun/git2/sqlite_dbs/babynames_pk.db.mdsi', no_index=true) where state ='US' and primary_sex='M';

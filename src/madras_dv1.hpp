@@ -1777,6 +1777,27 @@ class static_trie : public inner_trie {
       return max_tail_len;
     }
 
+    __fq1 __fq2 size_t extract_from_composite(const uint8_t *key, uintxx_t key_len, size_t idx, const char data_type, uintxx_t &out_len) {
+      size_t out_pos = 0;
+      out_len = 0;
+      for (int i = 0; i <= idx && out_pos < key_len; i++) {
+        if (data_type == MST_TEXT) {
+          out_len = 0;
+          while (out_pos + out_len < key_len && key[out_pos + out_len] != 0) out_len++;
+          out_len++;
+        } else if (data_type == MST_BIN || data_type == MST_DECV) {
+          out_len = key_len;
+          out_pos = out_len;
+        } else {
+          out_len = gen::read_svint60_len(key + out_pos);
+        }
+        out_pos += out_len;
+      }
+      out_pos -= out_len;
+      if (data_type == MST_TEXT) out_len--;
+      return out_pos;
+    }
+
     __fq1 __fq2 void insert_into_ctx(iter_ctx& ctx, gen::byte_str& tail, uintxx_t node_id) {
       insert_arr(ctx.node_path, ctx.cur_idx, 0, node_id);
       insert_arr(ctx.last_tail_len, ctx.cur_idx, 0, (uint16_t) tail.length());
@@ -2037,7 +2058,7 @@ class value_retriever : public value_retriever_base {
         vctx.ptr = (*int_ptr_bv)[ptr_pos];
         // if (vctx.grp_no < grp_idx_limit)
         //   ptr = read_ptr_from_idx(vctx.grp_no, ptr);
-        return grp_data[0] + vctx.ptr;
+        return grp_data[0] + vctx.ptr + 2;
       }
       if (vctx.ptr_bit_count == UINTXX_MAX)
         get_ptr_bit_count_val(vctx);
@@ -2169,14 +2190,28 @@ class stored_val_retriever : public value_retriever<pri_key> {
 
 template<char pri_key>
 class main_trie_retriever : public value_retriever<pri_key> {
+  private:
+    size_t col_idx;
+    uint16_t pk_col_count;
   public:
+    main_trie_retriever(size_t _col_idx, uint16_t _pk_col_count)
+      : col_idx (_col_idx), pk_col_count (_pk_col_count) {
+    }
     using Parent = value_retriever<pri_key>;
     __fq1 __fq2 virtual ~main_trie_retriever() {}
     __fq1 __fq2 bool next_val(val_ctx& vctx) {
-      uint8_t val_loc[16];
+      uint8_t val_loc[64];
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN)
         vctx.val->txt_bin = val_loc;
-      ((static_trie *) Parent::dict_obj)->reverse_lookup_from_node_id(vctx.node_id, vctx.val_len, vctx.val->txt_bin);
+      static_trie *stm = (static_trie *) Parent::dict_obj;
+      stm->reverse_lookup_from_node_id(vctx.node_id, vctx.val_len, vctx.val->txt_bin);
+      if (pk_col_count > 1) {
+        size_t val_pos;
+        uintxx_t val_len;
+        val_pos = stm->extract_from_composite(vctx.val->txt_bin, *vctx.val_len, col_idx, Parent::data_type, val_len);
+        if (val_pos > 0) memmove(vctx.val->txt_bin, vctx.val->txt_bin + val_pos, val_len);
+        *vctx.val_len = val_len;
+      }
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
         cmn::convert_back(Parent::data_type, vctx.val->txt_bin, *vctx.val, vctx.val_len);
       }
@@ -2895,6 +2930,14 @@ class static_trie_map : public static_trie {
       if (col_val_idx < pk_col_count) { // TODO: Extract from composite keys,Convert numbers back
         if (!reverse_lookup_from_node_id(node_id, in_size_out_value_len, val.txt_bin))
           return nullptr;
+        if (pk_col_count > 1) {
+          size_t val_pos;
+          uintxx_t val_len;
+          char col_data_type = get_column_type(col_val_idx);
+          val_pos = extract_from_composite(val.txt_bin, *in_size_out_value_len, col_val_idx, col_data_type, val_len);
+          if (val_pos > 0) memmove(val.txt_bin, val.txt_bin + val_pos, val_len);
+          *in_size_out_value_len = val_len;
+        }
         cmn::convert_back(get_column_type(col_val_idx), val.txt_bin, val, in_size_out_value_len);
         return (const uint8_t *) val.txt_bin;
       }
@@ -3334,7 +3377,7 @@ class static_trie_map : public static_trie {
       value_retriever_base *val_retriever = nullptr;
       if (col_idx < pk_col_count) {
         encoding_type = MSE_TRIE;
-        val_retriever = new main_trie_retriever<'Y'>();
+        val_retriever = new main_trie_retriever<'Y'>(col_idx, pk_col_count);
         return val_retriever;
       }
       switch (encoding_type) {
