@@ -5,8 +5,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "src/madras_dv1.hpp"
-#include "src/madras_builder_dv1.hpp"
+#include "src/dv1/reader/static_trie_map.hpp"
+#include "src/dv1/builder/madras_builder.hpp"
 
 #include "../ds_common/src/vint.hpp"
 

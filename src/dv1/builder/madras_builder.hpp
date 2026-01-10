@@ -16,7 +16,7 @@
 #include <time.h>
 #include <functional> // for std::function
 
-#include "common_dv1.hpp"
+#include "../common.hpp"
 #include "leopard-trie/src/leopard.hpp"
 
 #include "allflic48/src/allflic48.hpp"
@@ -621,7 +621,6 @@ class ptr_groups {
     }
     void write_grp_data(uintxx_t offset, bool is_tail, FILE* fp, byte_vec *out_vec) {
       int grp_count = grp_data.size() + inner_tries.size();
-      printf("Group count: %d\n", grp_count);
       output_byte(grp_count, fp, out_vec);
       if (inner_trie_start_grp > 0) {
         output_byte(inner_trie_start_grp - 1, fp, out_vec);

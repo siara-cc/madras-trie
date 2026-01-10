@@ -1,5 +1,5 @@
-#ifndef common_hpp
-#define common_hpp
+#ifndef __DV1_COMMON_HPP
+#define __DV1_COMMON_HPP
 
 #include <sstream>
 #include <stdint.h>

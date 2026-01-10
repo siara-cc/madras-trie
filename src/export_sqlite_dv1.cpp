@@ -17,8 +17,8 @@
 
 #include "ds_common/src/gen.hpp"
 
-#include "madras_dv1.hpp"
-#include "madras_builder_dv1.hpp"
+#include "static_trie_map.hpp"
+#include "madras_builder.hpp"
 
 #define DO_IMPORT 'i'
 #define DO_VERIFY 'v'
