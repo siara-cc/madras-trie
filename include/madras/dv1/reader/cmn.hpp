@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 
-#include "../common.hpp"
+#include "madras/dv1/common.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -27,7 +27,7 @@
 #endif
 #include <stdint.h>
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 // Function qualifiers
 #ifndef __fq1
@@ -257,6 +257,6 @@ class cmn {
     }
 };
 
-}
+}}
 
 #endif

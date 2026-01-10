@@ -15,10 +15,8 @@
 #include <sqlite3.h>
 #include <duckdb.h>
 
-#include "ds_common/src/gen.hpp"
-
-#include "static_trie_map.hpp"
-#include "madras_builder.hpp"
+#include "madras/dv1/reader/static_trie_map.hpp"
+#include "madras/dv1/builder/madras_builder.hpp"
 
 #define DO_IMPORT 'i'
 #define DO_VERIFY 'v'
@@ -55,7 +53,7 @@ class data_iface {
     virtual int col_type(size_t col_idx) = 0;
     virtual bool next() = 0;
     virtual bool is_null(size_t col_idx) = 0;
-    virtual void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) = 0;
+    virtual void populate_values(madras::dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) = 0;
     virtual int64_t get_i64(size_t col_idx) = 0;
     virtual double get_dbl(size_t col_idx) = 0;
     virtual const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) = 0;
@@ -109,7 +107,7 @@ class sqlite_reader : public data_iface {
     bool next() {
       return sqlite3_step(stmt) == SQLITE_ROW;
     }
-    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
+    void populate_values(madras::dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
       int64_t s64;
       double dbl;
       if (sqlite3_column_type(stmt, sql_col_idx) == SQLITE_NULL) {
@@ -128,7 +126,7 @@ class sqlite_reader : public data_iface {
         value_lens[imp_col_idx] = sqlite3_column_bytes(stmt, sql_col_idx);
       } else if (imp_col_type >= MST_DATE_US && imp_col_type <= MST_DATETIME_ISOT_MS) {
         const uint8_t *dt_txt_db = sqlite3_column_text(stmt, sql_col_idx);
-        int64_t dt_val = madras_dv1::dt_str_to_i64(dt_txt_db, imp_col_type);
+        int64_t dt_val = madras::dv1::dt_str_to_i64(dt_txt_db, imp_col_type);
         values[imp_col_idx].i64 = dt_val;
         value_lens[imp_col_idx] = 8;
       } else if (imp_col_type == MST_INT) {
@@ -232,7 +230,7 @@ class duckdb_reader : public data_iface {
       return false;
     }
 
-    void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
+    void populate_values(madras::dv1::mdx_val_in *values, size_t *value_lens, size_t imp_col_idx, char imp_col_type, char encoding_type, size_t ins_seq_id, size_t sql_col_idx) {
       int64_t s64;
       double dbl;
       if (duckdb_value_is_null(&result, sql_col_idx, current_row - 1)) {
@@ -251,7 +249,7 @@ class duckdb_reader : public data_iface {
         value_lens[imp_col_idx] = strlen((const char *)values[imp_col_idx].txt_bin);
       } else if (imp_col_type >= MST_DATE_US && imp_col_type <= MST_DATETIME_ISOT_MS) {
         const char *dt_txt_db = duckdb_value_varchar(&result, sql_col_idx, current_row - 1);
-        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)dt_txt_db, imp_col_type);
+        int64_t dt_val = madras::dv1::dt_str_to_i64((const uint8_t *)dt_txt_db, imp_col_type);
         values[imp_col_idx].i64 = dt_val;
         value_lens[imp_col_idx] = 8;
       } else if (imp_col_type == MST_INT) {
@@ -405,7 +403,7 @@ public:
     return true;
   }
 
-  void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
+  void populate_values(madras::dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
                        char exp_col_type, char encoding_type, size_t ins_seq_id, size_t col_idx) {
     if (col_idx >= current_row.size()) {
       values[exp_col_idx].i64 = 0;
@@ -415,8 +413,8 @@ public:
     const std::string &cell = current_row[col_idx];
     if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
       if (strncmp(cell.data(), "\\N", 2) == 0) {
-        values[exp_col_idx].txt_bin = madras_dv1::NULL_VALUE;
-        value_lens[exp_col_idx] = madras_dv1::NULL_VALUE_LEN;
+        values[exp_col_idx].txt_bin = madras::dv1::NULL_VALUE;
+        value_lens[exp_col_idx] = madras::dv1::NULL_VALUE_LEN;
       } else {
         values[exp_col_idx].txt_bin = (const uint8_t *) cell.data();
         value_lens[exp_col_idx] = cell.size();
@@ -425,7 +423,7 @@ public:
       if (strncmp(cell.c_str(), "\\N", 2) == 0)
         values[exp_col_idx].i64 = INT64_MIN;
       else {
-        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
+        int64_t dt_val = madras::dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
         values[exp_col_idx].i64 = dt_val;
         value_lens[exp_col_idx] = 8;
       }
@@ -480,8 +478,8 @@ public:
 
   const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) {
     if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0) {
-      col_len = madras_dv1::NULL_VALUE_LEN;
-      return madras_dv1::NULL_VALUE;
+      col_len = madras::dv1::NULL_VALUE_LEN;
+      return madras::dv1::NULL_VALUE;
     }
     const std::string &cell = current_row[col_idx];
     col_len = cell.size();
@@ -589,7 +587,7 @@ public:
     return is_next;
   }
 
-  void populate_values(madras_dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
+  void populate_values(madras::dv1::mdx_val_in *values, size_t *value_lens, size_t exp_col_idx,
                        char exp_col_type, char encoding_type, size_t ins_seq_id, size_t col_idx) {
     if (col_idx >= current_row.size()) {
       values[exp_col_idx].i64 = 0;
@@ -599,8 +597,8 @@ public:
     const std::string &cell = current_row[col_idx];
     if (exp_col_type == MST_TEXT || exp_col_type == MST_BIN) {
       if (strncmp(cell.data(), "\\N", 2) == 0) {
-        values[exp_col_idx].txt_bin = madras_dv1::NULL_VALUE;
-        value_lens[exp_col_idx] = madras_dv1::NULL_VALUE_LEN;
+        values[exp_col_idx].txt_bin = madras::dv1::NULL_VALUE;
+        value_lens[exp_col_idx] = madras::dv1::NULL_VALUE_LEN;
       } else {
         values[exp_col_idx].txt_bin = (const uint8_t *) cell.data();
         value_lens[exp_col_idx] = cell.size();
@@ -609,7 +607,7 @@ public:
       if (strncmp(cell.c_str(), "\\N", 2) == 0)
         values[exp_col_idx].i64 = INT64_MIN;
       else {
-        int64_t dt_val = madras_dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
+        int64_t dt_val = madras::dv1::dt_str_to_i64((const uint8_t *)cell.data(), exp_col_type);
         values[exp_col_idx].i64 = dt_val;
         value_lens[exp_col_idx] = 8;
       }
@@ -664,8 +662,8 @@ public:
 
   const uint8_t *get_text_bin(size_t col_idx, size_t &col_len) {
     if (strncmp(current_row[col_idx].data(), "\\N", 2) == 0) {
-      col_len = madras_dv1::NULL_VALUE_LEN;
-      return madras_dv1::NULL_VALUE;
+      col_len = madras::dv1::NULL_VALUE_LEN;
+      return madras::dv1::NULL_VALUE;
     }
     const std::string &cell = current_row[col_idx];
     col_len = cell.size();
@@ -919,15 +917,15 @@ int main(int argc, char* argv[]) {
 
   size_t imp_col_idx = 0;
   size_t ins_seq_id = 0;
-  madras_dv1::mdx_val_in values[imp_col_count];
+  madras::dv1::mdx_val_in values[imp_col_count];
   size_t value_lens[imp_col_count];
 
-  madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
+  madras::dv1::bldr_options bldr_opts = madras::dv1::dflt_opts;
   bldr_opts.inner_tries = true;
   bldr_opts.sort_nodes_on_freq = false;
-  madras_dv1::builder mb(out_file.c_str(), column_names.c_str(), imp_col_count, 
+  madras::dv1::builder mb(out_file.c_str(), column_names.c_str(), imp_col_count, 
       col_types.c_str(), col_encodings.c_str(), 0, pk_col_count,
-      &bldr_opts, &madras_dv1::dflt_word_splitter, sk_col_positions);
+      &bldr_opts, &madras::dv1::dflt_word_splitter, sk_col_positions);
 
   if (what_to_do == DO_IMPORT || what_to_do == DO_BOTH) {
     mb.set_print_enabled();
@@ -963,7 +961,7 @@ int main(int argc, char* argv[]) {
     t = print_time_taken(t, "Time taken for build: ");
   }
 
-  madras_dv1::static_trie_map stm;
+  madras::dv1::static_trie_map stm;
   stm.load(out_file.c_str());
   printf("Tbl name: %s\n", stm.get_table_name());
   printf("Col types: %s\n", stm.get_column_types());
@@ -983,7 +981,7 @@ int main(int argc, char* argv[]) {
     data_reader->reset();
 
   ins_seq_id = 0;
-  madras_dv1::input_ctx in_ctx;
+  madras::dv1::input_ctx in_ctx;
   uint8_t *key = new uint8_t[stm.get_max_key_len()];
   uintxx_t ptr_count[column_count];
   int64_t int_sums[column_count];
@@ -1026,7 +1024,7 @@ int main(int argc, char* argv[]) {
       char encoding_type = encoding_types[sql_col_idx];
       if (data_reader->is_null(sql_col_idx)) {
         uint8_t val_buf[stm.get_max_val_len()];
-        madras_dv1::mdx_val mv;
+        madras::dv1::mdx_val mv;
         mv.txt_bin = val_buf;
         size_t val_len = 8;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
@@ -1054,7 +1052,7 @@ int main(int argc, char* argv[]) {
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
         size_t val_len = stm.get_max_val_len(col_idx) + 1;
         uint8_t val_buf[val_len];
-        madras_dv1::mdx_val mv;
+        madras::dv1::mdx_val mv;
         mv.txt_bin = val_buf;
         const uint8_t *ret_buf = stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         if (sql_val == nullptr) {
@@ -1086,7 +1084,7 @@ int main(int argc, char* argv[]) {
         }
         if (encoding_type == MSE_WORDS_2WAY) {
           std::vector<uintxx_t> word_positions(sql_val_len + 1);
-          madras_dv1::splitter_result sr = madras_dv1::dflt_word_splitter.split_into_words(sql_val, sql_val_len,
+          madras::dv1::splitter_result sr = madras::dv1::dflt_word_splitter.split_into_words(sql_val, sql_val_len,
                     UINT32_MAX, word_positions.data());
           for (size_t i = 0; i < sr.word_count; i++) {
             volatile uintxx_t rec_node_id = node_id;
@@ -1105,10 +1103,10 @@ int main(int argc, char* argv[]) {
         size_t sql_val_len = 0;
         const uint8_t *sql_val = data_reader->get_text_bin(sql_col_idx, sql_val_len);
         size_t val_len = 8;
-        madras_dv1::mdx_val mv;
+        madras::dv1::mdx_val mv;
         stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         char dt_txt[50];
-        val_len = madras_dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), imp_col_type);
+        val_len = madras::dv1::dt_i64_to_str(mv.i64, dt_txt, sizeof(dt_txt), imp_col_type);
         if (val_len != sql_val_len) {
           errors[col_idx]++; has_error = true;
           if (to_print_mismatch) {
@@ -1129,7 +1127,7 @@ int main(int argc, char* argv[]) {
       } else if (imp_col_type == MST_INT) {
         int64_t sql_val = data_reader->get_i64(sql_col_idx);
         size_t val_len = 8;
-        madras_dv1::mdx_val mv;
+        madras::dv1::mdx_val mv;
         stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         int64_t i64 = mv.i64;
         if (i64 != sql_val) {
@@ -1141,7 +1139,7 @@ int main(int argc, char* argv[]) {
       } else if (imp_col_type >= MST_DECV && imp_col_type <= MST_DEC9) {
         double sql_val = round_dbl(data_reader->get_dbl(sql_col_idx), imp_col_type);
         size_t val_len;
-        madras_dv1::mdx_val mv;
+        madras::dv1::mdx_val mv;
         stm.get_col_val(node_id, col_idx, &val_len, mv); // , &ptr_count[col_idx]);
         double dbl_val = mv.dbl;
         if (dbl_val != sql_val) {
@@ -1157,7 +1155,7 @@ int main(int argc, char* argv[]) {
         mb.append_rec_value(imp_col_type, encoding_type, values[col_idx], value_lens[col_idx], key_rec, APPEND_REC_KEY_LAST);
         in_ctx.key = key_rec.data();
         in_ctx.key_len = key_rec.size();
-        madras_dv1::static_trie_map *col_trie = stm.get_col_trie_map(col_idx);
+        madras::dv1::static_trie_map *col_trie = stm.get_col_trie_map(col_idx);
         bool is_found = col_trie->lookup(in_ctx);
         if (!is_found) {
           errors[col_idx]++; has_error = true;
@@ -1165,7 +1163,7 @@ int main(int argc, char* argv[]) {
             printf("Trie value not found: node_id: %" PRIuXX ", col: %zu, len: %zu\n", node_id, col_idx, key_rec.size());
         } else {
           volatile uintxx_t rec_node_id = node_id;
-          madras_dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, (void *) &rec_node_id);
+          madras::dv1::static_trie_map::emit_rev_nids(col_trie, in_ctx.node_id, emit_nid_cb_func, (void *) &rec_node_id);
           if (rec_node_id != UINTXX_MAX) {
             errors[col_idx]++; has_error = true;
             if (to_print_mismatch) {
@@ -1212,7 +1210,7 @@ int main(int argc, char* argv[]) {
   // for (int i = 0; i < stm_col_count; i++) {
   //   char encoding_type = encoding_types[i];
   //   if (encoding_type == 'T') {
-  //     madras_dv1::static_trie_map stm_ct = stm.get_col_trie_map(i);
+  //     madras::dv1::static_trie_map stm_ct = stm.get_col_trie_map(i);
   //     printf("%s\n", stm_ct.get_table_name());
   //   }
   // }

@@ -6,7 +6,7 @@
 #include "pointers.hpp"
 #include "static_trie.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 template<char param>
 constexpr char template_val() {
@@ -1132,7 +1132,7 @@ class static_trie_map : public static_trie {
       size_t group_count = get_group_count(col_idx);
       // printf("Group count: %zu\n", group_count);
       // printf("Longest word: %zu, %.*s\n", sr.max_word_len, sr.max_word_len, longest_word);
-      madras_dv1::static_trie_map *cur_trie = nullptr;
+      static_trie_map *cur_trie = nullptr;
       while (trie_no < group_count) {
         cur_trie = stm_rev_tries[trie_no];
         iter_ctx it_ctx;
@@ -1525,6 +1525,6 @@ class static_trie_map : public static_trie {
     }
 };
 
-}
+}}
 
 #endif

@@ -26,7 +26,7 @@
 #include "ds_common/src/vint.hpp"
 #include "ds_common/src/huffman.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 #define MDX_AFFIX_FULL 0x01
 #define MDX_AFFIX_PARTIAL 0x02
@@ -4733,7 +4733,7 @@ class builder : public builder_fwd {
 
 };
 
-}
+}}
 
 // 1xxxxxxx 1xxxxxxx 1xxxxxxx 01xxxxxx
 // 16 - followed by pointer

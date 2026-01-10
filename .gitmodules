@@ -1,9 +1,0 @@
-[submodule "src/ds_common"]
-	path = src/ds_common
-	url = https://github.com/siara-cc/ds_common
-[submodule "src/allflic48"]
-	path = src/allflic48
-	url = https://github.com/siara-cc/allflic48
-[submodule "src/leopard-trie"]
-	path = src/leopard-trie
-	url = https://github.com/siara-cc/leopard-trie

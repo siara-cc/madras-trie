@@ -29,7 +29,7 @@
 #define __gq2
 #endif
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class iter_ctx {
   public:
@@ -1153,6 +1153,7 @@ class cleanup : public cleanup_interface {
     }
 };
 
-}
+}}
+
 #endif
 

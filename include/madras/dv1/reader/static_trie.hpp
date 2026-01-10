@@ -13,11 +13,11 @@
 #include "cmn.hpp"
 #include "ifaces.hpp"
 #include "leapfrog.hpp"
-#include "tail_ptrs.hpp"
 #include "lt_builder.hpp"
 #include "trie_caches.hpp"
+#include "tail_pointers.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 struct trie_flags {
   uint64_t bm_ptr;
@@ -632,6 +632,6 @@ class static_trie : public inner_trie {
 
 };
 
-}
+}}
 
 #endif

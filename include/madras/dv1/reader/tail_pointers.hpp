@@ -6,7 +6,7 @@
 #include "pointers.hpp"
 #include "rank_select.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class tail_ptr_map {
   private:
@@ -238,6 +238,6 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map {
     }
 };
 
-}
+}}
 
 #endif

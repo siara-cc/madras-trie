@@ -13,7 +13,7 @@ BEGIN_IGNORE_UNUSED_FUNCTION
 #include "allflic48/src/allflic48.hpp"
 END_IGNORE_UNUSED_FUNCTION
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 #ifndef UINTXX_WIDTH
 #define UINTXX_WIDTH 32
@@ -372,6 +372,6 @@ inline T* get_fast_buffer(std::size_t required_len, T* stack_buf, T*& heap_buf) 
     return heap_buf;
 }
 
-}
+}}
 
 #endif

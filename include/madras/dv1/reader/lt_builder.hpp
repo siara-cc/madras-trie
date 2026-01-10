@@ -3,7 +3,7 @@
 
 #include "cmn.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
     class lt_builder {
   private:
@@ -191,6 +191,6 @@ namespace madras_dv1 {
     }
 };
 
-}
+}}
 
 #endif

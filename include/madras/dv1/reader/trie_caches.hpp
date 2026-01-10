@@ -2,9 +2,9 @@
 #define __DV1_READER_TRIE_CACHES__
 
 #include "ifaces.hpp"
-#include "../common.hpp"
+#include "madras/dv1/common.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class GCFC_fwd_cache {
   private:
@@ -97,6 +97,6 @@ class GCFC_rev_cache {
     }
 };
 
-}
+}}
 
 #endif

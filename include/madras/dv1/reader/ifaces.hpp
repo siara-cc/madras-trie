@@ -4,7 +4,7 @@
 #include "cmn.hpp"
 #include "rank_select.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class val_ctx {
   public:
@@ -131,6 +131,6 @@ class inner_trie_fwd {
     __fq1 __fq2 virtual inner_trie_fwd *new_instance(uint8_t *mem) = 0;
 };
 
-}
+}}
 
 #endif

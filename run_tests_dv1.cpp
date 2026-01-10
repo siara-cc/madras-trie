@@ -5,8 +5,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "src/dv1/reader/static_trie_map.hpp"
-#include "src/dv1/builder/madras_builder.hpp"
+#include "madras/dv1/reader/static_trie_map.hpp"
+#include "madras/dv1/builder/madras_builder.hpp"
 
 #include "../ds_common/src/vint.hpp"
 
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
   printf("tries: %d, Asc? %d, Leapfrog?: %d, Int?: %d, Max Grps: %d, Sfx coding: %d\n",
       inner_trie_count, asc, leapfrog, as_int, max_groups, suffix_coding);
 
-  madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
+  madras::dv1::bldr_options bldr_opts = madras::dv1::dflt_opts;
   bldr_opts.max_inner_tries = inner_trie_count;
   bldr_opts.max_groups = max_groups;
   bldr_opts.sort_nodes_on_freq = asc ? 0 : 1;
@@ -53,13 +53,13 @@ int main(int argc, char *argv[]) {
   if (argc > 2)
    what = atoi(argv[2]);
 
-  madras_dv1::builder *sb;
+  madras::dv1::builder *sb;
   if (what == 0)
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "ttii", "uuuu", 0, 1, &bldr_opts);
+    sb = new madras::dv1::builder(argv[1], "kv_table,Key,Value,Len,chksum", 4, "ttii", "uuuu", 0, 1, &bldr_opts);
   else if (what == 1) // Process only key
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
+    sb = new madras::dv1::builder(argv[1], "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
   else if (what == 2) // Insert key as value to compare trie and prefix coding
-    sb = new madras_dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu", 0, 1, &bldr_opts);
+    sb = new madras::dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu", 0, 1, &bldr_opts);
   sb->set_print_enabled(true);
   vector<pair<uint8_t *, uint32_t>> lines;
 
@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
         key_len = isize;
       }
       if (what == 0 || what == 2) {
-        madras_dv1::mdx_val_in values[4];
+        madras::dv1::mdx_val_in values[4];
         size_t value_lens[4];
         values[0].txt_bin = key;
         value_lens[0] = key_len;
@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
   bool nodes_sorted_on_freq = sb->opts->sort_nodes_on_freq;
   delete sb;
 
-  madras_dv1::static_trie_map trie_reader;
+  madras::dv1::static_trie_map trie_reader;
   trie_reader.set_print_enabled(true);
   trie_reader.load(out_file.c_str());
 
@@ -176,9 +176,9 @@ int main(int argc, char *argv[]) {
   size_t out_val_len = 0;
   uint8_t key_buf[trie_reader.get_max_key_len() + 1];
   uint8_t val_buf[trie_reader.get_max_val_len() + 1];
-  madras_dv1::mdx_val mv;
+  madras::dv1::mdx_val mv;
   mv.txt_bin = val_buf;
-  madras_dv1::iter_ctx dict_ctx;
+  madras::dv1::iter_ctx dict_ctx;
   dict_ctx.init(trie_reader.get_max_key_len(), trie_reader.get_max_level());
 
   if (!is_sorted) {
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
     is_sorted = true;
   }
 
-  madras_dv1::input_ctx in_ctx;
+  madras::dv1::input_ctx in_ctx;
   uint8_t *val;
   size_t val_len;
 

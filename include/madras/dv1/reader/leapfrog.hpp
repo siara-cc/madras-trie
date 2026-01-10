@@ -3,9 +3,9 @@
 
 #include "cmn.hpp"
 #include "ifaces.hpp"
-#include "../common.hpp"
+#include "madras/dv1/common.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class leapfrog_asc {
   private:
@@ -26,6 +26,6 @@ class leapfrog_asc {
     }
 };
 
-}
+}}
 
 #endif

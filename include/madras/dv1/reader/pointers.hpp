@@ -5,7 +5,7 @@
 #include "ifaces.hpp"
 #include "lt_builder.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 class ptr_bits_reader {
   protected:
@@ -189,6 +189,6 @@ class ptr_group_map {
 
 };
 
-}
+}}
 
 #endif

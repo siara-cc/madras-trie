@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
-INCLUDES = -I./src -I../ds_common/src -I../flavic48/src
+INCLUDES = -I./include -I./include/ds_common/src -I./include/allflic48/src
 L_FLAGS = 
 M_FLAGS =
 #OBJS = build/imain.o
@@ -22,5 +22,5 @@ clean:
 	rm run_tests
 	rm -rf run_tests.dSYM
 
-run_tests: run_tests_dv1.cpp src/dv1/common.hpp src/dv1/reader/*.hpp src/dv1/builder/*.hpp ./src/leopard-trie/src/leopard.hpp ./src/ds_common/src/*.hpp
+run_tests: run_tests_dv1.cpp include/madras/dv1/common.hpp include/madras/dv1/reader/*.hpp include/madras/dv1/builder/*.hpp ./include/leopard-trie/src/leopard.hpp ./include/ds_common/src/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++17 run_tests_dv1.cpp -o run_tests $(L_FLAGS) $(M_FLAGS)

@@ -3,7 +3,7 @@
 
 #include "cmn.hpp"
 
-namespace madras_dv1 {
+namespace madras { namespace dv1 {
 
 __gq1 __gq2 static const uint8_t bit_count[256] = {
   0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
@@ -264,6 +264,6 @@ class bvlt_select : public bvlt_rank {
 
 };
 
-}
+}}
 
 #endif
