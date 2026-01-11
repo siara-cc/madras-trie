@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++17 -march=native
-INCLUDES = -I../../src -I../../src/dv1 -I../../src/dv1/reader -I../../src/dv1/builder -I../../src/ds_common/src -I../../src/allflic48/src
+INCLUDES = -I../../include
 L_FLAGS =
 M_FLAGS = 
 #OBJS = build/imain.o
@@ -22,5 +22,5 @@ clean:
 	rm madras_bench
 	rm -rf madras_bench.dSYM
 
-madras_bench: madras_bench.cpp ../../src/dv1/*.hpp ../../src/dv1/reader/*.hpp ../../src/dv1/builder/*.hpp ../../src/leopard-trie/src/leopard.hpp ../../src/ds_common/src/*.hpp
+madras_bench: madras_bench.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) madras_bench.cpp -o madras_bench $(L_FLAGS) $(M_FLAGS)

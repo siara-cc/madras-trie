@@ -248,7 +248,7 @@ class cmn {
           int64_t i64 = gen::read_svint60(val_loc);
           if (data_type >= MST_DEC0 && data_type <= MST_DEC9) {
             double dbl = static_cast<double>(i64);
-            dbl /= allflic48::tens()[data_type - MST_DEC0];
+            dbl /= allflic::allflic48::tens()[data_type - MST_DEC0];
             ret_val.dbl = dbl;
           } else
             ret_val.i64 = i64;

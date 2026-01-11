@@ -4,13 +4,13 @@
 #include <sstream>
 #include <stdint.h>
 
-#include "ds_common/src/compiler_util.hpp"
+#include "madras/dv1/ds_common/compiler_util.hpp"
 
 BEGIN_IGNORE_UNUSED_FUNCTION
-#include "ds_common/src/bv.hpp"
-#include "ds_common/src/vint.hpp"
-#include "ds_common/src/gen.hpp"
-#include "allflic48/src/allflic48.hpp"
+#include "madras/dv1/ds_common/bv.hpp"
+#include "madras/dv1/ds_common/vint.hpp"
+#include "madras/dv1/ds_common/gen.hpp"
+#include "madras/dv1/allflic48/allflic48.hpp"
 END_IGNORE_UNUSED_FUNCTION
 
 namespace madras { namespace dv1 {
@@ -327,9 +327,11 @@ static size_t dt_i64_to_str(int64_t i64, char *dt_txt, size_t dt_txt_sz, char co
   }
   return val_len;
 }
+
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif
+#undef PACKED_STRUCT
 
 typedef struct {
   union {
@@ -348,8 +350,6 @@ typedef struct {
     bool bool_val;
   };
 } mdx_val_in;
-
-#undef PACKED_STRUCT
 
 constexpr std::size_t FAST_STACK_BUF = 64;
 template <typename T>

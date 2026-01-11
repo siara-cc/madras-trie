@@ -8,7 +8,7 @@
 #include "madras/dv1/reader/static_trie_map.hpp"
 #include "madras/dv1/builder/madras_builder.hpp"
 
-#include "../ds_common/src/vint.hpp"
+#include "madras/dv1/ds_common/vint.hpp"
 
 using namespace std;
 

@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
 CXXFLAGS = -pthread -std=c++11 -march=native
-INCLUDES = -I./include -I./include/ds_common/src -I./include/allflic48/src -I/opt/homebrew/Cellar/duckdb/1.4.0/include -L/opt/homebrew/Cellar/duckdb/1.4.0/lib
+INCLUDES = -I./include -I/opt/homebrew/Cellar/duckdb/1.4.0/include -L/opt/homebrew/Cellar/duckdb/1.4.0/lib
 L_FLAGS = -lsqlite3 -lduckdb
 #-lsnappy -llz4 -lbrotlienc -lbrotlidec -lz -lsqlite3 -lzstd -lcds
 M_FLAGS = -mbmi2 -mpopcnt
@@ -22,5 +22,5 @@ clean:
 	rm export_sqlite
 	rm -rf export_sqlite.dSYM
 
-export_sqlite: src/export_sqlite_dv1.cpp include/madras/dv1/common.hpp include/madras/dv1/reader/*.hpp include/madras/dv1/builder/*.hpp ./include/leopard-trie/src/leopard.hpp ./include/ds_common/src/*.hpp
+export_sqlite: src/export_sqlite_dv1.cpp include/madras/dv1/common.hpp include/madras/dv1/reader/*.hpp include/madras/dv1/builder/*.hpp ./include/madras/dv1/ds_common/*.hpp ./include/madras/dv1/allflic48/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) src/export_sqlite_dv1.cpp -o export_sqlite $(L_FLAGS)

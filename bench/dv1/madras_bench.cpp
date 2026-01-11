@@ -3,9 +3,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "static_trie_map.hpp"
-#include "madras_builder.hpp"
-#include "ds_common/src/vint.hpp"
+#include "madras/dv1/reader/static_trie_map.hpp"
+#include "madras/dv1/builder/madras_builder.hpp"
+#include "madras/dv1/ds_common/vint.hpp"
 
 using namespace std;
 
@@ -32,7 +32,7 @@ struct timespec print_time_taken(struct timespec t, const char *msg) {
 }
 
 bool nodes_sorted_on_freq;
-madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines,
+madras::dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t>& output_buf, std::vector<key_ctx>& lines,
     bool is_sorted, int trie_count, size_t& trie_size, double& time_taken, double& keys_per_sec, bool as_int, int max_groups) {
 
   int asc = argc > 4 ? atoi(argv[4]) : 0;
@@ -43,14 +43,14 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   clock_gettime(CLOCK_REALTIME, &t);
 
   size_t line_count = lines.size();
-  madras_dv1::builder *sb;
-  madras_dv1::bldr_options bldr_opts = madras_dv1::dflt_opts;
+  madras::dv1::builder *sb;
+  madras::dv1::bldr_options bldr_opts = madras::dv1::dflt_opts;
   bldr_opts.max_inner_tries = trie_count;
   bldr_opts.max_groups = max_groups;
   bldr_opts.sort_nodes_on_freq = asc > 0 ? false : true;
   bldr_opts.leap_frog = leapfrog > 0 ? true : false;
   bldr_opts.partial_sfx_coding = sfx_coding;
-  sb = new madras_dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
+  sb = new madras::dv1::builder(nullptr, "kv_table,Key", 1, "t", "u", 0, 1, &bldr_opts);
 
   sb->set_print_enabled(false);
 
@@ -89,7 +89,7 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
   // }
   delete sb;
 
-  madras_dv1::static_trie *trie_reader = new madras_dv1::static_trie();
+  madras::dv1::static_trie *trie_reader = new madras::dv1::static_trie();
   trie_reader->load_static_trie(output_buf.data());
 
   trie_size = sb->tp.total_idx_size;
@@ -100,9 +100,9 @@ madras_dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_t
 
 }
 
-bool bench_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
+bool bench_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
-  madras_dv1::input_ctx in_ctx;
+  madras::dv1::input_ctx in_ctx;
 
   struct timespec t;
   clock_gettime(CLOCK_REALTIME, &t);
@@ -130,7 +130,7 @@ bool bench_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_rea
 
 }
 
-bool bench_rev_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
+bool bench_rev_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   size_t out_key_len = 0;
   uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
@@ -156,11 +156,11 @@ bool bench_rev_lookup(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie
 
 }
 
-bool bench_next(std::vector<key_ctx>& lines, madras_dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
+bool bench_next(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   size_t out_key_len = 0;
   uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
-  madras_dv1::iter_ctx dict_ctx;
+  madras::dv1::iter_ctx dict_ctx;
   dict_ctx.init(trie_reader->get_max_key_len(), trie_reader->get_max_level());
 
   struct timespec t;
@@ -258,7 +258,7 @@ int main(int argc, char *argv[]) {
   double keys_per_sec;
 
   std::vector<uint8_t> output_buf;
-  madras_dv1::static_trie *trie_reader;
+  madras::dv1::static_trie *trie_reader;
 
   for (int i = min_inner_tries; i <= max_inner_tries; i++) {
     trie_reader = bench_build(argc, argv, output_buf, lines, is_sorted, i, trie_size, time_taken, keys_per_sec, as_int, max_groups);
