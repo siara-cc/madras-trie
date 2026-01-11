@@ -11,8 +11,8 @@
 #include <sys/stat.h>
 
 #include "cmn.hpp"
-#include "ifaces.hpp"
 #include "leapfrog.hpp"
+#include "interfaces.hpp"
 #include "lt_builder.hpp"
 #include "trie_caches.hpp"
 #include "tail_pointers.hpp"
@@ -24,48 +24,6 @@ struct trie_flags {
   uint64_t bm_term;
   uint64_t bm_child;
   uint64_t bm_leaf;
-};
-
-class iter_ctx {
-  public:
-    __fq1 __fq2 iter_ctx(iter_ctx const&) = delete;
-    __fq1 __fq2 iter_ctx& operator=(iter_ctx const&) = delete;
-    int32_t cur_idx;
-    uint16_t key_len;
-    uint8_t *key;
-    uintxx_t *node_path;
-    uint16_t *last_tail_len;
-    bool to_skip_first_leaf;
-    bool is_allocated = false;
-    __fq1 __fq2 iter_ctx() {
-      is_allocated = false;
-    }
-    __fq1 __fq2 ~iter_ctx() {
-      close();
-    }
-    __fq1 __fq2 void close() {
-      if (is_allocated) {
-        delete [] key;
-        delete [] node_path;
-        delete [] last_tail_len;
-      }
-      is_allocated = false;
-    }
-    void init(uint16_t max_key_len, uint16_t max_level) {
-      max_level++;
-      max_key_len++;
-      if (!is_allocated) {
-        key = new uint8_t[max_key_len];
-        node_path = new uintxx_t[max_level];
-        last_tail_len = new uint16_t[max_level];
-      }
-      memset(node_path, 0, max_level * sizeof(uintxx_t));
-      memset(last_tail_len, 0, max_level * sizeof(uint16_t));
-      node_path[0] = 1;
-      cur_idx = key_len = 0;
-      to_skip_first_leaf = false;
-      is_allocated = true;
-    }
 };
 
 class inner_trie : public inner_trie_fwd {

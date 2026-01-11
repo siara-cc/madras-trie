@@ -2,8 +2,8 @@
 #define __DV1_READER_TAIL_PTRS_HPP
 
 #include "cmn.hpp"
-#include "ifaces.hpp"
 #include "pointers.hpp"
+#include "interfaces.hpp"
 #include "rank_select.hpp"
 
 namespace madras { namespace dv1 {

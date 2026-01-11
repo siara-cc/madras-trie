@@ -2,7 +2,7 @@
 #define __DV1_READER_POINTERS_HPP
 
 #include "cmn.hpp"
-#include "ifaces.hpp"
+#include "interfaces.hpp"
 #include "lt_builder.hpp"
 
 namespace madras { namespace dv1 {

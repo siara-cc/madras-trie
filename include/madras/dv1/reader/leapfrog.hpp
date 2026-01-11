@@ -2,10 +2,16 @@
 #define __DV1_READER_LEAPFROG__
 
 #include "cmn.hpp"
-#include "ifaces.hpp"
 #include "madras/dv1/common.hpp"
 
 namespace madras { namespace dv1 {
+
+  struct min_pos_stats {
+  uint8_t min_b;
+  uint8_t max_b;
+  uint8_t min_len;
+  uint8_t max_len;
+};
 
 class leapfrog_asc {
   private:

@@ -2,8 +2,8 @@
 #define __DV1_READER_STATIC_TRIE_MAP_HPP
 
 #include "cmn.hpp"
-#include "ifaces.hpp"
 #include "pointers.hpp"
+#include "interfaces.hpp"
 #include "static_trie.hpp"
 
 namespace madras { namespace dv1 {

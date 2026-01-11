@@ -1,7 +1,7 @@
 #ifndef __DV1_READER_TRIE_CACHES__
 #define __DV1_READER_TRIE_CACHES__
 
-#include "ifaces.hpp"
+#include "interfaces.hpp"
 #include "madras/dv1/common.hpp"
 
 namespace madras { namespace dv1 {
