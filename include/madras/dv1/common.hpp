@@ -15,6 +15,9 @@ END_IGNORE_UNUSED_FUNCTION
 
 namespace madras { namespace dv1 {
 
+typedef std::vector<uint8_t> byte_vec;
+typedef std::vector<uint8_t *> byte_ptr_vec;
+
 #ifndef UINTXX_WIDTH
 #define UINTXX_WIDTH 32
 #endif
