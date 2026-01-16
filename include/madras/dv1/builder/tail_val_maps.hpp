@@ -110,8 +110,8 @@ class tail_val_maps {
     ptr_groups ptr_grps;
     int start_nid, end_nid;
   public:
-    tail_val_maps(trie_builder_fwd *_bldr, gen::byte_blocks& _uniq_data, uniq_info_vec& _ui_vec, output_writer &_output)
-        : bldr (_bldr), uniq_data (_uniq_data), ui_vec (_ui_vec), ptr_grps (_output) {
+    tail_val_maps(trie_builder_fwd *_bldr, gen::byte_blocks& _uniq_data, uniq_info_vec& _ui_vec, byte_ptr_vec& _all_node_sets, output_writer &_output)
+        : bldr (_bldr), uniq_data (_uniq_data), ui_vec (_ui_vec), ptr_grps (_all_node_sets, _output) {
     }
     ~tail_val_maps() {
       for (size_t i = 0; i < ui_vec.size(); i++)
@@ -573,7 +573,12 @@ class tail_val_maps {
         //   }
         //   cur_node = ni_freq.next();
         // }
-        uintxx_t trie_size = inner_trie->build();
+        uintxx_t trie_size = 0;
+        if (auto trie_map = dynamic_cast<trie_map_builder_fwd *>(inner_trie)) {
+          trie_size = trie_map->build_kv();
+        } else {
+          trie_size = inner_trie->build();
+        }
         memtrie::node_iterator ni(inner_trie->get_memtrie()->all_node_sets, 0);
         memtrie::node n = ni.next();
         //int leaf_id = 0;

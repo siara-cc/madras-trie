@@ -54,10 +54,12 @@ class ptr_groups {
     int64_t min_val;
     int64_t max_val;
   public:
+    byte_ptr_vec& all_node_sets;
     std::vector<trie_builder_fwd *> inner_tries;
     size_t inner_trie_start_grp;
     uniq_info_base rpt_ui;
-    ptr_groups(output_writer &_output) : output (_output) {
+    ptr_groups(byte_ptr_vec& _all_node_sets, output_writer &_output)
+          : all_node_sets (_all_node_sets), output (_output) {
       reset();
     }
     ~ptr_groups() {
@@ -323,7 +325,7 @@ class ptr_groups {
     static uniq_info_base *get_vals_info_fn(memtrie::node *cur_node, uniq_info_vec& info_vec) {
       return (uniq_info *) info_vec[cur_node->get_col_val()];
     }
-    void build(uintxx_t node_count, byte_ptr_vec& all_node_sets, get_info_fn get_info_func,
+    void build(uintxx_t node_count, get_info_fn get_info_func,
           uniq_info_vec& info_vec, bool is_tail, uint16_t _pk_col_count, bool dessicat,
           char encoding_type = 'u', char _data_type = '*', int col_trie_size = 0) {
       pk_col_count = _pk_col_count;
@@ -335,14 +337,14 @@ class ptr_groups {
         if (ptr_lkup_tbl_ptr_width < 3)
           ptr_lkup_tbl_ptr_width = 3;
         if (!dessicate)
-          build_ptr_lookup_tbl(all_node_sets, get_info_func, is_tail, info_vec, encoding_type);
+          build_ptr_lookup_tbl(get_info_func, is_tail, info_vec, encoding_type);
         if (encoding_type != MSE_STORE && encoding_type != MSE_VINTGB) {
           if (!is_tail && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY)
-            build_val_ptrs(all_node_sets, get_info_func, info_vec);
+            build_val_ptrs(get_info_func, info_vec);
         }
       }
       if (freq_grp_vec.size() <= 2 && !is_tail && col_trie_size == 0 && encoding_type != MSE_WORDS && encoding_type != MSE_WORDS_2WAY && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB)
-        build_val_ptrs(all_node_sets, get_info_func, info_vec); // flat
+        build_val_ptrs(get_info_func, info_vec); // flat
       ptr_lookup_tbl_loc = 11 * 8 + 16;
       if (encoding_type == MSE_TRIE || encoding_type == MSE_TRIE_2WAY || col_trie_size > 0 || (freq_grp_vec.size() <= 2 && encoding_type != MSE_STORE && encoding_type != MSE_VINTGB))
         ptr_lookup_tbl_sz = 0;
@@ -434,8 +436,11 @@ class ptr_groups {
       for (size_t i = 0; i < inner_tries.size(); i++) {
         inner_tries[i]->set_fp(output.get_fp());
         inner_tries[i]->set_out_vec(output.get_out_vec());
-        // inner_tries[i]->write_trie(NULL);
-        inner_tries[i]->write_trie();
+        if (auto trie_map = dynamic_cast<trie_map_builder_fwd *>(inner_tries[i])) {
+          trie_map->write_kv(false);
+        } else {
+          inner_tries[i]->write_trie();
+        }
       }
     }
     void write_ptr_lookup_tbl() {
@@ -448,7 +453,7 @@ class ptr_groups {
     void write_null_bv() {
       output.write_bytes((const uint8_t *) null_bv.raw_data()->data(), null_bv.size_bytes());
     }
-    void build_val_ptrs(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, uniq_info_vec& info_vec) {
+    void build_val_ptrs(get_info_fn get_info_func, uniq_info_vec& info_vec) {
       ptrs.clear();
       last_byte_bits = 64;
       gen::append_uint64(0, ptrs);
@@ -495,7 +500,7 @@ class ptr_groups {
           gen::append_uint16(bit_counts[j], ptr_lookup_tbl);
       }
     }
-    void build_ptr_lookup_tbl(byte_ptr_vec& all_node_sets, get_info_fn get_info_func, bool is_tail,
+    void build_ptr_lookup_tbl(get_info_fn get_info_func, bool is_tail,
           uniq_info_vec& info_vec, char encoding_type) {
       uintxx_t node_id = 0;
       uintxx_t bit_count = 0;

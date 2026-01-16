@@ -121,7 +121,7 @@ class tail_sort_callbacks : public sort_callbacks {
     }
 };
 
-class static_trie_builder : public trie_builder_fwd {
+class static_trie_builder : public virtual trie_builder_fwd {
   private:
   public:
     fwd_cache *f_cache;
@@ -147,15 +147,15 @@ class static_trie_builder : public trie_builder_fwd {
     size_t null_value_len;
     uint8_t empty_value[15];
     size_t empty_value_len;
-    trie_parts &tp;
-    static_trie_builder(trie_parts &_tp, uint16_t _pk_col_count,
+    trie_parts tp = {};
+    static_trie_builder(uint16_t _pk_col_count,
           uintxx_t _col_count, size_t _max_val_len, // todo: not member
           uint16_t _trie_level, const bldr_options *_opts = &dflt_opts,
           const uint8_t *_null_value = NULL_VALUE, size_t _null_value_len = NULL_VALUE_LEN,
           const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN) :
-          tp (_tp), column_count (_col_count), max_val_len (_max_val_len),
+          column_count (_col_count), max_val_len (_max_val_len),
           memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
-          tail_maps (this, uniq_tails, uniq_tails_rev, output),
+          tail_maps (this, uniq_tails, uniq_tails_rev, memtrie.all_node_sets, output),
           trie_builder_fwd (_opts, _trie_level, _pk_col_count) {
       memcpy(null_value, _null_value, _null_value_len);
       null_value_len = _null_value_len;
@@ -172,7 +172,7 @@ class static_trie_builder : public trie_builder_fwd {
       is_ns_sorted = false;
     }
 
-    ~static_trie_builder() {
+    virtual ~static_trie_builder() {
       if (tail_trie_builder != NULL)
         delete tail_trie_builder;
       if (f_cache != nullptr)
@@ -206,7 +206,7 @@ class static_trie_builder : public trie_builder_fwd {
       if (get_opts()->max_inner_tries <= trie_level + 1) {
         inner_trie_opts.inner_tries = false;
       }
-      static_trie_builder *ret = new static_trie_builder(tp, pk_col_count, column_count, max_val_len, trie_level, &inner_trie_opts);
+      static_trie_builder *ret = new static_trie_builder(1, 1, 0, trie_level + 1, &inner_trie_opts);
       ret->set_fp(output.get_fp());
       ret->set_out_vec(output.get_out_vec());
       return ret;
@@ -518,7 +518,7 @@ class static_trie_builder : public trie_builder_fwd {
       tt_opts.inner_tries = true;
       tt_opts.max_groups = get_opts()->max_groups;
       tt_opts.max_inner_tries = get_opts()->max_inner_tries;
-      tail_trie_builder = new static_trie_builder(tp, pk_col_count, column_count, max_val_len, trie_level, &tt_opts);
+      tail_trie_builder = new static_trie_builder(1, 1, 0, trie_level + 1, &tt_opts);
       for (size_t i = 0; i < uniq_tails_rev.size(); i++) {
         uniq_info_base *ti = uniq_tails_rev[i];
         uint8_t rev[ti->len];
@@ -699,7 +699,7 @@ class static_trie_builder : public trie_builder_fwd {
         gen::gen_printf("Flag %d: %d\tChar: %d: %d\n", i, flag_counts[i], i + 2, char_counts[i]);
       }
       gen::gen_printf("Tot ptr count: %u, Full sfx count: %u, Partial sfx count: %u\n", ptr_count, sfx_full_count, sfx_partial_count);
-      tail_maps.get_grp_ptrs()->build(node_count, memtrie.all_node_sets, ptr_groups::get_tails_info_fn, 
+      tail_maps.get_grp_ptrs()->build(node_count, ptr_groups::get_tails_info_fn, 
               uniq_tails_rev, true, pk_col_count, get_opts()->dessicate, tail_trie_size == 0 ? 'u' : MSE_TRIE, MST_BIN, tail_trie_size);
       end_loc = trie_data_ptr_size();
       gen::print_time_taken(t, "Time taken for build_trie(): ");
@@ -987,7 +987,14 @@ class static_trie_builder : public trie_builder_fwd {
     }
 
     uintxx_t build() {
-      if (pk_col_count > 0) {
+
+      tp.opts_loc = MDX_HEADER_SIZE;
+      tp.opts_size = sizeof(bldr_options) * opts->opts_count;
+
+      if (pk_col_count == 0)
+        memtrie.node_count--;
+
+        if (pk_col_count > 0) {
         if (get_opts()->split_tails_method > 0)
           split_tails();
         sort_node_sets();
@@ -1083,10 +1090,23 @@ class static_trie_builder : public trie_builder_fwd {
         tp.leaf_select_lkup_loc = tp.opts_loc + tp.opts_size;
         tp.leaf_select_lt_sz = 0;
       }
-      return UINTXX_MAX;
+      tp.total_idx_size = tp.opts_loc + tp.opts_size +
+                (trie_level > 0 ? louds.size_bytes() : trie_flags.size()) +
+                trie_flags_tail.size() +
+                tp.fwd_cache_size + gen::size_align8(tp.rev_cache_size) + tp.sec_cache_size +
+                (trie_level == 0 ? (gen::size_align8(tp.child_select_lt_sz) +
+                     gen::size_align8(tp.term_select_lt_sz + tp.term_rank_lt_sz + tp.child_rank_lt_sz)) :
+                  (gen::size_align8(tp.louds_sel1_lt_sz) + gen::size_align8(tp.louds_rank_lt_sz))) +
+                gen::size_align8(tp.leaf_select_lt_sz) +
+                gen::size_align8(tp.leaf_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz);
+      if (pk_col_count > 0)
+        tp.total_idx_size += trie_data_ptr_size();
+      return tp.total_idx_size;
     }
 
     void write_trie() {
+      output.write_bytes((const uint8_t *) "Madras Sorcery Static DB Format 1.0", 36);
+
       output.write_byte(0xA5); // magic byte
       output.write_byte(0x01); // version 1.0
       output.write_byte(pk_col_count);

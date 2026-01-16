@@ -280,12 +280,10 @@ static int64_t dt_str_to_i64(const uint8_t *dt_txt_db, char col_type) {
   strncpy(dt_txt, (const char *) dt_txt_db, gen::dt_format_lens[col_type - MST_DATE_US]);
   dt_txt[gen::dt_format_lens[col_type - MST_DATE_US]] = 0;
   // printf("%s, %s\n", dt_txt, dt_formats[col_type - MST_DATE_US]);
-  #if defined(_WIN32)
-  std::istringstream is(dt_txt);
-  is >> std::get_time(&tm, gen::dt_formats[col_type - MST_DATE_US]);
-  if (is.fail()) {
-    printf("Error parsing date: %s\n", dt_txt);
-    return INT64_MIN;
+  #if defined(_MSC_VER)
+  if (!gen::parse_tm(dt_txt, col_type - MST_DATE_US, tm)) {
+      printf("Error parsing date: %s\n", dt_txt);
+      return INT64_MIN;
   }
   #else
   char *result = strptime((const char *) dt_txt, gen::dt_formats[col_type - MST_DATE_US], &tm);

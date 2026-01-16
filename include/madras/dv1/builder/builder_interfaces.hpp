@@ -67,6 +67,7 @@ class sort_callbacks {
 
 class trie_builder_fwd {
   public:
+    virtual ~trie_builder_fwd() = default;
     output_writer output;
     bldr_options *opts = nullptr;
     uint16_t pk_col_count;
@@ -75,8 +76,6 @@ class trie_builder_fwd {
       : trie_level (_trie_level), pk_col_count (_pk_col_count) {
       opts = new bldr_options[_opts->opts_count];
       memcpy(opts, _opts, sizeof(bldr_options) * _opts->opts_count);
-    }
-    virtual ~trie_builder_fwd() {
     }
     void set_fp(FILE *fp) {
       output.set_fp(fp);
@@ -90,6 +89,17 @@ class trie_builder_fwd {
     virtual uintxx_t build() = 0;
     virtual void write_trie() = 0;
     virtual bldr_options *get_opts() = 0;
+};
+
+class trie_map_builder_fwd : public virtual trie_builder_fwd {
+  public:
+    virtual ~trie_map_builder_fwd() = default;
+    virtual trie_map_builder_fwd *new_instance(const char *_names = "kv_tbl,key,value", const int _column_count = 2,
+        const char *_column_types = "tt", const char *_column_encodings = "uu", int _trie_level = 0,
+        uint16_t _pk_col_count = 1, const bldr_options *_opts = &dflt_opts) = 0;
+    virtual void set_all_vals(gen::byte_blocks *_all_vals, bool to_delete_prev = true) = 0;
+    virtual uintxx_t build_kv(bool to_build_trie = true) = 0;
+    virtual void write_kv(bool to_close = true, const char *filename = NULL) = 0;
 };
 
 }}

@@ -6,6 +6,9 @@
 #include <cstring>
 #include <vector>
 #include <cmath>
+#include <ctime>
+#include <cctype>
+#include <cstdio>
 
 namespace gen {
 
@@ -58,6 +61,66 @@ const static char *dt_formats[] = {"%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y
 const static size_t dt_format_lens[] = {10, 10, 10, 19, 19, 19, 19, 19, 19};
 
 #define SECONDS_PER_DAY 86400
+
+// since strptime does not exist in windows (c++11)
+static bool parse_tm(const char *s, int fmt_id, struct tm &tm) {
+  std::memset(&tm, 0, sizeof(tm));
+
+  switch (fmt_id) {
+  case 0: // "%m/%d/%Y"
+    return std::sscanf(s, "%d/%d/%d",
+      &tm.tm_mon, &tm.tm_mday, &tm.tm_year) == 3 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  case 1: // "%d/%m/%Y"
+    return std::sscanf(s, "%d/%d/%d",
+      &tm.tm_mday, &tm.tm_mon, &tm.tm_year) == 3 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  case 2: // "%Y-%m-%d"
+    return std::sscanf(s, "%d-%d-%d",
+      &tm.tm_year, &tm.tm_mon, &tm.tm_mday) == 3 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  case 3: { // "%m/%d/%Y %I:%M %p"
+    char ampm[3];
+    int hour;
+    if (std::sscanf(s, "%d/%d/%d %d:%d %2s",
+                    &tm.tm_mon, &tm.tm_mday, &tm.tm_year,
+                    &hour, &tm.tm_min, ampm) != 6)
+        return false;
+    tm.tm_mon--; tm.tm_year -= 1900;
+    /* 12h → 24h */
+    if (std::toupper(ampm[0]) == 'P' && hour != 12) hour += 12;
+    if (std::toupper(ampm[0]) == 'A' && hour == 12) hour = 0;
+    tm.tm_hour = hour;
+    return true;
+  }
+
+  case 4: // "%d/%m/%Y %H:%M:%S"
+    return std::sscanf(s, "%d/%d/%d %d:%d:%d",
+      &tm.tm_mday, &tm.tm_mon, &tm.tm_year,
+      &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  case 5: // "%Y-%m-%d %H:%M:%S"
+  case 7: // duplicate of 5
+    return std::sscanf(s, "%d-%d-%d %d:%d:%d",
+      &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+      &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  case 6: // "%Y-%m-%dT%H:%M:%S"
+  case 8: // duplicate of 6
+    return std::sscanf(s, "%d-%d-%dT%d:%d:%d",
+      &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+      &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6 &&
+      (tm.tm_mon--, tm.tm_year -= 1900, true);
+
+  default:
+    return false;
+  }
+}
 
 static int64_t days_from_civil(int y, int m, int d) {
     y -= m <= 2;

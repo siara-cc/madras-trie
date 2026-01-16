@@ -272,3 +272,4 @@ Issues:
 - bit_len = 0: 
 - Infinite loop: ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT 1
 - Aaliyahmarie not found select count(*) from read_madras('/Users/arun/git2/sqlite_dbs/babynames_pk.db.mdsi', no_index=true) where state ='US' and primary_sex='M';
+- ./run_tests misc/word_freq_sorted.txt 1 0 0 1 0 1

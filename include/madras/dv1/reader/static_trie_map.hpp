@@ -1301,7 +1301,6 @@ class static_trie_map : public static_trie {
       }
       CloseHandle(hMap);
       CloseHandle(hFile);
-      sz = filesize;
       trie_size = sz;
       return map_buf;
     #else
