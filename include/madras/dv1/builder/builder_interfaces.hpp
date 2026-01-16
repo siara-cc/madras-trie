@@ -72,6 +72,7 @@ class trie_builder_fwd {
     bldr_options *opts = nullptr;
     uint16_t pk_col_count;
     uint16_t trie_level;
+    trie_builder_fwd() {}
     trie_builder_fwd(const bldr_options *_opts, uint16_t _trie_level, uint16_t _pk_col_count)
       : trie_level (_trie_level), pk_col_count (_pk_col_count) {
       opts = new bldr_options[_opts->opts_count];
@@ -93,6 +94,7 @@ class trie_builder_fwd {
 
 class trie_map_builder_fwd : public virtual trie_builder_fwd {
   public:
+    trie_map_builder_fwd() {}
     virtual ~trie_map_builder_fwd() = default;
     virtual trie_map_builder_fwd *new_instance(const char *_names = "kv_tbl,key,value", const int _column_count = 2,
         const char *_column_types = "tt", const char *_column_encodings = "uu", int _trie_level = 0,

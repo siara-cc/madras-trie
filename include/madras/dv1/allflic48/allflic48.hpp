@@ -6,8 +6,6 @@
 #include <string.h>
 #include <memory.h>
 
-namespace allflic {
-
 // Function qualifiers
 #ifndef __fq1
 #define __fq1
@@ -68,6 +66,8 @@ namespace allflic {
 #ifdef __SSSE3__
 typedef __m128i xmm_t;
 #endif
+
+namespace allflic {
 
 #ifndef __CUDA_ARCH__
 static const uint8_t lengthTable[256] = {
