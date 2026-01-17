@@ -210,46 +210,80 @@ class bvlt_select : public bvlt_rank {
     __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
     }
-    __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm) {
+    __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm)
+    {
+    #if defined(SELECT_BMI2) && defined(__BMI2__)
 
-      #ifdef __BMI2__
-      uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
-      uintxx_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
-      // if (bit_loc == 65) {
-      //   printf("WARNING: UNEXPECTED bit_loc=65, bit_loc: %u\n", remaining);
-      //   return 64;
-      // }
-      #endif
+        // Your original BMI2 path
+        uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
+        uintxx_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
+        return bit_loc;
 
-      #ifndef __BMI2__
-      uintxx_t bit_loc = 0;
-      while (bit_loc < 64) {
-        uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
-        if (next_count >= remaining)
-          break;
-        bit_loc += 8;
-        remaining -= next_count;
-      }
-      if (remaining > 0) // && remaining <= 256)
-        bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
-      #endif
+    #elif defined(SELECT_BROADWORD)
 
-      // size_t bit_loc = 0;
-      // do {
-      //   bit_loc = __builtin_ffsll(bm);
-      //   remaining--;
-      //   bm &= ~(1ULL << (bit_loc - 1));
-      // } while (remaining > 0);
+        //
+        // Broadword + SSSE3 path
+        // Very fast on modern Intel/AMD without BMI2
+        //
 
-      // size_t bit_loc = 0;
-      // uint64_t bm_mask = bm_init_mask << bit_loc;
-      // while (remaining > 0) {
-      //   if (bm & bm_mask)
-      //     remaining--;
-      //   bit_loc++;
-      //   bm_mask <<= 1;
-      // }
-      return bit_loc;
+        // Step 1: compute popcount per byte using a LUT for 0..15 nibble popcounts
+        static const uint8_t pop_nib_lut[16] = {
+            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+        };
+
+        // Expand bm to 16 bytes (8 low bytes are valid)
+        __m128i v = _mm_set1_epi64x((long long)bm);
+
+        const __m128i lo_mask = _mm_set1_epi8(0x0F);
+        __m128i lo = _mm_and_si128(v, lo_mask);
+        __m128i hi = _mm_and_si128(_mm_srli_epi64(v, 4), lo_mask);
+
+        // Load nibble LUT into vector
+        static const __m128i lut = _mm_setr_epi8(
+            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+        );
+
+        // popcount per byte = LUT[lo] + LUT[hi]
+        __m128i pop_lo = _mm_shuffle_epi8(lut, lo);
+        __m128i pop_hi = _mm_shuffle_epi8(lut, hi);
+        __m128i pop = _mm_add_epi8(pop_lo, pop_hi);
+
+        // Step 2: scan bytes until finding the one containing the bit
+        uint8_t buf[16];
+        _mm_storeu_si128((__m128i*)buf, pop);
+
+        uintxx_t byte_index = 0;
+        while (buf[byte_index] < remaining) {
+            remaining -= buf[byte_index];
+            byte_index++;
+        }
+
+        // Step 3: select inside that byte using your existing lookup table
+        uint8_t b = (uint8_t)(bm >> (byte_index * 8));
+        uintxx_t bit_in_byte = select_lookup_tbl[remaining - 1][b];
+
+        return (byte_index << 3) + bit_in_byte;
+
+    #else
+
+        //
+        // Your original non-BMI2 fallback path (kept for safety)
+        //
+
+        uintxx_t bit_loc = 0;
+        while (bit_loc < 64) {
+            uint8_t next_count = bit_count[(bm >> bit_loc) & 0xFF];
+            if (next_count >= remaining)
+                break;
+            bit_loc += 8;
+            remaining -= next_count;
+        }
+        if (remaining > 0)
+            bit_loc += select_lookup_tbl[remaining - 1][(bm >> bit_loc) & 0xFF];
+
+        return bit_loc;
+
+    #endif
     }
     __fq1 __fq2 uint8_t *get_select_loc1() {
       return lt_sel_loc1;
