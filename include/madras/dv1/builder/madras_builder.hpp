@@ -1140,7 +1140,9 @@ class builder : public static_trie_builder, public trie_map_builder_fwd {
                 trie_flags_tail.size() +
                 tp.fwd_cache_size + gen::size_align8(tp.rev_cache_size) + tp.sec_cache_size +
                 (trie_level == 0 ? (gen::size_align8(tp.child_select_lt_sz) +
-                     gen::size_align8(tp.term_select_lt_sz + tp.term_rank_lt_sz + tp.child_rank_lt_sz)) :
+                     gen::size_align8(tp.term_select_lt_sz) +
+                     gen::size_align8(tp.term_rank_lt_sz) +
+                     gen::size_align8(tp.child_rank_lt_sz)) :
                   (gen::size_align8(tp.louds_sel1_lt_sz) + gen::size_align8(tp.louds_rank_lt_sz))) +
                 gen::size_align8(tp.leaf_select_lt_sz) +
                 gen::size_align8(tp.leaf_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz) +

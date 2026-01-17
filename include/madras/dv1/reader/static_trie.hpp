@@ -139,7 +139,7 @@ class inner_trie : public inner_trie_fwd {
           child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_loc);
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_loc);
         }
-        uint8_t bvlt_block_count = tail_lt_loc == nullptr ? 2 : 3;
+        uint8_t bvlt_block_count = 1;// tail_lt_loc == nullptr ? 2 : 3;
 
         if (trie_level == 0) {
           term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_loc + TF_TERM, multiplier, bvlt_block_count);
@@ -147,7 +147,7 @@ class inner_trie : public inner_trie_fwd {
         } else {
           child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_loc, 1, 1);
         }
-        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_loc + TF_PTR : tf_ptr_loc, trie_level == 0 ? multiplier : 1, trie_level == 0 ? 3 : 1);
+        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_loc + TF_PTR : tf_ptr_loc, trie_level == 0 ? multiplier : 1, 1); //trie_level == 0 ? 3 : 1);
       }
 
     }

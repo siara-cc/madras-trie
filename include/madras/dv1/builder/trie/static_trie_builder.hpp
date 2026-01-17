@@ -1062,11 +1062,11 @@ class static_trie_builder : public virtual trie_builder_fwd {
         if (trie_level == 0) {
           tp.child_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
           tp.term_select_lkup_loc = tp.child_select_lkup_loc + gen::size_align8(tp.child_select_lt_sz);
-          uintxx_t total_rank_lt_size = tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz;
+          //uintxx_t total_rank_lt_size = tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz;
           tp.term_rank_lt_loc = tp.term_select_lkup_loc + gen::size_align8(tp.term_select_lt_sz);
-          tp.child_rank_lt_loc = tp.term_rank_lt_loc + width_of_bv_block;
-          tp.trie_flags_loc = tp.term_rank_lt_loc + gen::size_align8(total_rank_lt_size);
-          tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.term_rank_lt_loc + width_of_bv_block * 2;
+          tp.child_rank_lt_loc = tp.term_rank_lt_loc + gen::size_align8(tp.term_rank_lt_sz);
+          tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.child_rank_lt_loc + gen::size_align8(tp.child_rank_lt_sz);
+          tp.trie_flags_loc = tp.child_rank_lt_loc + gen::size_align8(tp.child_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz);
           tp.louds_rank_lt_loc = tp.term_rank_lt_loc; // dummy
           tp.louds_sel1_lt_loc = tp.term_select_lkup_loc; // dummy
           tp.trie_tail_ptrs_data_loc = tp.trie_flags_loc + trie_flags.size();
@@ -1095,7 +1095,9 @@ class static_trie_builder : public virtual trie_builder_fwd {
                 trie_flags_tail.size() +
                 tp.fwd_cache_size + gen::size_align8(tp.rev_cache_size) + tp.sec_cache_size +
                 (trie_level == 0 ? (gen::size_align8(tp.child_select_lt_sz) +
-                     gen::size_align8(tp.term_select_lt_sz + tp.term_rank_lt_sz + tp.child_rank_lt_sz)) :
+                     gen::size_align8(tp.term_select_lt_sz) +
+                     gen::size_align8(tp.term_rank_lt_sz) +
+                     gen::size_align8(tp.child_rank_lt_sz)) :
                   (gen::size_align8(tp.louds_sel1_lt_sz) + gen::size_align8(tp.louds_rank_lt_sz))) +
                 gen::size_align8(tp.leaf_select_lt_sz) +
                 gen::size_align8(tp.leaf_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz);
@@ -1169,8 +1171,12 @@ class static_trie_builder : public virtual trie_builder_fwd {
           } else {
             write_bv_select_lt(BV_LT_TYPE_CHILD, tp.child_select_lt_sz);
             write_bv_select_lt(BV_LT_TYPE_TERM, tp.term_select_lt_sz);
-            write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL),
-                tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz);
+            // write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL),
+            //     tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz);
+            write_bv_rank_lt(BV_LT_TYPE_TERM, tp.term_rank_lt_sz);
+            write_bv_rank_lt(BV_LT_TYPE_CHILD, tp.child_rank_lt_sz);
+            if (tp.tail_rank_lt_sz > 0)
+              write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
           }
         // }
         if (trie_level > 0) {
