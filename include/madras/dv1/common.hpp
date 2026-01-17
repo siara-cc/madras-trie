@@ -1,6 +1,8 @@
 #ifndef __DV1_COMMON_HPP
 #define __DV1_COMMON_HPP
 
+#define __STDC_FORMAT_MACROS
+#include <cinttypes>
 #include <sstream>
 #include <stdint.h>
 

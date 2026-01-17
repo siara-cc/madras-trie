@@ -20,14 +20,14 @@ typedef struct {
 
 double time_taken_in_secs(struct timespec t) {
   struct timespec t_end;
-  clock_gettime(CLOCK_REALTIME, &t_end);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t_end);
   return (t_end.tv_sec - t.tv_sec) + (t_end.tv_nsec - t.tv_nsec) / 1e9;
 }
 
 struct timespec print_time_taken(struct timespec t, const char *msg) {
   double time_taken = time_taken_in_secs(t); // in seconds
   printf("%s %lf\n", msg, time_taken);
-  clock_gettime(CLOCK_REALTIME, &t);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
   return t;
 }
 
@@ -40,7 +40,7 @@ madras::dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_
   int sfx_coding = argc > 8 ? atoi(argv[8]) : 1;
 
   struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
 
   size_t line_count = lines.size();
   madras::dv1::builder *sb;
@@ -105,7 +105,7 @@ bool bench_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_re
   madras::dv1::input_ctx in_ctx;
 
   struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
 
   key_ctx *kc;
   size_t line_count = lines.size();
@@ -136,7 +136,7 @@ bool bench_rev_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *tri
   uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
 
   struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
 
   key_ctx *kc;
   size_t line_count = lines.size();
@@ -164,7 +164,7 @@ bool bench_next(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_read
   dict_ctx.init(trie_reader->get_max_key_len(), trie_reader->get_max_level());
 
   struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
 
   key_ctx *kc;
   size_t line_count = lines.size();
