@@ -418,7 +418,7 @@ static uint32_t read_uint24(byte_vec& v, size_t pos) {
 static uint32_t read_uint24(const uint8_t *ptr) {
 #ifndef __CUDA_ARCH__
   uint32_t tmp = 0;
-  memcpy(&tmp, ptr, 3);
+  memcpy(&tmp, ptr, sizeof(tmp));
   return tmp & 0x00FFFFFF; // faster endian dependent
 #else
   uint32_t ret = *ptr++;

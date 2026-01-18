@@ -6,13 +6,13 @@ L_FLAGS =
 M_FLAGS = 
 #OBJS = build/imain.o
 
-opt: CXXFLAGS += -g -O2 -DNDEBUG
+opt: CXXFLAGS += -g -O3 -DNDEBUG
 opt: madras_bench
 
 debug: CXXFLAGS += -g -O0 -fno-inline
 debug: madras_bench
 
-release: CXXFLAGS += -O2 -funroll-loops -DNDEBUG
+release: CXXFLAGS += -O3 -funroll-loops -DNDEBUG
 release: madras_bench
 
 asan: CXXFLAGS += -static-libsan -fno-inline -O0 -g -fsanitize=address -fno-omit-frame-pointer
