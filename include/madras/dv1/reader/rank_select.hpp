@@ -5,6 +5,25 @@
 
 namespace madras { namespace dv1 {
 
+#if defined(__x86_64__) && defined(__SSSE3__)
+    static const __m128i nibble_lut = _mm_setr_epi8(
+      0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+    );
+#endif
+
+static constexpr uint64_t PREFIX_SUM_OVERFLOW[64] = {
+#define M01 0x0101010101010101ULL
+  0x7F*M01,0x7E*M01,0x7D*M01,0x7C*M01,0x7B*M01,0x7A*M01,0x79*M01,0x78*M01,
+  0x77*M01,0x76*M01,0x75*M01,0x74*M01,0x73*M01,0x72*M01,0x71*M01,0x70*M01,
+  0x6F*M01,0x6E*M01,0x6D*M01,0x6C*M01,0x6B*M01,0x6A*M01,0x69*M01,0x68*M01,
+  0x67*M01,0x66*M01,0x65*M01,0x64*M01,0x63*M01,0x62*M01,0x61*M01,0x60*M01,
+  0x5F*M01,0x5E*M01,0x5D*M01,0x5C*M01,0x5B*M01,0x5A*M01,0x59*M01,0x58*M01,
+  0x57*M01,0x56*M01,0x55*M01,0x54*M01,0x53*M01,0x52*M01,0x51*M01,0x50*M01,
+  0x4F*M01,0x4E*M01,0x4D*M01,0x4C*M01,0x4B*M01,0x4A*M01,0x49*M01,0x48*M01,
+  0x47*M01,0x46*M01,0x45*M01,0x44*M01,0x43*M01,0x42*M01,0x41*M01,0x40*M01
+#undef M01
+};
+
 __gq1 __gq2 static const uint8_t bit_count[256] = {
   0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
   1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
@@ -211,28 +230,9 @@ class bvlt_select : public bvlt_rank {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
     }
 
-    #if defined(SELECT_BROADWORD)
-
     static const uint64_t MASK_01 = 0x0101010101010101ULL;
 
-    static constexpr uint64_t PREFIX_SUM_OVERFLOW[64] = {
-    #define M01 0x0101010101010101ULL
-      0x7F*M01,0x7E*M01,0x7D*M01,0x7C*M01,0x7B*M01,0x7A*M01,0x79*M01,0x78*M01,
-      0x77*M01,0x76*M01,0x75*M01,0x74*M01,0x73*M01,0x72*M01,0x71*M01,0x70*M01,
-      0x6F*M01,0x6E*M01,0x6D*M01,0x6C*M01,0x6B*M01,0x6A*M01,0x69*M01,0x68*M01,
-      0x67*M01,0x66*M01,0x65*M01,0x64*M01,0x63*M01,0x62*M01,0x61*M01,0x60*M01,
-      0x5F*M01,0x5E*M01,0x5D*M01,0x5C*M01,0x5B*M01,0x5A*M01,0x59*M01,0x58*M01,
-      0x57*M01,0x56*M01,0x55*M01,0x54*M01,0x53*M01,0x52*M01,0x51*M01,0x50*M01,
-      0x4F*M01,0x4E*M01,0x4D*M01,0x4C*M01,0x4B*M01,0x4A*M01,0x49*M01,0x48*M01,
-      0x47*M01,0x46*M01,0x45*M01,0x44*M01,0x43*M01,0x42*M01,0x41*M01,0x40*M01
-    #undef M01
-    };
-
     #if defined(__x86_64__) && defined(__SSSE3__)
-
-    static constexpr __m128i nibble_lut = _mm_setr_epi8(
-      0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
-    );
 
     static inline uint64_t popcount_bytes(uint64_t bm) {
         __m128i v = _mm_set1_epi64x((long long)bm);
@@ -266,18 +266,17 @@ class bvlt_select : public bvlt_rank {
     }
 
     #endif
-    #endif // SELECT_BROADWORD
 
     __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm)
     {
-    #if defined(SELECT_BMI2) && defined(__BMI2__)
+    #if defined(__BMI2__)
 
         // Your original BMI2 path
         uint64_t isolated_bit = _pdep_u64(1ULL << (remaining - 1), bm);
         uintxx_t bit_loc = _tzcnt_u64(isolated_bit) + 1;
         return bit_loc;
 
-    #elif defined(SELECT_BROADWORD)
+    #elif defined(__aarch64__) || defined(__ARM_NEON__)
 
       // *** optimized byte-select path ***
       uint64_t counts = popcount_bytes(bm) * MASK_01;

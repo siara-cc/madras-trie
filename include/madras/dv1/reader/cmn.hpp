@@ -138,28 +138,27 @@ class cmn {
   public:
     __fq1 __fq2 static int pop_cnt(uint64_t bm) {
 
-      #if defined(__x86_64__) && defined(__SSSE3__)
-        // nibble LUT from your select code
-        static const __m128i lut = _mm_setr_epi8(
-            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
-        );
-        __m128i v   = _mm_set1_epi64x((long long)bm);
-        __m128i lo  = _mm_and_si128(v, _mm_set1_epi8(0x0F));
-        __m128i hi  = _mm_and_si128(_mm_srli_epi64(v, 4), _mm_set1_epi8(0x0F));
-        __m128i plo = _mm_shuffle_epi8(lut, lo);
-        __m128i phi = _mm_shuffle_epi8(lut, hi);
-        __m128i sum = _mm_add_epi8(plo, phi);
-        // horizontal sum over 8 bytes
-        sum = _mm_sad_epu8(sum, _mm_setzero_si128());
-        return (uint32_t)_mm_cvtsi128_si64(sum);
-      #else
-        // fallback = builtin popcount
+      // #if defined(__x86_64__) && defined(__SSSE3__)
+      //   // nibble LUT from your select code
+      //   static const __m128i lut = _mm_setr_epi8(
+      //       0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+      //   );
+      //   __m128i v   = _mm_set1_epi64x((long long)bm);
+      //   __m128i lo  = _mm_and_si128(v, _mm_set1_epi8(0x0F));
+      //   __m128i hi  = _mm_and_si128(_mm_srli_epi64(v, 4), _mm_set1_epi8(0x0F));
+      //   __m128i plo = _mm_shuffle_epi8(lut, lo);
+      //   __m128i phi = _mm_shuffle_epi8(lut, hi);
+      //   __m128i sum = _mm_add_epi8(plo, phi);
+      //   // horizontal sum over 8 bytes
+      //   sum = _mm_sad_epu8(sum, _mm_setzero_si128());
+      //   return (uint32_t)_mm_cvtsi128_si64(sum);
+      // #else
         #ifdef _WIN32
         return __popcnt64(bm);
         #else
         return __builtin_popcountll(bm);
         #endif
-      #endif
+      // #endif
     }
     __fq1 __fq2 static uintxx_t read_uint16(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
