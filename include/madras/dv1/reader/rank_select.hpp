@@ -210,6 +210,64 @@ class bvlt_select : public bvlt_rank {
     __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
     }
+
+    #if defined(SELECT_BROADWORD)
+
+    static const uint64_t MASK_01 = 0x0101010101010101ULL;
+
+    static constexpr uint64_t PREFIX_SUM_OVERFLOW[64] = {
+    #define M01 0x0101010101010101ULL
+      0x7F*M01,0x7E*M01,0x7D*M01,0x7C*M01,0x7B*M01,0x7A*M01,0x79*M01,0x78*M01,
+      0x77*M01,0x76*M01,0x75*M01,0x74*M01,0x73*M01,0x72*M01,0x71*M01,0x70*M01,
+      0x6F*M01,0x6E*M01,0x6D*M01,0x6C*M01,0x6B*M01,0x6A*M01,0x69*M01,0x68*M01,
+      0x67*M01,0x66*M01,0x65*M01,0x64*M01,0x63*M01,0x62*M01,0x61*M01,0x60*M01,
+      0x5F*M01,0x5E*M01,0x5D*M01,0x5C*M01,0x5B*M01,0x5A*M01,0x59*M01,0x58*M01,
+      0x57*M01,0x56*M01,0x55*M01,0x54*M01,0x53*M01,0x52*M01,0x51*M01,0x50*M01,
+      0x4F*M01,0x4E*M01,0x4D*M01,0x4C*M01,0x4B*M01,0x4A*M01,0x49*M01,0x48*M01,
+      0x47*M01,0x46*M01,0x45*M01,0x44*M01,0x43*M01,0x42*M01,0x41*M01,0x40*M01
+    #undef M01
+    };
+
+    #if defined(__x86_64__) && defined(__SSSE3__)
+
+    static constexpr __m128i nibble_lut = _mm_setr_epi8(
+      0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
+    );
+
+    static inline uint64_t popcount_bytes(uint64_t bm) {
+        __m128i v = _mm_set1_epi64x((long long)bm);
+        __m128i lo = _mm_and_si128(v, _mm_set1_epi8(0x0F));
+        __m128i hi = _mm_and_si128(_mm_srli_epi64(v, 4), _mm_set1_epi8(0x0F));
+        __m128i plo = _mm_shuffle_epi8(nibble_lut, lo);
+        __m128i phi = _mm_shuffle_epi8(nibble_lut, hi);
+        return (uint64_t)_mm_cvtsi128_si64(_mm_add_epi8(plo, phi));
+    }
+
+    #elif defined(__aarch64__)
+
+    #include <arm_neon.h>
+    static inline uint64_t popcount_bytes(uint64_t bm) {
+        uint8x8_t v = vcreate_u8(bm);
+        uint8x8_t c = vcnt_u8(v);
+        uint64_t r = vget_lane_u64(vreinterpret_u64_u8(c), 0);
+        return r;
+    }
+
+    #else
+
+    static inline uint64_t popcount_bytes(uint64_t bm) {
+        // scalar fallback (carry-rippler)
+        constexpr uint64_t MASK_0F = 0x0F0F0F0F0F0F0F0FULL;
+        constexpr uint64_t MASK_33 = 0x3333333333333333ULL;
+        constexpr uint64_t MASK_55 = 0x5555555555555555ULL;
+        uint64_t x = bm - ((bm >> 1) & MASK_55);
+        x = (x & MASK_33) + ((x >> 2) & MASK_33);
+        return ((x + (x >> 4)) & MASK_0F);
+    }
+
+    #endif
+    #endif // SELECT_BROADWORD
+
     __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm)
     {
     #if defined(SELECT_BMI2) && defined(__BMI2__)
@@ -221,48 +279,20 @@ class bvlt_select : public bvlt_rank {
 
     #elif defined(SELECT_BROADWORD)
 
-        //
-        // Broadword + SSSE3 path
-        // Very fast on modern Intel/AMD without BMI2
-        //
+      // *** optimized byte-select path ***
+      uint64_t counts = popcount_bytes(bm) * MASK_01;
 
-        // Step 1: compute popcount per byte using a LUT for 0..15 nibble popcounts
-        static const uint8_t pop_nib_lut[16] = {
-            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
-        };
+      uint64_t x = (counts + PREFIX_SUM_OVERFLOW[remaining - 1]) &
+                  0x8080808080808080ULL;
 
-        // Expand bm to 16 bytes (8 low bytes are valid)
-        __m128i v = _mm_set1_epi64x((long long)bm);
+      uintxx_t byte_index = __builtin_ctzll(x) >> 3;
 
-        const __m128i lo_mask = _mm_set1_epi8(0x0F);
-        __m128i lo = _mm_and_si128(v, lo_mask);
-        __m128i hi = _mm_and_si128(_mm_srli_epi64(v, 4), lo_mask);
+      remaining -= (uintxx_t)((counts << 8) >> (byte_index * 8)) & 0xFF;
 
-        // Load nibble LUT into vector
-        static const __m128i lut = _mm_setr_epi8(
-            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4
-        );
+      uint8_t b = (uint8_t)(bm >> (byte_index * 8));
+      uintxx_t bit_in_byte = select_lookup_tbl[remaining - 1][b];
 
-        // popcount per byte = LUT[lo] + LUT[hi]
-        __m128i pop_lo = _mm_shuffle_epi8(lut, lo);
-        __m128i pop_hi = _mm_shuffle_epi8(lut, hi);
-        __m128i pop = _mm_add_epi8(pop_lo, pop_hi);
-
-        // Step 2: scan bytes until finding the one containing the bit
-        uint8_t buf[16];
-        _mm_storeu_si128((__m128i*)buf, pop);
-
-        uintxx_t byte_index = 0;
-        while (buf[byte_index] < remaining) {
-            remaining -= buf[byte_index];
-            byte_index++;
-        }
-
-        // Step 3: select inside that byte using your existing lookup table
-        uint8_t b = (uint8_t)(bm >> (byte_index * 8));
-        uintxx_t bit_in_byte = select_lookup_tbl[remaining - 1][b];
-
-        return (byte_index << 3) + bit_in_byte;
+      return (byte_index << 3) + bit_in_byte;
 
     #else
 

@@ -1,6 +1,6 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -pthread -std=c++11 -march=native
+CXXFLAGS = -pthread -std=c++11 -march=native -DSELECT_BROADWORD=1
 INCLUDES = -I./include
 L_FLAGS = 
 M_FLAGS =
