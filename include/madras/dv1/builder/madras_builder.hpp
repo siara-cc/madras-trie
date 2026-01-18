@@ -1136,7 +1136,8 @@ class builder : public static_trie_builder, public trie_map_builder_fwd {
       tp.col_val_loc0 = tp.empty_val_loc + 16;
       tp.null_empty_sz = 32;
       tp.total_idx_size = tp.opts_loc + tp.opts_size +
-                (trie_level > 0 ? louds.size_bytes() : trie_flags.size()) +
+                (trie_level > 0 ? louds.size_bytes() : trie_flags_term.size() +
+                trie_flags_child.size() + trie_flags_leaf.size()) +
                 trie_flags_tail.size() +
                 tp.fwd_cache_size + gen::size_align8(tp.rev_cache_size) + tp.sec_cache_size +
                 (trie_level == 0 ? (gen::size_align8(tp.child_select_lt_sz) +

@@ -19,13 +19,6 @@
 
 namespace madras { namespace dv1 {
 
-struct trie_flags {
-  uint64_t bm_ptr;
-  uint64_t bm_term;
-  uint64_t bm_child;
-  uint64_t bm_leaf;
-};
-
 class inner_trie : public inner_trie_fwd {
   private:
     // __fq1 __fq2 inner_trie(inner_trie const&);
@@ -36,6 +29,7 @@ class inner_trie : public inner_trie_fwd {
     uint8_t lt_not_given;
     uint8_t *trie_loc;
     tail_ptr_map *tail_map;
+    bvlt_select leaf_lt;
     bvlt_select child_lt;
     bvlt_select term_lt;
     GCFC_rev_cache rev_cache;
@@ -97,6 +91,8 @@ class inner_trie : public inner_trie_fwd {
         uint8_t *term_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + TERM_RANK_LT_LOC);
         uint8_t *child_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + CHILD_SEL_LT_LOC);
         uint8_t *child_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + CHILD_RANK_LT_LOC);
+        uint8_t *leaf_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_RANK_LT_LOC);
+        uint8_t *leaf_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_SEL_LT_LOC);
 
         uint8_t *tail_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + TAIL_RANK_LT_LOC);
         uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
@@ -106,11 +102,13 @@ class inner_trie : public inner_trie_fwd {
         uint8_t *tails_loc = trie_tail_ptrs_data_loc + 16;
         trie_loc = tails_loc + tail_size;
 
-        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
+        uint64_t *tf_term_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_TERM_LOC));
+        uint64_t *tf_child_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_CHILD_LOC));
+        uint64_t *tf_leaf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LEAF_LOC));
         uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
 
         bldr_options *opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
-        uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
+        uint8_t multiplier = 1; //opts->trie_leaf_count > 0 ? 4 : 3;
 
         uint8_t encoding_type = tails_loc[TV_ENC_TYPE_LOC];
         uint8_t *tail_data_loc = tails_loc + cmn::read_uint64(tails_loc + TV_GRP_DATA_LOC);
@@ -120,7 +118,7 @@ class inner_trie : public inner_trie_fwd {
           tail_map = tail_flat_map;
         } else {
           tail_ptr_group_map *tail_grp_map = new tail_ptr_group_map();
-          tail_grp_map->init_ptr_grp_map(this, trie_loc, tf_loc, trie_level == 0 ? multiplier : 1, trie_level == 0 ? tf_loc : tf_ptr_loc, tails_loc, key_count, node_count, true);
+          tail_grp_map->init_ptr_grp_map(this, trie_loc, tf_ptr_loc, trie_level == 0 ? multiplier : 1, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, tails_loc, key_count, node_count, true);
           tail_map = tail_grp_map;
         }
 
@@ -131,23 +129,24 @@ class inner_trie : public inner_trie_fwd {
         if (tail_lt_loc == trie_bytes) tail_lt_loc = nullptr; // TODO: to build if dessicated?
         if (term_lt_loc == nullptr) {
           lt_not_given |= BV_LT_TYPE_TERM;
-          term_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_TERM, node_count, tf_loc);
-          term_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_TERM, key_count, node_set_count, node_count, tf_loc);
+          term_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_TERM, node_count, tf_term_loc);
+          term_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_TERM, key_count, node_set_count, node_count, tf_term_loc);
         }
         if (child_lt_loc == nullptr) {
           lt_not_given |= BV_LT_TYPE_CHILD;
-          child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_loc);
-          child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_loc);
+          child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_child_loc);
+          child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_child_loc);
         }
         uint8_t bvlt_block_count = 1;// tail_lt_loc == nullptr ? 2 : 3;
 
         if (trie_level == 0) {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_loc + TF_TERM, multiplier, bvlt_block_count);
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_loc + TF_CHILD, multiplier, bvlt_block_count);
+          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc, multiplier, bvlt_block_count);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc, multiplier, bvlt_block_count);
+          leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc, multiplier, bvlt_block_count);
         } else {
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_loc, 1, 1);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_child_loc, 1, 1);
         }
-        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_loc + TF_PTR : tf_ptr_loc, trie_level == 0 ? multiplier : 1, 1); //trie_level == 0 ? 3 : 1);
+        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, trie_level == 0 ? multiplier : 1, 1); //trie_level == 0 ? 3 : 1);
       }
 
     }
@@ -170,9 +169,7 @@ class inner_trie : public inner_trie_fwd {
 
 class static_trie : public inner_trie {
   protected:
-    bvlt_select *leaf_lt;
     GCFC_fwd_cache fwd_cache;
-    trie_flags *trie_flags_loc;
     leapfrog_asc *leaper;
     uintxx_t key_count;
     uint8_t *trie_bytes;
@@ -189,24 +186,18 @@ class static_trie : public inner_trie {
     __fq1 __fq2 bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
       in_ctx.node_id = 1;
-      trie_flags *tf;
-      uint64_t bm_mask;
       do {
         int ret = fwd_cache.try_find(in_ctx);
-        bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
-        tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
         if (ret == 0)
-          return bm_mask & tf->bm_leaf;
+          return leaf_lt.is_set1(in_ctx.node_id);
         if (leaper != nullptr) {
-          if ((bm_mask & tf->bm_leaf) == 0 && (bm_mask & tf->bm_child) == 0) {
+          if (!leaf_lt.is_set1(in_ctx.node_id) && !child_lt.is_set1(in_ctx.node_id)) {
             leaper->find_pos(in_ctx.node_id, trie_loc, in_ctx.key[in_ctx.key_pos]);
-            bm_mask = bm_init_mask << (in_ctx.node_id % nodes_per_bv_block_n);
-            tf = trie_flags_loc + in_ctx.node_id / nodes_per_bv_block_n;
           }
         }
         uintxx_t ptr_bit_count = UINTXX_MAX;
         do {
-          if ((bm_mask & tf->bm_ptr) == 0) {
+          if (!tail_lt.is_set1(in_ctx.node_id)) {
             if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
               in_ctx.key_pos++;
               break;
@@ -222,19 +213,14 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
             }
-          if (bm_mask & tf->bm_term)
+          if (term_lt.is_set1(in_ctx.node_id))
             return false;
           in_ctx.node_id++;
-          bm_mask <<= 1;
-          if (bm_mask == 0) {
-            bm_mask = bm_init_mask;
-            tf++;
-          }
         } while (1);
         if (in_ctx.key_pos == in_ctx.key_len) {
-          return 0 != (bm_mask & tf->bm_leaf);
+          return leaf_lt.is_set1(in_ctx.node_id);
         }
-        if ((bm_mask & tf->bm_child) == 0)
+        if (!child_lt.is_set1(in_ctx.node_id))
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
       } while (1);
@@ -243,7 +229,7 @@ class static_trie : public inner_trie {
 
     __fq1 __fq2 bool reverse_lookup(uintxx_t leaf_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
       leaf_id++;
-      uintxx_t node_id = leaf_lt->select1(leaf_id) - 1;
+      uintxx_t node_id = leaf_lt.select1(leaf_id) - 1;
       return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, to_reverse);
     }
 
@@ -277,15 +263,15 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 uintxx_t leaf_rank1(uintxx_t node_id) {
-      return leaf_lt->rank1(node_id);
+      return leaf_lt.rank1(node_id);
     }
 
     __fq1 __fq2 bool is_leaf(uintxx_t node_id) {
-      return (*leaf_lt)[node_id];
+      return leaf_lt[node_id];
     }
 
     __fq1 __fq2 uintxx_t leaf_select1(uintxx_t leaf_id) {
-      return leaf_lt->select1(leaf_id);
+      return leaf_lt.select1(leaf_id);
     }
 
     __fq1 __fq2 void push_to_ctx(iter_ctx& ctx, gen::byte_str& tail, uintxx_t node_id) {
@@ -339,11 +325,11 @@ class static_trie : public inner_trie {
       tail.set_buf_max_len(tail_bytes, max_tail_len);
       uintxx_t node_id = read_from_ctx(ctx, tail);
       while (node_id < node_count) {
-        if (leaf_lt != nullptr && !(*leaf_lt)[node_id] && !child_lt[node_id]) {
+        if (!leaf_lt[node_id] && !child_lt[node_id]) {
           node_id++;
           continue;
         }
-        if (leaf_lt == nullptr || (*leaf_lt)[node_id]) {
+        if (leaf_lt[node_id]) {
           if (ctx.to_skip_first_leaf) {
             if (!child_lt[node_id]) {
               while (term_lt[node_id]) {
@@ -481,7 +467,7 @@ class static_trie : public inner_trie {
     }
 
     __fq1 __fq2 bvlt_select *get_leaf_lt() {
-      return leaf_lt;
+      return &leaf_lt;
     }
 
     __fq1 __fq2 uint8_t *get_trie_loc() {
@@ -516,22 +502,7 @@ class static_trie : public inner_trie {
         max_tail_len = cmn::read_uint16(trie_bytes + MAX_TAIL_LEN_LOC) + 1;
 
         uintxx_t node_set_count = cmn::read_uint64(trie_bytes + NS_COUNT_LOC);
-        uint8_t *leaf_select_lkup_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_SEL_LT_LOC);
-        uint8_t *leaf_lt_loc = trie_bytes + cmn::read_uint64(trie_bytes + LEAF_RANK_LT_LOC);
-        uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
-        trie_flags_loc = (trie_flags *) tf_loc;
 
-        if (leaf_select_lkup_loc == trie_bytes) leaf_select_lkup_loc = nullptr;
-        if (leaf_lt_loc == trie_bytes) leaf_lt_loc = nullptr;
-        if (opts->trie_leaf_count > 0) {
-          if (leaf_lt_loc == nullptr) {
-            lt_not_given |= BV_LT_TYPE_LEAF;
-            leaf_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_LEAF, node_count, tf_loc);
-            leaf_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_LEAF, key_count, node_set_count, node_count, tf_loc);
-          }
-          leaf_lt = new bvlt_select();
-          leaf_lt->init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_loc + 3, 4, 1);
-        }
       }
 
       if (key_count > 0) {
@@ -573,7 +544,6 @@ class static_trie : public inner_trie {
       max_tail_len = 0;
       tail_map = nullptr;
       trie_loc = nullptr;
-      leaf_lt = nullptr;
 
     }
 
@@ -581,11 +551,9 @@ class static_trie : public inner_trie {
       if (leaper != nullptr)
         delete leaper;
       if (lt_not_given & BV_LT_TYPE_LEAF) {
-        delete [] leaf_lt->get_rank_loc();
-        delete [] leaf_lt->get_select_loc1();
+        delete [] leaf_lt.get_rank_loc();
+        delete [] leaf_lt.get_select_loc1();
       }
-      if (leaf_lt != nullptr)
-        delete leaf_lt;
     }
 
 };

@@ -38,10 +38,12 @@ struct trie_parts {
   uintxx_t sec_cache_size;
   uintxx_t louds_rank_lt_loc;
   uintxx_t louds_sel1_lt_loc;
-  uintxx_t trie_flags_loc;
+  uintxx_t trie_flags_term_loc;
+  uintxx_t trie_flags_child_loc;
+  uintxx_t trie_flags_tail_loc;
+  uintxx_t trie_flags_leaf_loc;
   uintxx_t louds_rank_lt_sz;
   uintxx_t louds_sel1_lt_sz;
-  uintxx_t tail_flags_loc;
   uintxx_t term_rank_lt_sz;
   uintxx_t child_rank_lt_sz;
   uintxx_t leaf_rank_lt_sz;
@@ -131,7 +133,8 @@ class static_trie_builder : public virtual trie_builder_fwd {
     memtrie::in_mem_trie memtrie;
     byte_vec trie;
     gen::bit_vector<uint64_t> louds;
-    byte_vec trie_flags;
+    byte_vec trie_flags_term;
+    byte_vec trie_flags_child;
     byte_vec trie_flags_tail;
     byte_vec trie_flags_leaf;
     uintxx_t end_loc;
@@ -633,10 +636,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
         if (node_count && (node_count % 64) == 0) {
           // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
           if (trie_level == 0) {
-            gen::append_uint64(bm_ptr, trie_flags);
-            gen::append_uint64(bm_term, trie_flags);
-            gen::append_uint64(bm_child, trie_flags);
-            gen::append_uint64(bm_leaf, trie_flags);
+            gen::append_uint64(bm_ptr, trie_flags_tail);
+            gen::append_uint64(bm_term, trie_flags_term);
+            gen::append_uint64(bm_child, trie_flags_child);
+            gen::append_uint64(bm_leaf, trie_flags_leaf);
           } else
             gen::append_uint64(bm_ptr, trie_flags_tail);
           trie.insert(trie.end(), byte_vec64.begin(), byte_vec64.end());
@@ -687,10 +690,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
       // TODO: write on all cases?
       // append_flags(trie_flags, bm_leaf, bm_child, bm_term, bm_ptr);
       if (trie_level == 0) {
-        gen::append_uint64(bm_ptr, trie_flags);
-        gen::append_uint64(bm_term, trie_flags);
-        gen::append_uint64(bm_child, trie_flags);
-        gen::append_uint64(bm_leaf, trie_flags);
+        gen::append_uint64(bm_ptr, trie_flags_tail);
+        gen::append_uint64(bm_term, trie_flags_term);
+        gen::append_uint64(bm_child, trie_flags_child);
+        gen::append_uint64(bm_leaf, trie_flags_leaf);
       } else
         gen::append_uint64(bm_ptr, trie_flags_tail);
       trie.insert(trie.end(), byte_vec64.begin(), byte_vec64.end());
@@ -707,9 +710,9 @@ class static_trie_builder : public virtual trie_builder_fwd {
     }
     uintxx_t write_trie_tail_ptrs_data() {
       uintxx_t tail_size = tail_maps.get_grp_ptrs()->get_total_size();
-      gen::gen_printf("\nTrie: %u, Flags: %u, Tail size: %u\n", trie.size(), trie_flags.size(), tail_size);
+      gen::gen_printf("\nTrie: %u, Flags: %u, Tail size: %u\n", trie.size(), trie_flags_tail.size(), tail_size);
       output.write_u64(tail_size);
-      output.write_u64(trie_flags.size());
+      output.write_u64(trie_flags_tail.size());
       gen::gen_printf("Tail stats - ");
       tail_maps.get_grp_ptrs()->write_ptrs_data(true);
       if (get_opts()->inner_tries && tail_trie_builder != nullptr) {
@@ -1066,23 +1069,27 @@ class static_trie_builder : public virtual trie_builder_fwd {
           tp.term_rank_lt_loc = tp.term_select_lkup_loc + gen::size_align8(tp.term_select_lt_sz);
           tp.child_rank_lt_loc = tp.term_rank_lt_loc + gen::size_align8(tp.term_rank_lt_sz);
           tp.tail_rank_lt_loc = tp.tail_rank_lt_sz == 0 ? 0 : tp.child_rank_lt_loc + gen::size_align8(tp.child_rank_lt_sz);
-          tp.trie_flags_loc = tp.child_rank_lt_loc + gen::size_align8(tp.child_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz);
+          tp.trie_flags_term_loc = tp.child_rank_lt_loc + gen::size_align8(tp.child_rank_lt_sz) + gen::size_align8(tp.tail_rank_lt_sz);
+          tp.trie_flags_child_loc = tp.trie_flags_term_loc + trie_flags_term.size();
+          tp.trie_flags_leaf_loc = tp.trie_flags_child_loc + trie_flags_child.size();
+          tp.trie_tail_ptrs_data_loc = tp.trie_flags_leaf_loc + trie_flags_leaf.size();
           tp.louds_rank_lt_loc = tp.term_rank_lt_loc; // dummy
           tp.louds_sel1_lt_loc = tp.term_select_lkup_loc; // dummy
-          tp.trie_tail_ptrs_data_loc = tp.trie_flags_loc + trie_flags.size();
         } else {
           tp.louds_sel1_lt_loc = tp.sec_cache_loc + tp.sec_cache_size;
           tp.louds_rank_lt_loc = tp.louds_sel1_lt_loc + gen::size_align8(tp.louds_sel1_lt_sz);
-          tp.trie_flags_loc = tp.louds_rank_lt_loc + gen::size_align8(tp.louds_rank_lt_sz);
-          tp.tail_rank_lt_loc = tp.trie_flags_loc + louds.size_bytes();
+          tp.trie_flags_term_loc = tp.louds_rank_lt_loc + gen::size_align8(tp.louds_rank_lt_sz);
+          tp.trie_flags_child_loc = tp.trie_flags_term_loc;
+          tp.trie_flags_leaf_loc = tp.trie_flags_child_loc + louds.size_bytes();
+          tp.tail_rank_lt_loc = tp.trie_flags_leaf_loc + trie_flags_leaf.size();
+          tp.trie_tail_ptrs_data_loc = tp.tail_rank_lt_loc + gen::size_align8(tp.tail_rank_lt_sz);
           tp.term_rank_lt_loc = tp.child_rank_lt_loc = gen::size_align8(tp.louds_rank_lt_loc); // All point to louds
           tp.term_select_lkup_loc = tp.child_select_lkup_loc = gen::size_align8(tp.louds_sel1_lt_loc); // All point to louds
-          tp.trie_tail_ptrs_data_loc = tp.tail_rank_lt_loc + gen::size_align8(tp.tail_rank_lt_sz);
         }
 
         tp.leaf_rank_lt_loc = tp.trie_tail_ptrs_data_loc + tp.trie_tail_ptrs_data_sz;
-        tp.tail_flags_loc = tp.leaf_rank_lt_loc + gen::size_align8(tp.leaf_rank_lt_sz);
-        tp.leaf_select_lkup_loc = tp.tail_flags_loc + trie_flags_tail.size();
+        tp.trie_flags_tail_loc = tp.leaf_rank_lt_loc + gen::size_align8(tp.leaf_rank_lt_sz);
+        tp.leaf_select_lkup_loc = tp.trie_flags_tail_loc + trie_flags_tail.size();
 
         if (!get_opts()->leap_frog)
           tp.sec_cache_loc = 0;
@@ -1091,7 +1098,8 @@ class static_trie_builder : public virtual trie_builder_fwd {
         tp.leaf_select_lt_sz = 0;
       }
       tp.total_idx_size = tp.opts_loc + tp.opts_size +
-                (trie_level > 0 ? louds.size_bytes() : trie_flags.size()) +
+                (trie_level > 0 ? louds.size_bytes() : trie_flags_term.size() +
+                trie_flags_child.size() + trie_flags_leaf.size()) +
                 trie_flags_tail.size() +
                 tp.fwd_cache_size + gen::size_align8(tp.rev_cache_size) + tp.sec_cache_size +
                 (trie_level == 0 ? (gen::size_align8(tp.child_select_lt_sz) +
@@ -1151,8 +1159,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
       output.write_u64(tp.leaf_rank_lt_loc);
       output.write_u64(tp.tail_rank_lt_loc);
       output.write_u64(tp.trie_tail_ptrs_data_loc);
-      output.write_u64(tp.trie_flags_loc);
-      output.write_u64(tp.tail_flags_loc);
+      output.write_u64(tp.trie_flags_term_loc);
+      output.write_u64(tp.trie_flags_child_loc);
+      output.write_u64(tp.trie_flags_leaf_loc);
+      output.write_u64(tp.trie_flags_tail_loc);
       output.write_u64(tp.null_val_loc);
       output.write_u64(tp.empty_val_loc);
       output.write_u64(0); // padding
@@ -1183,8 +1193,11 @@ class static_trie_builder : public virtual trie_builder_fwd {
           output.write_bytes((const uint8_t *) louds.raw_data()->data(), louds.raw_data()->size() * sizeof(uint64_t));
           if (tp.tail_rank_lt_sz > 0)
             write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
-        } else
-          output.write_bytes(trie_flags.data(), trie_flags.size());
+        } else {
+          output.write_bytes(trie_flags_term.data(), trie_flags_term.size());
+          output.write_bytes(trie_flags_child.data(), trie_flags_child.size());
+          output.write_bytes(trie_flags_leaf.data(), trie_flags_leaf.size());
+        }
 
         write_trie_tail_ptrs_data();
 

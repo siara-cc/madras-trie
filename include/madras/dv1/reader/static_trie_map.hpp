@@ -1493,7 +1493,7 @@ class static_trie_map : public static_trie {
       val_count = cmn::read_uint64(trie_bytes + VAL_COUNT_LOC);
       max_val_len = cmn::read_uint64(trie_bytes + MAX_VAL_LEN_LOC);
 
-      uint64_t *tf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LOC));
+      uint64_t *tf_leaf_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TRIE_FLAGS_LEAF_LOC));
 
       names_loc = trie_bytes + cmn::read_uint64(trie_bytes + NAMES_LOC);
       uint8_t *val_table_loc = trie_bytes + cmn::read_uint64(trie_bytes + VAL_TBL_LOC);
@@ -1505,11 +1505,11 @@ class static_trie_map : public static_trie {
       for (size_t i = 0; i < val_count; i++) {
         val_map[i] = new_value_retriever(i, get_column_type(i), get_column_encoding(i));
         if (i < pk_col_count) {
-          uint8_t multiplier = opts->trie_leaf_count > 0 ? 4 : 3;
+          uint8_t multiplier = 1; //opts->trie_leaf_count > 0 ? 4 : 3;
           uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
           uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
           uint8_t *tails_loc = trie_tail_ptrs_data_loc + 16;
-          val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, trie_level == 0 ? multiplier : 1, tf_ptr_loc, tails_loc, key_count, node_count);
+          val_map[i]->init(this, trie_loc, tf_leaf_loc, trie_level == 0 ? multiplier : 1, tf_ptr_loc, tails_loc, key_count, node_count);
           val_map[i]->data_type = get_column_type(i);
           val_map[i]->encoding_type = get_column_encoding(i);
         } else {
@@ -1518,7 +1518,7 @@ class static_trie_map : public static_trie {
           uint8_t *val_loc = trie_bytes + vl64;
           if (val_loc == trie_bytes)
             continue;
-          val_map[i]->init(this, trie_loc, tf_loc + TF_LEAF, opts->trie_leaf_count > 0 ? 4 : 3, nullptr, val_loc, key_count, node_count);
+          val_map[i]->init(this, trie_loc, tf_leaf_loc, opts->trie_leaf_count > 0 ? 4 : 3, nullptr, val_loc, key_count, node_count);
         }
       }
     }

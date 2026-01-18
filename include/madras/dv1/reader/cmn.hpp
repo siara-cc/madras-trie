@@ -90,10 +90,12 @@ namespace madras { namespace dv1 {
 #define TAIL_RANK_LT_LOC 224
 #define TRIE_TAIL_PTRS_DATA_LOC 232
 
-#define TRIE_FLAGS_LOC 240
-#define TAIL_FLAGS_PTR_LOC 248
-#define NULL_VAL_LOC 256
-#define EMPTY_VAL_LOC 264
+#define TRIE_FLAGS_TERM_LOC 240
+#define TRIE_FLAGS_CHILD_LOC 248
+#define TRIE_FLAGS_LEAF_LOC 256
+#define TAIL_FLAGS_PTR_LOC 264
+#define NULL_VAL_LOC 272
+#define EMPTY_VAL_LOC 280
 
 #define TV_PLT_PTR_WIDTH_LOC 0
 #define TV_DATA_TYPE_LOC 1
