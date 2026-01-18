@@ -37,7 +37,7 @@ class inner_trie : public inner_trie_fwd {
   public:
     __fq1 __fq2 bool compare_trie_tail(uintxx_t node_id, input_ctx& in_ctx) {
       do {
-        if (tail_lt.is_set1(node_id)) {
+        if (tail_lt[node_id]) {
           uintxx_t ptr_bit_count = UINTXX_MAX;
           if (!tail_map->compare_tail(node_id, in_ctx, ptr_bit_count))
             return false;
@@ -53,7 +53,7 @@ class inner_trie : public inner_trie_fwd {
     }
     __fq1 __fq2 bool copy_trie_tail(uintxx_t node_id, gen::byte_str& tail_str) {
       do {
-        if (tail_lt.is_set1(node_id)) {
+        if (tail_lt[node_id]) {
           tail_map->get_tail_str(node_id, tail_str);
         } else
           tail_str.append(trie_loc[node_id]);
@@ -136,16 +136,15 @@ class inner_trie : public inner_trie_fwd {
           child_lt_loc = lt_builder::create_rank_lt_from_trie(BV_LT_TYPE_CHILD, node_count, tf_child_loc);
           child_select_lkup_loc = lt_builder::create_select_lt_from_trie(BV_LT_TYPE_CHILD, key_count, node_set_count, node_count, tf_child_loc);
         }
-        uint8_t bvlt_block_count = 1;// tail_lt_loc == nullptr ? 2 : 3;
 
         if (trie_level == 0) {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc, bvlt_block_count);
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc, bvlt_block_count);
-          leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc, bvlt_block_count);
+          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc);
+          leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc);
         } else {
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_child_loc, 1);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_child_loc);
         }
-        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, 1); //trie_level == 0 ? 3 : 1);
+        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc); //trie_level == 0 ? 3 : 1);
       }
 
     }
@@ -188,15 +187,15 @@ class static_trie : public inner_trie {
       do {
         int ret = fwd_cache.try_find(in_ctx);
         if (ret == 0)
-          return leaf_lt.is_set1(in_ctx.node_id);
+          return leaf_lt[in_ctx.node_id];
         if (leaper != nullptr) {
-          if (!leaf_lt.is_set1(in_ctx.node_id) && !child_lt.is_set1(in_ctx.node_id)) {
+          if (!leaf_lt[in_ctx.node_id] && !child_lt[in_ctx.node_id]) {
             leaper->find_pos(in_ctx.node_id, trie_loc, in_ctx.key[in_ctx.key_pos]);
           }
         }
         uintxx_t ptr_bit_count = UINTXX_MAX;
         do {
-          if (!tail_lt.is_set1(in_ctx.node_id)) {
+          if (!tail_lt[in_ctx.node_id]) {
             if (in_ctx.key[in_ctx.key_pos] == trie_loc[in_ctx.node_id]) {
               in_ctx.key_pos++;
               break;
@@ -212,14 +211,14 @@ class static_trie : public inner_trie {
             if (prev_key_pos != in_ctx.key_pos)
               return false;
             }
-          if (term_lt.is_set1(in_ctx.node_id))
+          if (term_lt[in_ctx.node_id])
             return false;
           in_ctx.node_id++;
         } while (1);
         if (in_ctx.key_pos == in_ctx.key_len) {
-          return leaf_lt.is_set1(in_ctx.node_id);
+          return leaf_lt[in_ctx.node_id];
         }
-        if (!child_lt.is_set1(in_ctx.node_id))
+        if (!child_lt[in_ctx.node_id])
           return false;
         in_ctx.node_id = term_lt.select1(child_lt.rank1(in_ctx.node_id) + 1);
       } while (1);

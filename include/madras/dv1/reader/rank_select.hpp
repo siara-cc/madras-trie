@@ -95,16 +95,12 @@ class bvlt_rank {
   protected:
     uint64_t *bm_loc;
     uint8_t *lt_rank_loc;
-    uint8_t lt_width;
   public:
     __fq1 __fq2 bool operator[](size_t pos) {
       return ((bm_loc[(pos / 64)] >> (pos % 64)) & 1) != 0;
     }
-    __fq1 __fq2 bool is_set1(size_t pos) {
-      return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
-    }
     __fq1 __fq2 uintxx_t rank1(uintxx_t bv_pos) {
-      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
+      uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * width_of_bv_block;
       uintxx_t rank = cmn::read_uint32(rank_ptr);
       #if nodes_per_bv_block == 512
       int pos = (bv_pos / nodes_per_bv_block_n) % width_of_bv_block_n;
@@ -129,10 +125,9 @@ class bvlt_rank {
     }
     __fq1 __fq2 bvlt_rank() {
     }
-    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _lt_unit_count) {
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc) {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
-      lt_width = _lt_unit_count * width_of_bv_block;
     }
 };
 
@@ -147,7 +142,7 @@ class bvlt_select : public bvlt_rank {
     __fq1 __fq2 uintxx_t bin_srch_lkup_tbl(uintxx_t first, uintxx_t last, uintxx_t given_count) {
       while (first + 1 < last) {
         const uintxx_t middle = (first + last) >> 1;
-        if (given_count < cmn::read_uint32(lt_rank_loc + middle * lt_width))
+        if (given_count < cmn::read_uint32(lt_rank_loc + middle * width_of_bv_block))
           last = middle;
         else
           first = middle;
@@ -162,14 +157,14 @@ class bvlt_select : public bvlt_rank {
       // uintxx_t end_block = cmn::read_uint24(select_loc + 3);
       // if (block + 4 < end_block)
       //   block = bin_srch_lkup_tbl(block, end_block, target_count);
-      uint8_t *block_loc = lt_rank_loc + block * lt_width;
+      uint8_t *block_loc = lt_rank_loc + block * width_of_bv_block;
       while (cmn::read_uint32(block_loc) < target_count) {
         block++;
-        block_loc += lt_width;
+        block_loc += width_of_bv_block;
       }
       block--;
       uintxx_t bv_pos = block * nodes_per_bv_block;
-      block_loc -= lt_width;
+      block_loc -= width_of_bv_block;
       uintxx_t remaining = target_count - cmn::read_uint32(block_loc);
       if (remaining == 0)
         return bv_pos;
@@ -288,8 +283,8 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 bvlt_select() {
     }
-    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _lt_width) {
-      bvlt_rank::init(_lt_rank_loc, _bm_loc, _lt_width);
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc) {
+      bvlt_rank::init(_lt_rank_loc, _bm_loc);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;
     }
