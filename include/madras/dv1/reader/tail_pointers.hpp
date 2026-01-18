@@ -184,7 +184,7 @@ class tail_ptr_group_map : public tail_ptr_map, public ptr_group_map {
   public:
     __fq1 __fq2 void scan_ptr_bits_tail(uintxx_t node_id, uintxx_t& ptr_bit_count) {
       uintxx_t node_id_from = node_id - (node_id % nodes_per_ptr_block_n);
-      uint64_t bm_ptr = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+      uint64_t bm_ptr = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n)];
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
       while (node_id_from < node_id) {
         if (bm_mask & bm_ptr)

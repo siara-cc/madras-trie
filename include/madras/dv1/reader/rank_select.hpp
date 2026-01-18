@@ -95,11 +95,10 @@ class bvlt_rank {
   protected:
     uint64_t *bm_loc;
     uint8_t *lt_rank_loc;
-    uint8_t multiplier;
     uint8_t lt_width;
   public:
     __fq1 __fq2 bool operator[](size_t pos) {
-      return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
+      return ((bm_loc[(pos / 64)] >> (pos % 64)) & 1) != 0;
     }
     __fq1 __fq2 bool is_set1(size_t pos) {
       return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
@@ -121,7 +120,7 @@ class bvlt_rank {
         rank += rank_ptr[4 + pos - 1];
       #endif
       uint64_t mask = (bm_init_mask << (bv_pos % nodes_per_bv_block_n)) - 1;
-      uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n) * multiplier];
+      uint64_t bm = bm_loc[(bv_pos / nodes_per_bv_block_n)];
       // return rank + __popcountdi2(bm & (mask - 1));
       return rank + static_cast<uintxx_t>(cmn::pop_cnt(bm & mask));
     }
@@ -130,10 +129,9 @@ class bvlt_rank {
     }
     __fq1 __fq2 bvlt_rank() {
     }
-    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _lt_unit_count) {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
-      multiplier = _multiplier;
       lt_width = _lt_unit_count * width_of_bv_block;
     }
 };
@@ -201,11 +199,11 @@ class bvlt_select : public bvlt_rank {
       #endif
       if (remaining == 0)
         return bv_pos;
-      uint64_t bm = bm_loc[(bv_pos / 64) * multiplier];
+      uint64_t bm = bm_loc[(bv_pos / 64)];
       return bv_pos + bm_select1(remaining, bm);
     }
     uint64_t get_bm(uintxx_t node_id) {
-      return bm_loc[(node_id / 64) * multiplier];
+      return bm_loc[(node_id / 64)];
     }
     __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
@@ -290,8 +288,8 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 bvlt_select() {
     }
-    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_width) {
-      bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier, _lt_width);
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _lt_width) {
+      bvlt_rank::init(_lt_rank_loc, _bm_loc, _lt_width);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;
     }

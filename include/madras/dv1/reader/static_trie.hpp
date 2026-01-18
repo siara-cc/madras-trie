@@ -108,7 +108,6 @@ class inner_trie : public inner_trie_fwd {
         uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
 
         bldr_options *opts = (bldr_options *) (trie_bytes + MDX_HEADER_SIZE);
-        uint8_t multiplier = 1; //opts->trie_leaf_count > 0 ? 4 : 3;
 
         uint8_t encoding_type = tails_loc[TV_ENC_TYPE_LOC];
         uint8_t *tail_data_loc = tails_loc + cmn::read_uint64(tails_loc + TV_GRP_DATA_LOC);
@@ -118,7 +117,7 @@ class inner_trie : public inner_trie_fwd {
           tail_map = tail_flat_map;
         } else {
           tail_ptr_group_map *tail_grp_map = new tail_ptr_group_map();
-          tail_grp_map->init_ptr_grp_map(this, trie_loc, tf_ptr_loc, trie_level == 0 ? multiplier : 1, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, tails_loc, key_count, node_count, true);
+          tail_grp_map->init_ptr_grp_map(this, trie_loc, tf_ptr_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, tails_loc, key_count, node_count, true);
           tail_map = tail_grp_map;
         }
 
@@ -140,13 +139,13 @@ class inner_trie : public inner_trie_fwd {
         uint8_t bvlt_block_count = 1;// tail_lt_loc == nullptr ? 2 : 3;
 
         if (trie_level == 0) {
-          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc, multiplier, bvlt_block_count);
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc, multiplier, bvlt_block_count);
-          leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc, multiplier, bvlt_block_count);
+          term_lt.init(term_lt_loc, term_select_lkup_loc, node_count, tf_term_loc, bvlt_block_count);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count, tf_child_loc, bvlt_block_count);
+          leaf_lt.init(leaf_lt_loc, leaf_select_lkup_loc, node_count, tf_leaf_loc, bvlt_block_count);
         } else {
-          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_child_loc, 1, 1);
+          child_lt.init(child_lt_loc, child_select_lkup_loc, node_count * 2, tf_child_loc, 1);
         }
-        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, trie_level == 0 ? multiplier : 1, 1); //trie_level == 0 ? 3 : 1);
+        tail_lt.init(tail_lt_loc, trie_level == 0 ? tf_ptr_loc : tf_ptr_loc, 1); //trie_level == 0 ? 3 : 1);
       }
 
     }

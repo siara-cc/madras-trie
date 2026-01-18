@@ -92,7 +92,6 @@ class ptr_group_map {
     uint8_t encoding_type;
     uint8_t flags;
     uint8_t inner_trie_start_grp;
-    uint8_t multiplier;
     uint8_t group_count;
     uint8_t rpt_grp_no;
     int8_t grp_idx_limit;
@@ -129,14 +128,13 @@ class ptr_group_map {
         delete [] idx_map_arr;
     }
 
-    __fq1 __fq2 void init_ptr_grp_map(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint64_t *_tf_ptr_loc,
+    __fq1 __fq2 void init_ptr_grp_map(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint64_t *_tf_ptr_loc,
                 uint8_t *data_loc, uintxx_t _key_count, uintxx_t _node_count, bool is_tail) {
 
       dict_obj = _dict_obj;
       trie_loc = _trie_loc;
 
-      ptr_bm_loc = _multiplier == 1 ? _tf_ptr_loc : _bm_loc;
-      multiplier = _multiplier;
+      ptr_bm_loc = _tf_ptr_loc;
 
       data_type = data_loc[TV_DATA_TYPE_LOC];
       encoding_type = data_loc[TV_ENC_TYPE_LOC];
@@ -179,7 +177,7 @@ class ptr_group_map {
           _start_bits += idx_step_bits;
         }
         if (ptr_lt_loc == data_loc && group_count > 1) {
-          ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, _bm_loc, _multiplier, _tf_ptr_loc, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width, _dict_obj->trie_level);
+          ptr_lt_loc = lt_builder::create_ptr_lt(trie_loc, _bm_loc, 1, _tf_ptr_loc, ptrs_loc, _key_count, _node_count, code_lt_bit_len, is_tail, ptr_lt_ptr_width, _dict_obj->trie_level);
           release_ptr_lt = true;
         }
         ptr_reader.init(ptrs_loc, ptr_lt_loc, ptr_lt_ptr_width, release_ptr_lt);

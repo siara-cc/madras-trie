@@ -17,7 +17,7 @@ class value_retriever_base : public ptr_group_map {
   public:
     __fq1 __fq2 virtual ~value_retriever_base() {}
     __fq1 __fq2 virtual void load_bm(uintxx_t node_id, val_ctx& vctx) = 0;
-    __fq1 __fq2 virtual void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+    __fq1 __fq2 virtual void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc,
             uint64_t *_bm_ptr_loc, uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) = 0;
     __fq1 __fq2 virtual bool next_val(val_ctx& vctx) = 0;
     __fq1 __fq2 virtual void fill_val_ctx(uintxx_t node_id, val_ctx& vctx) = 0;
@@ -39,7 +39,7 @@ class value_retriever : public value_retriever_base {
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
       uint64_t bm_leaf = UINT64_MAX;
       if (key_count > 0)
-        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * multiplier];
+        bm_leaf = ptr_bm_loc[(node_id_from / nodes_per_bv_block_n)];
       vctx.rpt_left = 0;
       uintxx_t last_pbc = vctx.ptr_bit_count;
       while (node_id_from < vctx.node_id) {
@@ -129,7 +129,7 @@ class value_retriever : public value_retriever_base {
       if (template_val<pri_key>() == 'Y') {
         vctx.bm_mask = (bm_init_mask << (node_id % nodes_per_bv_block_n));
         vctx.bm_leaf = UINT64_MAX;
-        vctx.bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n) * multiplier];
+        vctx.bm_leaf = ptr_bm_loc[(node_id / nodes_per_bv_block_n)];
       }
     }
 
@@ -158,11 +158,11 @@ class value_retriever : public value_retriever_base {
       }
       return skip_non_leaf_nodes(vctx);
     }
-    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc, uint8_t _multiplier,
+    __fq1 __fq2 void init(inner_trie_fwd *_dict_obj, uint8_t *_trie_loc, uint64_t *_bm_loc,
                 uint64_t *_bm_ptr_loc, uint8_t *val_loc, uintxx_t _key_count, uintxx_t _node_count) {
       key_count = _key_count;
       node_count = _node_count;
-      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _multiplier, _bm_ptr_loc, val_loc, _key_count, _node_count, false);
+      init_ptr_grp_map(_dict_obj, _trie_loc, _bm_loc, _bm_ptr_loc, val_loc, _key_count, _node_count, false);
       uint8_t *data_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_DATA_LOC);
       uint8_t *ptrs_loc = val_loc + cmn::read_uint64(val_loc + TV_GRP_PTRS_LOC);
       uint64_t *null_bv_loc = (uint64_t *) (val_loc + cmn::read_uint64(val_loc + TV_NULL_BV_LOC));
@@ -323,7 +323,7 @@ class words_retriever : public value_retriever<pri_key> {
       uint64_t bm_mask = (bm_init_mask << (node_id_from % nodes_per_bv_block_n));
       uint64_t bm_leaf = UINT64_MAX;
       if (Parent::key_count > 0)
-        bm_leaf = Parent::ptr_bm_loc[(node_id_from / nodes_per_bv_block_n) * Parent::multiplier];
+        bm_leaf = Parent::ptr_bm_loc[(node_id_from / nodes_per_bv_block_n)];
       size_t to_skip = 0;
       uintxx_t last_pbc = ptr_bit_count;
       while (node_id_from < node_id) {
@@ -1505,11 +1505,10 @@ class static_trie_map : public static_trie {
       for (size_t i = 0; i < val_count; i++) {
         val_map[i] = new_value_retriever(i, get_column_type(i), get_column_encoding(i));
         if (i < pk_col_count) {
-          uint8_t multiplier = 1; //opts->trie_leaf_count > 0 ? 4 : 3;
           uint64_t *tf_ptr_loc = (uint64_t *) (trie_bytes + cmn::read_uint64(trie_bytes + TAIL_FLAGS_PTR_LOC));
           uint8_t *trie_tail_ptrs_data_loc = trie_bytes + cmn::read_uint64(trie_bytes + TRIE_TAIL_PTRS_DATA_LOC);
           uint8_t *tails_loc = trie_tail_ptrs_data_loc + 16;
-          val_map[i]->init(this, trie_loc, tf_leaf_loc, trie_level == 0 ? multiplier : 1, tf_ptr_loc, tails_loc, key_count, node_count);
+          val_map[i]->init(this, trie_loc, tf_leaf_loc, tf_ptr_loc, tails_loc, key_count, node_count);
           val_map[i]->data_type = get_column_type(i);
           val_map[i]->encoding_type = get_column_encoding(i);
         } else {
@@ -1518,7 +1517,7 @@ class static_trie_map : public static_trie {
           uint8_t *val_loc = trie_bytes + vl64;
           if (val_loc == trie_bytes)
             continue;
-          val_map[i]->init(this, trie_loc, tf_leaf_loc, opts->trie_leaf_count > 0 ? 4 : 3, nullptr, val_loc, key_count, node_count);
+          val_map[i]->init(this, trie_loc, tf_leaf_loc, nullptr, val_loc, key_count, node_count);
         }
       }
     }
