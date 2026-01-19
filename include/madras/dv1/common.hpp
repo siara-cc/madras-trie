@@ -42,6 +42,14 @@ const static uint8_t *EMPTY_VALUE = (const uint8_t *) "!";
 const static size_t EMPTY_VALUE_LEN = 1;
 
 #if defined(__GNUC__) || defined(__clang__)
+#define HOT   __attribute__((hot))
+#define COLD  __attribute__((cold))
+#else
+#define HOT
+#define COLD
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
 #define PACKED_STRUCT __attribute__((packed))
 #elif defined(_MSC_VER)
 #define PACKED_STRUCT
@@ -366,7 +374,7 @@ struct BufferGuard {
     BufferGuard& operator=(const BufferGuard&) = delete;
 };
 template <typename T>
-inline T* get_fast_buffer(std::size_t required_len, T* stack_buf, T*& heap_buf) {
+HOT inline T* get_fast_buffer(std::size_t required_len, T* stack_buf, T*& heap_buf) {
     if (required_len <= FAST_STACK_BUF) {
         heap_buf = nullptr;
         return stack_buf;

@@ -15,6 +15,14 @@ namespace gen {
 #define __fq2
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define HOT   __attribute__((hot))
+#define COLD  __attribute__((cold))
+#else
+#define HOT
+#define COLD
+#endif
+
 typedef std::vector<uint8_t> byte_vec;
 typedef std::vector<uint8_t *> byte_ptr_vec;
 
@@ -173,7 +181,7 @@ class int_bv_reader {
       int_bv = _int_bv;
       bit_len = _bit_len;
     }
-    __fq1 __fq2 uint32_t operator[](size_t pos) {
+    HOT __fq1 __fq2 uint32_t operator[](size_t pos) {
       if (bit_len == 0) return 0; // todo: possible to not have bit_len = 0?
       uint64_t bit_pos = pos * bit_len;
       uint64_t *ptr_loc = (uint64_t *) int_bv + bit_pos / 64;
