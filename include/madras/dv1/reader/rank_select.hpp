@@ -117,13 +117,13 @@ class bvlt_rank {
     uint8_t multiplier;
     uint8_t lt_width;
   public:
-    HOT __fq1 __fq2 bool operator[](size_t pos) {
+    __fq1 __fq2 bool operator[](size_t pos) {
       return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
     }
     __fq1 __fq2 bool is_set1(size_t pos) {
       return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
     }
-    HOT __fq1 __fq2 uintxx_t rank1(uintxx_t bv_pos) {
+    __fq1 __fq2 uintxx_t rank1(uintxx_t bv_pos) {
       uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * lt_width;
       uintxx_t rank = cmn::read_uint32(rank_ptr);
       #if nodes_per_bv_block == 512
@@ -149,7 +149,7 @@ class bvlt_rank {
     }
     __fq1 __fq2 bvlt_rank() {
     }
-    COLD __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_unit_count) {
       lt_rank_loc = _lt_rank_loc;
       bm_loc = _bm_loc;
       multiplier = _multiplier;
@@ -175,7 +175,7 @@ class bvlt_select : public bvlt_rank {
       }
       return first;
     }
-    HOT __fq1 __fq2 uintxx_t select1(uintxx_t target_count) {
+    __fq1 __fq2 uintxx_t select1(uintxx_t target_count) {
       if (target_count == 0)
         return 0;
       uint8_t *select_loc = lt_sel_loc1 + target_count / sel_divisor * 3;
@@ -226,7 +226,7 @@ class bvlt_select : public bvlt_rank {
     uint64_t get_bm(uintxx_t node_id) {
       return bm_loc[(node_id / 64) * multiplier];
     }
-    HOT __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
+    __fq1 __fq2 inline uintxx_t get_count(uint8_t *block_loc, size_t pos_n) {
       return (block_loc[pos_n] + (((uintxx_t)(*block_loc) << pos_n) & 0x100));
     }
 
@@ -267,7 +267,7 @@ class bvlt_select : public bvlt_rank {
 
     #endif
 
-    HOT __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm)
+    __fq1 __fq2 inline uintxx_t bm_select1(uintxx_t remaining, uint64_t bm)
     {
     #if defined(__BMI2__)
 
@@ -319,7 +319,7 @@ class bvlt_select : public bvlt_rank {
     }
     __fq1 __fq2 bvlt_select() {
     }
-    COLD __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_width) {
+    __fq1 __fq2 void init(uint8_t *_lt_rank_loc, uint8_t *_lt_sel_loc1, uintxx_t _bv_bit_count, uint64_t *_bm_loc, uint8_t _multiplier, uint8_t _lt_width) {
       bvlt_rank::init(_lt_rank_loc, _bm_loc, _multiplier, _lt_width);
       lt_sel_loc1 = _lt_sel_loc1;
       bv_bit_count = _bv_bit_count;

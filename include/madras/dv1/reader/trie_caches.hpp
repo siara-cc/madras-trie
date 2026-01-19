@@ -14,7 +14,7 @@ class GCFC_fwd_cache {
     uintxx_t max_node_id;
     uintxx_t cache_mask;
   public:
-    HOT __fq1 __fq2 int try_find(input_ctx& in_ctx) {
+    __fq1 __fq2 int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];
@@ -37,9 +37,9 @@ class GCFC_fwd_cache {
       } while (1);
       return -1;
     }
-    COLD __fq1 __fq2 GCFC_fwd_cache() {
+    __fq1 __fq2 GCFC_fwd_cache() {
     }
-    COLD __fq1 __fq2 void init(uint8_t *_loc, uintxx_t _count, uintxx_t _max_node_id) {
+    __fq1 __fq2 void init(uint8_t *_loc, uintxx_t _count, uintxx_t _max_node_id) {
       cche0 = (fwd_cache *) _loc;
       max_node_id = _max_node_id;
       cache_mask = _count - 1;
@@ -54,7 +54,7 @@ class GCFC_rev_cache {
     uintxx_t max_node_id;
     uintxx_t cache_mask;
   public:
-    HOT __fq1 __fq2 bool try_find(uintxx_t& node_id, input_ctx& in_ctx) {
+    __fq1 __fq2 bool try_find(uintxx_t& node_id, input_ctx& in_ctx) {
       if (node_id >= max_node_id)
         return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);
@@ -73,7 +73,7 @@ class GCFC_rev_cache {
       }
       return false;
     }
-    HOT __fq1 __fq2 bool try_find(uintxx_t& node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 bool try_find(uintxx_t& node_id, gen::byte_str& tail_str) {
       if (node_id >= max_node_id)
         return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);
@@ -88,9 +88,9 @@ class GCFC_rev_cache {
       }
       return false;
     }
-    COLD __fq1 __fq2 GCFC_rev_cache() {
+    __fq1 __fq2 GCFC_rev_cache() {
     }
-    COLD __fq1 __fq2 void init(uint8_t *_loc, uintxx_t _count, uintxx_t _max_node_id) {
+    __fq1 __fq2 void init(uint8_t *_loc, uintxx_t _count, uintxx_t _max_node_id) {
       cche0 = (nid_cache *) _loc;
       max_node_id = _max_node_id;
       cache_mask = _count - 1;

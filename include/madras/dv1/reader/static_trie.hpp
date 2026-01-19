@@ -41,7 +41,7 @@ class inner_trie : public inner_trie_fwd {
     GCFC_rev_cache rev_cache;
 
   public:
-    HOT __fq1 __fq2 bool compare_trie_tail(uintxx_t node_id, input_ctx& in_ctx) {
+    __fq1 __fq2 bool compare_trie_tail(uintxx_t node_id, input_ctx& in_ctx) {
       do {
         if (tail_lt.is_set1(node_id)) {
           uintxx_t ptr_bit_count = UINTXX_MAX;
@@ -57,7 +57,7 @@ class inner_trie : public inner_trie_fwd {
       } while (node_id != 0);
       return true;
     }
-    HOT __fq1 __fq2 bool copy_trie_tail(uintxx_t node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 bool copy_trie_tail(uintxx_t node_id, gen::byte_str& tail_str) {
       do {
         if (tail_lt.is_set1(node_id)) {
           tail_map->get_tail_str(node_id, tail_str);
@@ -70,14 +70,14 @@ class inner_trie : public inner_trie_fwd {
     }
     __fq1 __fq2 inner_trie() {
     }
-    COLD __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
+    __fq1 __fq2 inner_trie_fwd *new_instance(uint8_t *mem) {
       // Where is this released?
       inner_trie *it = new inner_trie();
       it->trie_level = mem[TRIE_LEVEL_LOC];
       it->load_inner_trie(mem);
       return it;
     }
-    COLD __fq1 __fq2 void load_inner_trie(uint8_t *trie_bytes) {
+    __fq1 __fq2 void load_inner_trie(uint8_t *trie_bytes) {
 
       tail_map = nullptr;
       trie_loc = nullptr;
@@ -186,7 +186,7 @@ class static_trie : public inner_trie {
   protected:
     bldr_options *opts;
   public:
-    HOT __fq1 __fq2 bool lookup(input_ctx& in_ctx) {
+    __fq1 __fq2 bool lookup(input_ctx& in_ctx) {
       in_ctx.key_pos = 0;
       in_ctx.node_id = 1;
       trie_flags *tf;
@@ -241,13 +241,13 @@ class static_trie : public inner_trie {
       return false;
     }
 
-    HOT __fq1 __fq2 bool reverse_lookup(uintxx_t leaf_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
+    __fq1 __fq2 bool reverse_lookup(uintxx_t leaf_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
       leaf_id++;
       uintxx_t node_id = leaf_lt->select1(leaf_id) - 1;
       return reverse_lookup_from_node_id(node_id, in_size_out_key_len, ret_key, to_reverse);
     }
 
-    HOT __fq1 __fq2 bool reverse_lookup_from_node_id(uintxx_t node_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
+    __fq1 __fq2 bool reverse_lookup_from_node_id(uintxx_t node_id, size_t *in_size_out_key_len, uint8_t *ret_key, bool to_reverse = true) {
       gen::byte_str tail(ret_key, max_key_len);
       do {
         if (tail_lt[node_id]) {
@@ -266,7 +266,7 @@ class static_trie : public inner_trie {
       return true;
     }
 
-    HOT __fq1 __fq2 void reverse_byte_str(uint8_t *str, size_t len) {
+    __fq1 __fq2 void reverse_byte_str(uint8_t *str, size_t len) {
       size_t i = len / 2;
       while (i--) {
         uint8_t b = str[i];
@@ -504,7 +504,7 @@ class static_trie : public inner_trie {
       return ev_loc;
     }
 
-    COLD __fq1 __fq2 void load_static_trie(uint8_t *_trie_bytes = nullptr) {
+    __fq1 __fq2 void load_static_trie(uint8_t *_trie_bytes = nullptr) {
 
       if (_trie_bytes != nullptr)
         trie_bytes = _trie_bytes;
