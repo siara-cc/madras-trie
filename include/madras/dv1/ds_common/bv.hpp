@@ -181,21 +181,12 @@ public:
       uint64_t bit = pos * bit_len;
       size_t w = bit >> 6;
       uint32_t s = bit & 63;
-      #ifdef __BMI2__
-        uint64_t lo = base[w] >> s;
-        uint64_t hi = base[w+1] << (64 - s);
-        uint64_t mask = ((1ULL << bit_len) - 1);
-        uint64_t cross = (uint64_t)-(int)((s + bit_len) > 64); // all bits 1 if true
-        uint64_t v = lo | (hi & cross);
-        return v & mask;
-      #else
-        uint64_t lo = base[w] >> s;
-        if (s + bit_len <= 64) {
-          return lo & ((1ULL << bit_len) - 1);
-        }
-        uint64_t hi = base[w+1] << (64 - s);
-        return (lo | hi) & ((1ULL << bit_len) - 1);
-      #endif
+      uint64_t lo = base[w] >> s;
+      if (s + bit_len <= 64) {
+        return lo & ((1ULL << bit_len) - 1);
+      }
+      uint64_t hi = base[w+1] << (64 - s);
+      return (lo | hi) & ((1ULL << bit_len) - 1);
     }
 };
 

@@ -117,10 +117,10 @@ class bvlt_rank {
     uint8_t multiplier;
     uint8_t lt_width;
   public:
-    __fq1 __fq2 bool operator[](size_t pos) {
+    __fq1 __fq2 inline bool operator[](size_t pos) {
       return ((bm_loc[multiplier * (pos / 64)] >> (pos % 64)) & 1) != 0;
     }
-    __fq1 __fq2 bool is_set1(size_t pos) {
+    __fq1 __fq2 inline bool is_set1(size_t pos) {
       return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
     }
     __fq1 __fq2 uintxx_t rank1(uintxx_t bv_pos) {

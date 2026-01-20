@@ -548,16 +548,13 @@ class byte_str {
       buf = _buf;
       max_len = _max_len;
     }
-    __fq1 __fq2 void append(uint8_t b) {
-      if (len < max_len)
-        buf[len++] = b;
+    __fq1 __fq2 inline void append(uint8_t b) {
+      if (len < max_len) buf[len++] = b;
     }
-    __fq1 __fq2 void append(uint8_t *b, size_t blen) {
-      size_t start = 0;
-      while (len < max_len && start < blen) {
-        buf[len++] = *b++;
-        start++;
-      }
+    __fq1 __fq2 inline void append(uint8_t *b, size_t blen) {
+      size_t limit = len + blen;
+      if (limit > max_len) limit = max_len;
+      while (len < limit) buf[len++] = *b++;
     }
     __fq1 __fq2 uint8_t *data() {
       return buf;

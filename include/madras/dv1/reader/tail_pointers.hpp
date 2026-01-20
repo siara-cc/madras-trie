@@ -56,7 +56,36 @@ class tail_ptr_map {
         sfx_len--;
       }
     }
-    inline __fq1 __fq2 bool compare_tail_data(uint8_t *data, uintxx_t tail_ptr, input_ctx& in_ctx) {
+    __fq1 __fq2 bool compare_bin(uint8_t *data, uint8_t *tail, input_ctx& in_ctx) {
+      uintxx_t bin_len;
+      read_len_bw(tail++, bin_len);
+      if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
+        if (*tail == in_ctx.key[in_ctx.key_pos])
+          in_ctx.key_pos++;
+        return false;
+      }
+      if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
+        in_ctx.key_pos += bin_len;
+        return true;
+      }
+      if (*tail == in_ctx.key[in_ctx.key_pos])
+        in_ctx.key_pos++;
+      return false;
+    }
+    __fq1 __fq2 bool compare_suffix(uint8_t *data, uintxx_t tail_ptr, uint8_t *tail, input_ctx& in_ctx) {
+      uintxx_t sfx_len = read_len(tail);
+      uint8_t stack_buf[FAST_STACK_BUF];
+      uint8_t* heap_buf = nullptr;
+      uint8_t *sfx_buf = get_fast_buffer<uint8_t>(sfx_len, stack_buf, heap_buf);
+      BufferGuard<uint8_t> guard(heap_buf);
+      read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
+      if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
+        in_ctx.key_pos += sfx_len;
+        return true;
+      }
+      return false;
+    }
+    __fq1 __fq2 inline bool compare_tail_data(uint8_t *data, uintxx_t tail_ptr, input_ctx& in_ctx) {
       uint8_t *tail = data + tail_ptr;
       if (*tail < 15 || *tail > 31) {
         do {
@@ -67,43 +96,19 @@ class tail_ptr_map {
         } while (*tail < 15 || *tail > 31);
         if (*tail == 15)
           return true;
-        uintxx_t sfx_len = read_len(tail);
-        uint8_t stack_buf[FAST_STACK_BUF];
-        uint8_t* heap_buf = nullptr;
-        uint8_t *sfx_buf = get_fast_buffer<uint8_t>(sfx_len, stack_buf, heap_buf);
-        BufferGuard<uint8_t> guard(heap_buf);
-        read_suffix(sfx_buf, data + tail_ptr - 1, sfx_len);
-        if (cmn::memcmp(sfx_buf, in_ctx.key + in_ctx.key_pos, sfx_len) == 0) {
-          in_ctx.key_pos += sfx_len;
-          return true;
-        }
-      } else {
-        uintxx_t bin_len;
-        read_len_bw(tail++, bin_len);
-        if (in_ctx.key_pos + bin_len > in_ctx.key_len) {
-          if (*tail == in_ctx.key[in_ctx.key_pos])
-            in_ctx.key_pos++;
-          return false;
-        }
-        if (cmn::memcmp(tail, in_ctx.key + in_ctx.key_pos, bin_len) == 0) {
-          in_ctx.key_pos += bin_len;
-          return true;
-        }
-        if (*tail == in_ctx.key[in_ctx.key_pos])
-          in_ctx.key_pos++;
-        return false;
+        return compare_suffix(data, tail_ptr, tail, in_ctx);
       }
-      return false;
+      return compare_bin(data, tail, in_ctx);
     }
-    __fq1 __fq2 void get_tail_data(uint8_t *data, uintxx_t tail_ptr, gen::byte_str& tail_str) {
+    __fq1 __fq2 inline void get_tail_data(uint8_t *data, uintxx_t tail_ptr, gen::byte_str& tail_str) {
       uint8_t *t = data + tail_ptr;
       if (*t < 15 || *t > 31) {
         uint8_t byt = *t;
-        while (byt < 15 || byt > 31) {
+        do {
           t++;
           tail_str.append(byt);
           byt = *t;
-        }
+        } while (byt < 15 || byt > 31);
         if (byt == 15)
           return;
         uintxx_t sfx_len = read_len(t);
@@ -167,8 +172,8 @@ class tail_ptr_flat_map : public tail_ptr_map {
       return compare_tail_data(data, tail_ptr, in_ctx);
     }
     __fq1 __fq2 void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) {
-      uintxx_t tail_ptr = UINTXX_MAX;
-      tail_ptr = get_tail_ptr(node_id, tail_ptr); // avoid a stack entry
+      uintxx_t tail_ptr = UINTXX_MAX; // avoid a stack entry
+      tail_ptr = get_tail_ptr(node_id, tail_ptr);
       if (inner_trie != nullptr) {
         inner_trie->copy_trie_tail(tail_ptr, tail_str);
         return;

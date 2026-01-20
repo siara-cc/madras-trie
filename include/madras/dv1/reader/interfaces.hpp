@@ -147,7 +147,6 @@ struct input_ctx {
   uintxx_t key_len;
   uintxx_t key_pos;
   uintxx_t node_id;
-  int32_t cmp;
 };
 
 class inner_trie_fwd {

@@ -14,7 +14,7 @@ class GCFC_fwd_cache {
     uintxx_t max_node_id;
     uintxx_t cache_mask;
   public:
-    __fq1 __fq2 int try_find(input_ctx& in_ctx) {
+    __fq1 __fq2 inline int try_find(input_ctx& in_ctx) {
       if (in_ctx.node_id >= max_node_id)
         return -1;
       uint8_t key_byte = in_ctx.key[in_ctx.key_pos];

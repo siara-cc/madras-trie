@@ -173,8 +173,8 @@ class cmn {
     }
     __fq1 __fq2 static uintxx_t read_uint24(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
-      uint32_t tmp = 0;
-      memcpy(&tmp, ptr, 3);             // safe, partial copy
+      uint32_t tmp;
+      memcpy(&tmp, ptr, sizeof(tmp));   // safe, partial copy
       return tmp & 0x00FFFFFF;          // endian dependent
       #else
       uintxx_t ret = *ptr++;
@@ -219,7 +219,7 @@ class cmn {
       // return ret;
       // #endif
     }
-    __fq1 __fq2 static int memcmp(const void *ptr1, const void *ptr2, size_t num) {
+    __fq1 __fq2 static inline int memcmp(const void *ptr1, const void *ptr2, size_t num) {
       #ifndef __CUDA_ARCH__
       return std::memcmp(ptr1, ptr2, num);
       #else
