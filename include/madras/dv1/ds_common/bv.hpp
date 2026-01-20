@@ -97,20 +97,15 @@ class bv_reader {
 };
 
 class int_bit_vector {
-  private:
-    byte_vec *int_ptrs;
+private:
+    byte_vec* int_ptrs;
     size_t bit_len;
     size_t count;
     size_t sz;
-    size_t last_idx;
-    uint8_t last_bits;
-    static void append_uint32(uint32_t u32, byte_vec& v) {
-      v.push_back(u32 & 0xFF);
-      v.push_back((u32 >> 8) & 0xFF);
-      v.push_back((u32 >> 16) & 0xFF);
-      v.push_back(u32 >> 24);
-    }
+    size_t last_bits_used; // 0..64
+
     static void append_uint64(uint64_t u64, byte_vec& v) {
+      // always little-endian storage
       v.push_back(u64 & 0xFF);
       v.push_back((u64 >> 8) & 0xFF);
       v.push_back((u64 >> 16) & 0xFF);
@@ -120,68 +115,90 @@ class int_bit_vector {
       v.push_back((u64 >> 48) & 0xFF);
       v.push_back(u64 >> 56);
     }
-  public:
-    int_bit_vector() {
-    }
-    int_bit_vector(byte_vec *_ptrs, size_t _bit_len, size_t _count) {
+
+public:
+    int_bit_vector() : int_ptrs(nullptr), bit_len(0), count(0), sz(0), last_bits_used(0) {}
+
+    int_bit_vector(byte_vec* _ptrs, size_t _bit_len, size_t _count) {
       init(_ptrs, _bit_len, _count);
     }
-    void init(byte_vec *_ptrs, size_t _bit_len, size_t _count) {
+
+    void init(byte_vec* _ptrs, size_t _bit_len, size_t _count) {
       int_ptrs = _ptrs;
       bit_len = _bit_len;
       count = _count;
       int_ptrs->clear();
+
+      // reserve space (bit_len*count bits + up to 64b slack)
       sz = bit_len * count / 8 + 8;
       int_ptrs->reserve(sz);
+
+      // initial 64-bit slot
       append_uint64(0, *int_ptrs);
-      last_bits = 64;
-      last_idx = 0;
+      last_bits_used = 0;
     }
-    void append(uint32_t given_ptr) {
-      append((uint64_t) given_ptr);
-    }
-    void append(uint64_t ptr) {
-      uint64_t *last_ptr = (uint64_t *) (int_ptrs->data() + int_ptrs->size() - 8);
-      int bits_to_append = static_cast<int>(bit_len);
-      while (bits_to_append > 0) {
-        if (bits_to_append < last_bits) {
-          last_bits -= bits_to_append;
-          *last_ptr |= (ptr << last_bits);
-          bits_to_append = 0;
-        } else {
-          bits_to_append -= last_bits;
-          *last_ptr |= (ptr >> bits_to_append);
-          last_bits = 64;
+
+    void append(uint32_t v) { append((uint64_t)v); }
+
+    void append(uint64_t v) {
+      size_t bits = bit_len;
+
+      while (bits > 0) {
+        uint64_t* last_ptr = (uint64_t*)(int_ptrs->data() + int_ptrs->size() - 8);
+        size_t space = 64 - last_bits_used;
+        size_t take = (bits < space ? bits : space);
+
+        uint64_t chunk = v & ((1ULL << take) - 1);
+        *last_ptr |= chunk << last_bits_used;
+
+        v >>= take;
+        bits -= take;
+        last_bits_used += take;
+
+        if (last_bits_used == 64) {
           append_uint64(0, *int_ptrs);
-          last_ptr = (uint64_t *) (int_ptrs->data() + int_ptrs->size() - 8);
+          last_bits_used = 0;
         }
       }
     }
-    size_t size() {
-      return sz;
-    }
+
+    size_t size() { return sz; }
 };
 
 class int_bv_reader {
-  private:
-    uint8_t *int_bv;
+private:
+    uint64_t* base;
     size_t bit_len;
-  public:
-    __fq1 __fq2 int_bv_reader() {
+
+public:
+    int_bv_reader() : base(nullptr), bit_len(0) {}
+
+    void init(uint8_t* _int_bv, size_t _bit_len) {
+        base = (uint64_t *) _int_bv;
+        bit_len = _bit_len;
     }
-    __fq1 __fq2 void init(uint8_t *_int_bv, size_t _bit_len) {
-      int_bv = _int_bv;
-      bit_len = _bit_len;
-    }
-    __fq1 __fq2 uint32_t operator[](size_t pos) {
-      if (bit_len == 0) return 0; // todo: possible to not have bit_len = 0?
-      uint64_t bit_pos = pos * bit_len;
-      uint64_t *ptr_loc = (uint64_t *) int_bv + bit_pos / 64;
-      size_t bits_occu = (bit_pos % 64);
-      uint64_t ret = (*ptr_loc++ << bits_occu);
-      if (bits_occu + bit_len <= 64)
-        return ret >> (64 - bit_len);
-      return (ret | (*ptr_loc >> (64 - bits_occu))) >> (64 - bit_len);
+
+    inline uint64_t operator[](size_t pos) const noexcept {
+      if (bit_len == 0) return 0;
+      uint64_t bit = pos * bit_len;
+      size_t w = bit >> 6;
+      uint32_t s = bit & 63;
+
+      #if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
+        // -------- Intel/AMD BMI2 fast path --------
+        uint64_t lo = _shrx_u64(base[w], s);
+        uint64_t merged = lo | (base[w+1] << (64 - s));
+        return _bzhi_u64(merged, bit_len);
+
+      #else
+        // -------- Portable fallback --------
+        uint64_t lo = base[w] >> s;
+        uint64_t v = lo;
+        if (s + bit_len > 64)
+            v |= (base[w+1] << (64 - s));
+
+        return (v & ((1ULL << bit_len) - 1));
+      #endif
     }
 };
 
