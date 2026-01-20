@@ -172,32 +172,29 @@ private:
 
 public:
     int_bv_reader() : base(nullptr), bit_len(0) {}
-
     void init(uint8_t* _int_bv, size_t _bit_len) {
         base = (uint64_t *) _int_bv;
         bit_len = _bit_len;
     }
-
     inline uint64_t operator[](size_t pos) const noexcept {
       if (bit_len == 0) return 0;
       uint64_t bit = pos * bit_len;
       size_t w = bit >> 6;
       uint32_t s = bit & 63;
-
-      #if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
-        // -------- Intel/AMD BMI2 fast path --------
-        uint64_t lo = _shrx_u64(base[w], s);
-        uint64_t merged = lo | (base[w+1] << (64 - s));
-        return _bzhi_u64(merged, bit_len);
-
-      #else
-        // -------- Portable fallback --------
+      #ifdef __BMI2__
         uint64_t lo = base[w] >> s;
-        uint64_t v = lo;
-        if (s + bit_len > 64)
-            v |= (base[w+1] << (64 - s));
-
-        return (v & ((1ULL << bit_len) - 1));
+        uint64_t hi = base[w+1] << (64 - s);
+        uint64_t mask = ((1ULL << bit_len) - 1);
+        uint64_t cross = (uint64_t)-(int)((s + bit_len) > 64); // all bits 1 if true
+        uint64_t v = lo | (hi & cross);
+        return v & mask;
+      #else
+        uint64_t lo = base[w] >> s;
+        if (s + bit_len <= 64) {
+          return lo & ((1ULL << bit_len) - 1);
+        }
+        uint64_t hi = base[w+1] << (64 - s);
+        return (lo | hi) & ((1ULL << bit_len) - 1);
       #endif
     }
 };
