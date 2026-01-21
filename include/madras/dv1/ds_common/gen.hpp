@@ -396,7 +396,7 @@ static uint32_t read_uint16(byte_vec& v, size_t pos) {
   ret |= (v[pos] << 8);
   return ret;
 }
-static uint32_t read_uint16(const uint8_t *ptr) {
+static inline uint32_t read_uint16(const uint8_t *ptr) {
 #ifndef __CUDA_ARCH__
   uint16_t tmp;
   memcpy(&tmp, ptr, sizeof(tmp));
@@ -415,7 +415,7 @@ static uint32_t read_uint24(byte_vec& v, size_t pos) {
   return ret;
 }
 
-static uint32_t read_uint24(const uint8_t *ptr) {
+static inline uint32_t read_uint24(const uint8_t *ptr) {
 #ifndef __CUDA_ARCH__
   uint32_t tmp = 0;
   memcpy(&tmp, ptr, sizeof(tmp));
@@ -428,7 +428,7 @@ static uint32_t read_uint24(const uint8_t *ptr) {
 #endif
 }
 
-static uint32_t read_uint32(uint8_t *ptr) {
+static inline uint32_t read_uint32(uint8_t *ptr) {
 #ifndef __CUDA_ARCH__
   uint32_t tmp;
   memcpy(&tmp, ptr, sizeof(tmp));
@@ -458,7 +458,7 @@ static uint64_t read_uint40(uint8_t *ptr) {
 #endif
 }
 
-static uint64_t read_uint64(uint8_t *t) {
+static inline uint64_t read_uint64(uint8_t *t) {
 #ifndef __CUDA_ARCH__
   uint64_t tmp;
   memcpy(&tmp, t, sizeof(tmp));

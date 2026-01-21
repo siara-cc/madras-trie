@@ -136,7 +136,7 @@ namespace madras { namespace dv1 {
 
 class cmn {
   public:
-    __fq1 __fq2 static int pop_cnt(uint64_t bm) {
+    __fq1 __fq2 static inline int pop_cnt(uint64_t bm) {
 
       // #if defined(__x86_64__) && defined(__SSSE3__)
       //   // nibble LUT from your select code
@@ -160,7 +160,7 @@ class cmn {
         #endif
       // #endif
     }
-    __fq1 __fq2 static uintxx_t read_uint16(const uint8_t *ptr) {
+    __fq1 __fq2 static inline uintxx_t read_uint16(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
       uint16_t tmp;
       memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
@@ -171,7 +171,7 @@ class cmn {
       return ret;
       #endif
     }
-    __fq1 __fq2 static uintxx_t read_uint24(const uint8_t *ptr) {
+    __fq1 __fq2 static inline uintxx_t read_uint24(const uint8_t *ptr) {
       #ifndef __CUDA_ARCH__
       uint32_t tmp;
       memcpy(&tmp, ptr, sizeof(tmp));   // safe, partial copy
@@ -183,7 +183,7 @@ class cmn {
       return ret;
       #endif
     }
-    __fq1 __fq2 static uintxx_t read_uint32(uint8_t *ptr) {
+    __fq1 __fq2 static inline uintxx_t read_uint32(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
       uint32_t tmp;
       memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
@@ -202,7 +202,7 @@ class cmn {
       memcpy(&lo, ptr, sizeof(lo));     // safe
       return (uint64_t)lo | ((uint64_t)ptr[4] << 32);
     }
-    __fq1 __fq2 static uint64_t read_uint64(uint8_t *ptr) {
+    __fq1 __fq2 static inline uint64_t read_uint64(uint8_t *ptr) {
       // #ifndef __CUDA_ARCH__
       uint64_t tmp;
       memcpy(&tmp, ptr, sizeof(tmp));   // safe even if unaligned
@@ -233,7 +233,7 @@ class cmn {
       return 0;
       #endif
     }
-    __fq1 __fq2 static size_t min(size_t v1, size_t v2) {
+    __fq1 __fq2 static inline size_t min(size_t v1, size_t v2) {
       return v1 < v2 ? v1 : v2;
     }
     __fq1 __fq2 static uintxx_t read_vint32(const uint8_t *ptr, size_t *vlen = NULL) {

@@ -3,6 +3,9 @@
 
 namespace madras { namespace dv1 {
 
+class cache_builder {
+};
+
 }}
 
 #endif

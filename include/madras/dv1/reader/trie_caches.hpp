@@ -54,7 +54,7 @@ class GCFC_rev_cache {
     uintxx_t max_node_id;
     uintxx_t cache_mask;
   public:
-    __fq1 __fq2 bool try_find(uintxx_t& node_id, input_ctx& in_ctx) {
+    __fq1 __fq2 inline bool try_find(uintxx_t& node_id, input_ctx& in_ctx) {
       if (node_id >= max_node_id)
         return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);
@@ -73,7 +73,7 @@ class GCFC_rev_cache {
       }
       return false;
     }
-    __fq1 __fq2 bool try_find(uintxx_t& node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 inline bool try_find(uintxx_t& node_id, gen::byte_str& tail_str) {
       if (node_id >= max_node_id)
         return false;
       nid_cache *cche = cche0 + (node_id & cache_mask);

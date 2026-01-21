@@ -1207,10 +1207,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
         for (size_t i = nodes_per_bv_block == 256 ? 1: 0; i < u8_arr_count; i++) {
           output.write_byte(bit_counts_n[i]);
         }
-        // if (nodes_per_bv_block == 512) {
-        //   for (size_t i = 1; i < pos_n; i++)
-        //     count += bit_counts_n[i];
-        // }
+        if (nodes_per_bv_block == 512) {
+          for (size_t i = 1; i < pos_n; i++)
+            count += bit_counts_n[i];
+        }
         count += count_n;
         count_n = 0;
         memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
@@ -1218,12 +1218,12 @@ class static_trie_builder : public virtual trie_builder_fwd {
         pos_n = 1;
       } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
         bit_counts_n[pos_n] = count_n & 0xFF;
-        uint8_t b0_mask = (0x100 >> pos_n);
-        bit_counts_n[0] &= ~b0_mask;
-        if (count_n > 255)
-          bit_counts_n[0] |= ((count_n & 0x100) >> pos_n);
-        // if (nodes_per_bv_block == 512)
-        //   count_n = 0;
+        // uint8_t b0_mask = (0x100 >> pos_n);
+        // bit_counts_n[0] &= ~b0_mask;
+        // if (count_n > 255)
+        //   bit_counts_n[0] |= ((count_n & 0x100) >> pos_n);
+        if (nodes_per_bv_block == 512)
+          count_n = 0;
         pos_n++;
       }
     }
