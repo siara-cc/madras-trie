@@ -22,5 +22,5 @@ clean:
 	rm run_tests
 	rm -rf run_tests.dSYM
 
-run_tests: run_tests_dv1.cpp include/madras/dv1/common.hpp include/madras/dv1/reader/*.hpp include/madras/dv1/builder/*.hpp ./include/madras/dv1/ds_common/*.hpp ./include/madras/dv1/allflic48/*.hpp
+run_tests: run_tests_dv1.cpp include/madras/dv1/common.hpp include/madras/dv1/reader/*.hpp include/madras/dv1/builder/*.hpp ./include/madras/dv1/reader/*.hpp ./include/madras/dv1/ds_common/*.hpp ./include/madras/dv1/allflic48/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++17 run_tests_dv1.cpp -o run_tests $(L_FLAGS) $(M_FLAGS)

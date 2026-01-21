@@ -7,6 +7,9 @@
 #include "madras/dv1/builder/pointer_groups.hpp"
 #include "madras/dv1/builder/builder_interfaces.hpp"
 
+#include "leapfrog_builder.hpp"
+#include "trie_cache_builder.hpp"
+
 namespace madras { namespace dv1 {
 
 struct tail_token {
@@ -14,17 +17,6 @@ struct tail_token {
   uintxx_t token_len;
   uintxx_t fwd_pos;
   uintxx_t cmp_max;
-};
-
-struct bldr_min_pos_stats {
-  uint8_t min_b;
-  uint8_t max_b;
-  uint8_t min_len;
-  uint8_t max_len;
-  bldr_min_pos_stats() {
-    max_b = max_len = 0;
-    min_b = min_len = 0xFF;
-  }
 };
 
 struct trie_parts {
@@ -124,10 +116,8 @@ class tail_sort_callbacks : public sort_callbacks {
 class static_trie_builder : public virtual trie_builder_fwd {
   private:
   public:
-    fwd_cache *f_cache;
-    nid_cache *r_cache;
-    uintxx_t *f_cache_freq;
-    uintxx_t *r_cache_freq;
+    trie_cache_builder cache_builder;
+    leap_frog_builder leap_frog;
     memtrie::in_mem_trie memtrie;
     byte_vec trie;
     gen::bit_vector<uint64_t> louds;
@@ -155,6 +145,7 @@ class static_trie_builder : public virtual trie_builder_fwd {
           const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN) :
           column_count (_col_count), max_val_len (_max_val_len),
           memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
+          leap_frog(memtrie, output), cache_builder(memtrie, output, tail_maps),
           tail_maps (this, uniq_tails, uniq_tails_rev, memtrie.all_node_sets, output),
           trie_builder_fwd (_opts, _trie_level, _pk_col_count) {
       memcpy(null_value, _null_value, _null_value_len);
@@ -162,10 +153,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
       memcpy(empty_value, _empty_value, _empty_value_len);
       empty_value_len = _empty_value_len;
       memtrie.set_print_enabled(gen::is_gen_print_enabled);
-      f_cache = nullptr;
-      r_cache = nullptr;
-      f_cache_freq = nullptr;
-      r_cache_freq = nullptr;
       max_level = 0;
       tail_trie_builder = NULL;
       tail_maps.init();
@@ -175,14 +162,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
     virtual ~static_trie_builder() {
       if (tail_trie_builder != NULL)
         delete tail_trie_builder;
-      if (f_cache != nullptr)
-        delete [] f_cache;
-      if (r_cache != nullptr)
-        delete [] r_cache;
-      if (f_cache_freq != nullptr)
-        delete [] f_cache_freq;
-      if (r_cache_freq != nullptr)
-        delete [] r_cache_freq;
     }
 
     size_t size() {
@@ -797,195 +776,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
       // printf("Num leap: %lu, no tail: %lu\n", num_leap, num_leap_no_tail);
     }
 
-    #define CACHE_FWD 1
-    #define CACHE_REV 2
-    uintxx_t build_cache(int which, uintxx_t& max_node_id) {
-      clock_t t = clock();
-      uintxx_t cache_count = 64;
-      while (cache_count < memtrie.key_count / 2048)
-        cache_count <<= 1;
-      //cache_count *= 2;
-      if (which == CACHE_FWD) {
-        for (int i = 0; i < get_opts()->fwd_cache_multiplier; i++)
-          cache_count <<= 1;
-        f_cache = new fwd_cache[cache_count + 1]();
-        f_cache_freq = new uintxx_t[cache_count]();
-      }
-      if (which == CACHE_REV) {
-        for (int i = 0; i < get_opts()->rev_cache_multiplier; i++)
-          cache_count <<= 1;
-        r_cache = new nid_cache[cache_count + 1]();
-        r_cache_freq = new uintxx_t[cache_count]();
-      }
-      uint8_t tail_buf[memtrie.max_key_len];
-      gen::byte_str tail_from0(tail_buf, memtrie.max_key_len);
-      build_cache(which, 1, 0, cache_count - 1, tail_from0);
-      max_node_id = 0;
-      int sum_freq = 0;
-      for (uintxx_t i = 0; i < cache_count; i++) {
-        if (which == CACHE_FWD) {
-          fwd_cache *fc = &f_cache[i];
-          uintxx_t cche_node_id = gen::read_uint24(&fc->child_node_id1);
-          if (max_node_id < cche_node_id)
-            max_node_id = cche_node_id;
-          sum_freq += f_cache_freq[i];
-        }
-        if (which == CACHE_REV) {
-          nid_cache *rc = &r_cache[i];
-          uintxx_t cche_node_id = gen::read_uint24(&rc->child_node_id1);
-          if (max_node_id < cche_node_id)
-            max_node_id = cche_node_id;
-          sum_freq += r_cache_freq[i];
-        }
-        // printf("NFreq:\t%u\tPNid:\t%u\tCNid:\t%u\tNb:\t%c\toff:\t%u\n", f_cache_freq[i], gen::read_uint24(&fc->parent_node_id1), gen::read_uint24(&fc->child_node_id1), fc->node_byte, fc->node_offset);
-      }
-      max_node_id++;
-      gen::gen_printf("Cache Max node id: %d\n", max_node_id);
-      //gen::gen_printf("Sum of cache freq: %d\n", sum_freq);
-      gen::print_time_taken(t, "Time taken for build_cache(): ");
-      return cache_count;
-    }
-
-    uintxx_t build_cache(int which, uintxx_t ns_id, uintxx_t parent_node_id, uintxx_t cache_mask, gen::byte_str& tail_from0) {
-      if (ns_id == 0)
-        return 1;
-      memtrie::node_set_handler ns(memtrie.all_node_sets, ns_id);
-      memtrie::node n = ns.first_node();
-      uintxx_t cur_node_id = ns.hdr()->node_id + (ns.hdr()->flags & NODE_SET_LEAP ? 1 : 0);
-      uintxx_t freq_count = trie_level > 0 ? ns.hdr()->freq : 1;
-      size_t parent_tail_len = tail_from0.length();
-      for (int i = 0; i <= ns.hdr()->last_node_idx; i++) {
-        if (n.get_flags() & NFLAG_TAIL) {
-          uniq_info_base *ti = (*tail_maps.get_ui_vec())[n.get_tail()];
-          uint8_t *ti_tail = (*tail_maps.get_uniq_data())[ti->pos];
-          if (trie_level == 0)
-            tail_from0.append(ti_tail, ti->len);
-          else {
-            for (uint8_t *t = ti_tail + ti->len - 1; t >= ti_tail; t--)
-              tail_from0.append(*t);
-          }
-        } else
-          tail_from0.append(n.get_byte());
-        uintxx_t node_freq = build_cache(which, n.get_child(), cur_node_id, cache_mask, tail_from0);
-        tail_from0.set_length(parent_tail_len);
-        freq_count += node_freq;
-        if (n.get_child() > 0 && (n.get_flags() & NFLAG_TAIL) == 0) {
-          uint8_t node_byte = n.get_byte();
-          memtrie::node_set_handler child_nsh(memtrie.all_node_sets, n.get_child());
-          uintxx_t child_node_id = child_nsh.hdr()->node_id;
-          if (which == CACHE_FWD) {
-            int node_offset = i + (ns.hdr()->flags & NODE_SET_LEAP ? 1 : 0);
-            uintxx_t cache_loc = (ns.hdr()->node_id ^ (ns.hdr()->node_id << MDX_CACHE_SHIFT) ^ node_byte) & cache_mask;
-            fwd_cache *fc = f_cache + cache_loc;
-            if (f_cache_freq[cache_loc] < node_freq && ns.hdr()->node_id < (1 << 24) && child_node_id < (1 << 24) && node_offset < 256) {
-              f_cache_freq[cache_loc] = node_freq;
-              gen::copy_uint24(ns.hdr()->node_id, &fc->parent_node_id1);
-              gen::copy_uint24(child_node_id, &fc->child_node_id1);
-              fc->node_offset = node_offset;
-              fc->node_byte = node_byte;
-            }
-          }
-        }
-        if (which == CACHE_REV) {
-          uintxx_t cache_loc = cur_node_id & cache_mask;
-          nid_cache *rc = r_cache + cache_loc;
-          if (r_cache_freq[cache_loc] < node_freq && parent_node_id < (1 << 24) && cur_node_id < (1 << 24)) {
-            r_cache_freq[cache_loc] = node_freq;
-            gen::copy_uint24(cur_node_id, &rc->child_node_id1);
-            rc->tail0_len = 0;
-            gen::copy_uint24(parent_node_id, &rc->parent_node_id1);
-            if (parent_tail_len < 9) {
-              uint8_t *t = &rc->tail0_len + parent_tail_len;
-              for (size_t k = 0; k < parent_tail_len; k++)
-                *t-- = tail_from0[k];
-              rc->tail0_len = parent_tail_len;
-            }
-          }
-        }
-        n.next();
-        cur_node_id++;
-      }
-      return freq_count;
-    }
-
-    uint8_t min_pos[256][256];
-    // uintxx_t min_len_count[256];
-    // uintxx_t min_len_last_ns_id[256];
-    bldr_min_pos_stats make_min_positions() {
-      clock_t t = clock();
-      bldr_min_pos_stats stats;
-      memset(min_pos, 0xFF, 65536);
-      // memset(min_len_count, 0, sizeof(uintxx_t) * 256);
-      // memset(min_len_last_ns_id, 0, sizeof(uintxx_t) * 256);
-      for (size_t i = 1; i < memtrie.all_node_sets.size(); i++) {
-        memtrie::node_set_handler cur_ns(memtrie.all_node_sets, i);
-        uint8_t len = cur_ns.last_node_idx();
-        if (stats.min_len > len)
-          stats.min_len = len;
-        if (stats.max_len < len)
-          stats.max_len = len;
-        // if (i < memtrie.node_set_count / 4) {
-        //   min_len_count[len]++;
-        //   min_len_last_ns_id[len] = i;
-        // }
-        memtrie::node cur_node = cur_ns.first_node();
-        for (size_t k = 0; k <= len; k++) {
-          uint8_t b = cur_node.get_byte();
-          if (min_pos[len][b] > k)
-             min_pos[len][b] = k;
-          if (stats.min_b > b)
-            stats.min_b = b;
-          if (stats.max_b < b)
-            stats.max_b = b;
-          cur_node.next();
-        }
-      }
-      gen::print_time_taken(t, "Time taken for make_min_positions(): ");
-      // for (int i = 0; i < 256; i++) {
-      //   if (min_len_count[i] > 0)
-      //     printf("%d\t%u\t%u\n", i, min_len_count[i], min_len_last_ns_id[i]);
-      // }
-      return stats;
-    }
-
-    uintxx_t decide_min_stat_to_use(bldr_min_pos_stats& stats) {
-      clock_t t = clock();
-      for (int i = stats.min_len; i <= stats.max_len; i++) {
-        int good_b_count = 0;
-        for (int j = stats.min_b; j <= stats.max_b; j++) {
-          if (min_pos[i][j] > 0 && min_pos[i][j] != 0xFF)
-            good_b_count++;
-        }
-        if (good_b_count > (i >> 1)) {
-          stats.min_len = i;
-          break;
-        }
-      }
-      // for (int i = stats.min_len; i <= stats.max_len; i++) {
-      //   printf("Len: %d:: ", i);
-      //   for (int j = stats.min_b; j <= stats.max_b; j++) {
-      //     int min = min_pos[i][j];
-      //     if (min != 255)
-      //       printf("%c(%d): %d, ", j, j, min);
-      //   }
-      //   printf("\n\n");
-      // }
-      gen::print_time_taken(t, "Time taken for decide_min_stat_to_use(): ");
-      return 0; //todo
-    }
-
-    void write_sec_cache(bldr_min_pos_stats& stats, uintxx_t sec_cache_size) {
-      for (int i = stats.min_len; i <= stats.max_len; i++) {
-        for (int j = 0; j <= 255; j++) {
-          uint8_t min_len = min_pos[i][j];
-          if (min_len == 0xFF)
-            min_len = 0;
-          min_len++;
-          output.write_byte(min_len);
-        }
-      }
-    }
-
     uintxx_t build() {
 
       tp.opts_loc = MDX_HEADER_SIZE;
@@ -1000,7 +790,7 @@ class static_trie_builder : public virtual trie_builder_fwd {
         sort_node_sets();
         set_node_id();
         set_level(1, 1);
-        tp.min_stats = make_min_positions();
+        tp.min_stats = leap_frog.make_min_positions();
         tp.trie_tail_ptrs_data_sz = build_trie();
 
         if (trie_level > 0) {
@@ -1008,16 +798,16 @@ class static_trie_builder : public virtual trie_builder_fwd {
           get_opts()->rev_cache = true;
         }
         if (get_opts()->fwd_cache) {
-          tp.fwd_cache_count = build_cache(CACHE_FWD, tp.fwd_cache_max_node_id);
+          tp.fwd_cache_count = cache_builder.build_cache(CACHE_FWD, tp.fwd_cache_max_node_id);
           tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
         } else
           tp.fwd_cache_max_node_id = 0;
         if (get_opts()->rev_cache) {
-          tp.rev_cache_count = build_cache(CACHE_REV, tp.rev_cache_max_node_id);
+          tp.rev_cache_count = cache_builder.build_cache(CACHE_REV, tp.rev_cache_max_node_id);
           tp.rev_cache_size = tp.rev_cache_count * 12; // 6 = parent_node_id (3) + child_node_id (3)
         } else
           tp.rev_cache_max_node_id = 0;
-        tp.sec_cache_count = decide_min_stat_to_use(tp.min_stats);
+        tp.sec_cache_count = leap_frog.decide_min_stat_to_use(tp.min_stats);
         tp.sec_cache_size = 0;
         if (get_opts()->leap_frog)
           tp.sec_cache_size = (tp.min_stats.max_len - tp.min_stats.min_len + 1) * 256; // already aligned
@@ -1160,10 +950,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
       output.write_bytes((const uint8_t *) opts, tp.opts_size);
 
       if (pk_col_count > 0) {
-        write_fwd_cache();
-        write_rev_cache();
+        cache_builder.write_fwd_cache();
+        cache_builder.write_rev_cache();
         if (tp.sec_cache_size > 0)
-          write_sec_cache(tp.min_stats, tp.sec_cache_size);
+          leap_frog.write_sec_cache(tp.min_stats, tp.sec_cache_size);
         // if (!get_opts()->dessicate) {
           if (trie_level > 0) {
             write_louds_select_lt(tp.louds_sel1_lt_sz);
@@ -1299,15 +1089,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
       write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
       write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
       output.write_align8(rank_lt_sz);
-    }
-
-    void write_fwd_cache() {
-      output.write_bytes((const uint8_t *) f_cache, tp.fwd_cache_count * sizeof(fwd_cache));
-    }
-
-    void write_rev_cache() {
-      output.write_bytes((const uint8_t *) r_cache, tp.rev_cache_count * sizeof(nid_cache));
-      output.write_align8(tp.rev_cache_size);
     }
 
     bool node_qualifies_for_select(memtrie::node *cur_node, uint8_t cur_node_flags, int which) {
