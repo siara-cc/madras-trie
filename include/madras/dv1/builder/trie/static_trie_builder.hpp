@@ -797,6 +797,7 @@ class static_trie_builder : public virtual trie_builder_fwd {
           get_opts()->fwd_cache = false;
           get_opts()->rev_cache = true;
         }
+        cache_builder.init(get_opts()->fwd_cache_multiplier, get_opts()->rev_cache_multiplier, trie_level);
         if (get_opts()->fwd_cache) {
           tp.fwd_cache_count = cache_builder.build_cache(CACHE_FWD, tp.fwd_cache_max_node_id);
           tp.fwd_cache_size = tp.fwd_cache_count * 8; // 8 = parent_node_id (3) + child_node_id (3) + node_offset (1) + node_byte (1)
@@ -950,8 +951,8 @@ class static_trie_builder : public virtual trie_builder_fwd {
       output.write_bytes((const uint8_t *) opts, tp.opts_size);
 
       if (pk_col_count > 0) {
-        cache_builder.write_fwd_cache();
-        cache_builder.write_rev_cache();
+        cache_builder.write_fwd_cache(tp.fwd_cache_count);
+        cache_builder.write_rev_cache(tp.rev_cache_count, tp.rev_cache_size);
         if (tp.sec_cache_size > 0)
           leap_frog.write_sec_cache(tp.min_stats, tp.sec_cache_size);
         // if (!get_opts()->dessicate) {

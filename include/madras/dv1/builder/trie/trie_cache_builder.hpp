@@ -14,6 +14,9 @@ class trie_cache_builder {
     output_writer &output;
     memtrie::in_mem_trie &memtrie;
     tail_val_maps tail_maps;
+    uint8_t fwd_cache_multiplier;
+    uint8_t rev_cache_multiplier;
+    uint16_t trie_level;
 
   public:
     trie_cache_builder(memtrie::in_mem_trie &_memtrie, output_writer &_output, tail_val_maps &_tail_maps)
@@ -35,6 +38,12 @@ class trie_cache_builder {
         delete [] r_cache_freq;
     }
 
+    void init(uint8_t _fwd_cache_multiplier, uint8_t _rev_cache_multiplier, uint16_t _trie_level) {
+      fwd_cache_multiplier = _fwd_cache_multiplier;
+      rev_cache_multiplier = _rev_cache_multiplier;
+      trie_level = _trie_level;
+    }
+
     #define CACHE_FWD 1
     #define CACHE_REV 2
     uintxx_t build_cache(int which, uintxx_t& max_node_id) {
@@ -44,13 +53,13 @@ class trie_cache_builder {
         cache_count <<= 1;
       //cache_count *= 2;
       if (which == CACHE_FWD) {
-        for (int i = 0; i < get_opts()->fwd_cache_multiplier; i++)
+        for (int i = 0; i < fwd_cache_multiplier; i++)
           cache_count <<= 1;
         f_cache = new fwd_cache[cache_count + 1]();
         f_cache_freq = new uintxx_t[cache_count]();
       }
       if (which == CACHE_REV) {
-        for (int i = 0; i < get_opts()->rev_cache_multiplier; i++)
+        for (int i = 0; i < rev_cache_multiplier; i++)
           cache_count <<= 1;
         r_cache = new nid_cache[cache_count + 1]();
         r_cache_freq = new uintxx_t[cache_count]();
@@ -146,13 +155,13 @@ class trie_cache_builder {
       return freq_count;
     }
 
-    void write_fwd_cache() {
-      output.write_bytes((const uint8_t *) f_cache, tp.fwd_cache_count * sizeof(fwd_cache));
+    void write_fwd_cache(uintxx_t fwd_cache_count) {
+      output.write_bytes((const uint8_t *) f_cache, fwd_cache_count * sizeof(fwd_cache));
     }
 
-    void write_rev_cache() {
-      output.write_bytes((const uint8_t *) r_cache, tp.rev_cache_count * sizeof(nid_cache));
-      output.write_align8(tp.rev_cache_size);
+    void write_rev_cache(uintxx_t rev_cache_count, uintxx_t rev_cache_size) {
+      output.write_bytes((const uint8_t *) r_cache, rev_cache_count * sizeof(nid_cache));
+      output.write_align8(rev_cache_size);
     }
 
 };
