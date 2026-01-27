@@ -13,9 +13,14 @@ class output_writer {
     FILE *fp = nullptr;
     std::vector<uint8_t> *out_vec = nullptr;
 
+    void _check_error() {
+      if (ferror(fp) || fflush(fp) != 0) {
+        perror("FFLUSH");
+      }
+    }
+
   public:
     void set_fp(FILE *_fp) {
-      if (fp != nullptr) fclose(fp);
       fp = _fp;
     }
 
@@ -34,44 +39,56 @@ class output_writer {
     void write_byte(uint8_t b) {
       if (fp == nullptr)
         out_vec->push_back(b);
-      else
+      else {
         fputc(b, fp);
+        _check_error();
+      }
     }
 
     void write_u32(uint32_t u32) {
       if (fp == nullptr)
         gen::append_uint32(u32, *out_vec);
-      else
+      else {
         gen::write_uint32(u32, fp);
+        _check_error();
+      }
     }
 
     void write_u64(uint64_t u64) {
       if (fp == nullptr)
         gen::append_uint64(u64, *out_vec);
-      else
+      else {
         gen::write_uint64(u64, fp);
+        _check_error();
+      }
     }
 
     void write_u16(uintxx_t u16) {
       if (fp == nullptr)
         gen::append_uint16(u16, *out_vec);
-      else
+      else {
         gen::write_uint16(u16, fp);
+        _check_error();
+      }
     }
 
     void write_u24(uintxx_t u24) {
       if (fp == nullptr)
         gen::append_uint24(u24, *out_vec);
-      else
+      else {
         gen::write_uint24(u24, fp);
+        _check_error();
+      }
     }
 
     void write_bytes(const uint8_t *b, size_t len) {
       if (fp == nullptr) {
         for (size_t i = 0; i < len; i++)
           out_vec->push_back(b[i]);
-      } else
-          fwrite(b, 1, len, fp);
+      } else {
+        fwrite(b, 1, len, fp);
+        _check_error();
+      }
     }
 
     void write_align8(size_t nopad_size) {
@@ -84,6 +101,7 @@ class output_writer {
       } else {
         const char *padding = "       ";
         fwrite(padding, 1, remaining, fp);
+        _check_error();
       }
     }
 
@@ -93,7 +111,10 @@ class output_writer {
 
     long get_current_pos() {
       if (fp == nullptr) return out_vec->size();
-      return ftell(fp);
+      fflush(fp);
+      long ftell_pos = ftell(fp);
+      if (ftell_pos == -1) perror("ftell failed: ");
+      return ftell_pos;
     }
 
     bool output_to_file() {

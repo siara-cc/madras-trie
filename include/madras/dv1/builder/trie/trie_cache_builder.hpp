@@ -13,7 +13,7 @@ class trie_cache_builder {
     uintxx_t *r_cache_freq;
     output_writer &output;
     memtrie::in_mem_trie &memtrie;
-    tail_val_maps tail_maps;
+    tail_val_maps &tail_maps;
     uint8_t fwd_cache_multiplier;
     uint8_t rev_cache_multiplier;
     uint16_t trie_level;

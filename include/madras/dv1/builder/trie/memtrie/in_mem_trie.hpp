@@ -615,6 +615,135 @@ class in_mem_trie {
       }
     }
 
+    void split_tails() {
+      clock_t t = clock();
+      typedef struct {
+        uint8_t *part;
+        uintxx_t uniq_arr_idx;
+        uintxx_t ns_id;
+        uint16_t part_len;
+        uint8_t node_idx;
+      } tail_part;
+      typedef struct {
+        uint8_t *uniq_part;
+        uintxx_t freq_count;
+        uint16_t uniq_part_len;
+      } tail_uniq_part;
+      std::vector<tail_part> tail_parts;
+      std::vector<tail_uniq_part> tail_uniq_parts;
+      node_iterator ni(all_node_sets, 1);
+      node cur_node = ni.next();
+      while (cur_node != nullptr) {
+        if (cur_node.get_flags() & NFLAG_TAIL) {
+          uint8_t *tail = (*all_tails)[cur_node.get_tail()];
+          size_t vlen;
+          uintxx_t tail_len = gen::read_vint32(tail, &vlen);
+          tail += vlen;
+          int last_word_len = 0;
+          bool is_prev_non_word = false;
+          std::vector<tail_part> tail_parts1;
+          for (size_t i = 0; i < tail_len; i++) {
+            uint8_t c = tail[i];
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
+              if (last_word_len >= 5 && is_prev_non_word) {
+                if (tail_len - i < 5) {
+                  last_word_len += (tail_len - i);
+                  break;
+                }
+                if (i > last_word_len)
+                  tail_parts1.push_back((tail_part) {tail + i - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+                last_word_len = 0;
+              }
+              is_prev_non_word = false;
+            } else {
+              is_prev_non_word = true;
+            }
+            last_word_len++;
+          }
+          if (last_word_len < tail_len)
+            tail_parts1.push_back((tail_part) {tail + tail_len - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+          if (tail_parts1.size() > 0) {
+            tail_parts.insert(tail_parts.end(), tail_parts1.begin(), tail_parts1.end());
+            // printf("Tail: [%.*s]\n", (int) tail_len, tail);
+            // for (size_t i = 0; i < tail_parts1.size(); i++) {
+            //   tail_part *tp = &tail_parts1[i];
+            //   printf("[%.*s]\n", tp->part_len, tp->part);
+            // }
+          }
+        }
+        cur_node = ni.next();
+      }
+      gen::gen_printf("Parts count: %lu\n", tail_parts.size());
+      if (tail_parts.size() == 0)
+        return;
+      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
+        return gen::compare(lhs.part, lhs.part_len, rhs.part, rhs.part_len) < 0;
+      });
+      tail_part *prev_tp = &tail_parts[0];
+      uintxx_t freq_count = 0;
+      uintxx_t uniq_arr_idx = 0;
+      for (size_t i = 0; i < tail_parts.size(); i++) {
+        tail_part *tp = &tail_parts[i];
+        tp->uniq_arr_idx = uniq_arr_idx;
+        int cmp = gen::compare(tp->part, tp->part_len, prev_tp->part, prev_tp->part_len);
+        if (cmp == 0) {
+          freq_count++;
+        } else {
+          tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+          uniq_arr_idx++;
+          freq_count = 1;
+        }
+        prev_tp = tp;
+      }
+      tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
+        return lhs.part > rhs.part;
+      });
+      gen::gen_printf("Uniq Parts count: %lu\n", tail_uniq_parts.size());
+      // std::sort(tail_uniq_parts.begin(), tail_uniq_parts.end(), [](const tail_uniq_part& lhs, const tail_uniq_part& rhs) -> bool {
+      //   return lhs.freq_count > rhs.freq_count;
+      // });
+      // for (size_t i = 0; i < tail_uniq_parts.size(); i++) {
+      //   tail_uniq_part *tup = &tail_uniq_parts[i];
+      //   printf("%u\t[%.*s]\n", tup->freq_count, (int) tup->uniq_part_len, tup->uniq_part);
+      // }
+      node new_node;
+      node_set_handler new_nsh(all_node_sets, 0);
+      node_set_handler nsh(all_node_sets, 0);
+      for (size_t i = 0; i < tail_parts.size(); i++) {
+        tail_part *tp = &tail_parts[i];
+        tail_uniq_part *utp = &tail_uniq_parts[tp->uniq_arr_idx];
+        // if (utp->freq_count > 1) {
+          nsh.set_pos(tp->ns_id);
+          cur_node = nsh[tp->node_idx];
+          uint8_t *tail = (*all_tails)[cur_node.get_tail()];
+          size_t vlen;
+          uintxx_t tail_len = gen::read_vint32(tail, &vlen);
+          uintxx_t orig_tail_new_len = tp->part - tail - vlen;
+          uintxx_t new_tail_len = tail_len - orig_tail_new_len;
+          gen::copy_vint32(orig_tail_new_len, tail, vlen);
+          //printf("Tail: [%.*s], pos: %u, len: %u, new len: %u, Part: [%.*s], len: %u\n", (int) tail_len, tail + vlen, cur_node.get_tail(), tail_len, orig_tail_new_len, (int) tp->part_len, tp->part, new_tail_len);
+          size_t new_tail_pos = all_tails->push_back_with_vlen(tp->part, new_tail_len);
+          uintxx_t new_ns_pos = node_set_handler::create_node_set(all_node_sets, 1);
+          new_nsh.set_pos(new_ns_pos);
+          new_node = new_nsh.first_node();
+          new_node.set_flags(cur_node.get_flags() | NFLAG_TERM);
+          new_node.set_child(cur_node.get_child());
+          new_node.set_col_val(cur_node.get_col_val());
+          new_node.set_byte(*tp->part);
+          //printf("New tail pos: %lu\n", new_tail_pos);
+          new_node.set_tail(new_tail_pos);
+          cur_node.set_flags((cur_node.get_flags() | NFLAG_CHILD) & ~NFLAG_LEAF);
+          cur_node.set_child(new_ns_pos);
+          cur_node.set_col_val(0);
+          node_set_count++;
+          node_count++;
+        // }
+      }
+      gen::gen_printf("New NS count: %lu\n", all_node_sets.size());
+      gen::print_time_taken(t, "Time taken for tail split: ");
+    }
+
     size_t size() {
       return key_count;
     }

@@ -34,6 +34,9 @@ class word_tries_builder {
       max_rpt_count = 0;
     }
 
+    virtual ~word_tries_builder() {
+    }
+
     void add_rev_node_id(byte_vec& rev_nids, uintxx_t node_start, uintxx_t node_end, uintxx_t prev_node_id) {
       if (node_end != UINTXX_MAX) {
         node_end -= node_start;

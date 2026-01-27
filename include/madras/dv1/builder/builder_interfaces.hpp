@@ -72,9 +72,13 @@ class trie_builder_fwd {
     bldr_options *opts = nullptr;
     uint16_t pk_col_count;
     uint16_t trie_level;
+    memtrie::in_mem_trie memtrie;
     trie_builder_fwd() {}
-    trie_builder_fwd(const bldr_options *_opts, uint16_t _trie_level, uint16_t _pk_col_count)
-      : trie_level (_trie_level), pk_col_count (_pk_col_count) {
+    trie_builder_fwd(const bldr_options *_opts, uint16_t _trie_level, uint16_t _pk_col_count,
+          const uint8_t *_null_value = NULL_VALUE, size_t _null_value_len = NULL_VALUE_LEN,
+          const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN)
+      : trie_level (_trie_level), pk_col_count (_pk_col_count),
+        memtrie (_null_value, _null_value_len, _empty_value, _empty_value_len) {
       opts = new bldr_options[_opts->opts_count];
       memcpy(opts, _opts, sizeof(bldr_options) * _opts->opts_count);
     }
@@ -84,7 +88,9 @@ class trie_builder_fwd {
     void set_out_vec(byte_vec *out_vec) {
       output.set_out_vec(out_vec);
     }
-    virtual memtrie::in_mem_trie *get_memtrie() = 0;
+    memtrie::in_mem_trie *get_memtrie() {
+      return &memtrie;
+    }
     virtual trie_builder_fwd *new_instance() = 0;
     virtual memtrie::node_set_vars insert(const uint8_t *key, int key_len, uintxx_t val_pos = UINTXX_MAX) = 0;
     virtual uintxx_t build() = 0;
@@ -94,6 +100,7 @@ class trie_builder_fwd {
 
 class trie_map_builder_fwd : public virtual trie_builder_fwd {
   public:
+    gen::byte_blocks *all_vals = nullptr;
     trie_map_builder_fwd() {}
     virtual ~trie_map_builder_fwd() = default;
     virtual trie_map_builder_fwd *new_instance(const char *_names = "kv_tbl,key,value", const int _column_count = 2,
@@ -102,6 +109,7 @@ class trie_map_builder_fwd : public virtual trie_builder_fwd {
     virtual void set_all_vals(gen::byte_blocks *_all_vals, bool to_delete_prev = true) = 0;
     virtual uintxx_t build_kv(bool to_build_trie = true) = 0;
     virtual void write_kv(bool to_close = true, const char *filename = NULL) = 0;
+    virtual bool lookup_memtrie_after_build(const uint8_t *key, size_t key_len, memtrie::node_set_vars& nsv) = 0;
 };
 
 }}

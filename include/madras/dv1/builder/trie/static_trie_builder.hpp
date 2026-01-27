@@ -9,6 +9,7 @@
 
 #include "leapfrog_builder.hpp"
 #include "trie_cache_builder.hpp"
+#include "rank_select_builder.hpp"
 
 namespace madras { namespace dv1 {
 
@@ -117,8 +118,8 @@ class static_trie_builder : public virtual trie_builder_fwd {
   private:
   public:
     trie_cache_builder cache_builder;
+    rank_select_builder rs_builder;
     leap_frog_builder leap_frog;
-    memtrie::in_mem_trie memtrie;
     byte_vec trie;
     gen::bit_vector<uint64_t> louds;
     byte_vec trie_flags;
@@ -144,10 +145,10 @@ class static_trie_builder : public virtual trie_builder_fwd {
           const uint8_t *_null_value = NULL_VALUE, size_t _null_value_len = NULL_VALUE_LEN,
           const uint8_t *_empty_value = EMPTY_VALUE, size_t _empty_value_len = EMPTY_VALUE_LEN) :
           column_count (_col_count), max_val_len (_max_val_len),
-          memtrie(_null_value, _null_value_len, _empty_value, _empty_value_len),
+          trie_builder_fwd(_opts, _trie_level, _pk_col_count, _null_value, _null_value_len, _empty_value, _empty_value_len),
           leap_frog(memtrie, output), cache_builder(memtrie, output, tail_maps),
-          tail_maps (this, uniq_tails, uniq_tails_rev, memtrie.all_node_sets, output),
-          trie_builder_fwd (_opts, _trie_level, _pk_col_count) {
+          rs_builder(memtrie, output),
+          tail_maps (this, uniq_tails, uniq_tails_rev, memtrie.all_node_sets, output) {
       memcpy(null_value, _null_value, _null_value_len);
       null_value_len = _null_value_len;
       memcpy(empty_value, _empty_value, _empty_value_len);
@@ -170,10 +171,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
 
     bldr_options *get_opts() {
       return opts;
-    }
-
-    memtrie::in_mem_trie *get_memtrie() {
-      return &memtrie;
     }
 
     trie_builder_fwd *new_instance() {
@@ -207,135 +204,6 @@ class static_trie_builder : public virtual trie_builder_fwd {
       // avg_freq_all_ns += freq_count;
       ns_hdr->freq = freq_count; // > 0xFFFF ? 0xFFFF : freq_count;
       return freq_count;
-    }
-
-    void split_tails() {
-      clock_t t = clock();
-      typedef struct {
-        uint8_t *part;
-        uintxx_t uniq_arr_idx;
-        uintxx_t ns_id;
-        uint16_t part_len;
-        uint8_t node_idx;
-      } tail_part;
-      typedef struct {
-        uint8_t *uniq_part;
-        uintxx_t freq_count;
-        uint16_t uniq_part_len;
-      } tail_uniq_part;
-      std::vector<tail_part> tail_parts;
-      std::vector<tail_uniq_part> tail_uniq_parts;
-      memtrie::node_iterator ni(memtrie.all_node_sets, 1);
-      memtrie::node cur_node = ni.next();
-      while (cur_node != nullptr) {
-        if (cur_node.get_flags() & NFLAG_TAIL) {
-          uint8_t *tail = (*memtrie.all_tails)[cur_node.get_tail()];
-          size_t vlen;
-          uintxx_t tail_len = gen::read_vint32(tail, &vlen);
-          tail += vlen;
-          int last_word_len = 0;
-          bool is_prev_non_word = false;
-          std::vector<tail_part> tail_parts1;
-          for (size_t i = 0; i < tail_len; i++) {
-            uint8_t c = tail[i];
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c > 127) {
-              if (last_word_len >= 5 && is_prev_non_word) {
-                if (tail_len - i < 5) {
-                  last_word_len += (tail_len - i);
-                  break;
-                }
-                if (i > last_word_len)
-                  tail_parts1.push_back((tail_part) {tail + i - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
-                last_word_len = 0;
-              }
-              is_prev_non_word = false;
-            } else {
-              is_prev_non_word = true;
-            }
-            last_word_len++;
-          }
-          if (last_word_len < tail_len)
-            tail_parts1.push_back((tail_part) {tail + tail_len - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
-          if (tail_parts1.size() > 0) {
-            tail_parts.insert(tail_parts.end(), tail_parts1.begin(), tail_parts1.end());
-            // printf("Tail: [%.*s]\n", (int) tail_len, tail);
-            // for (size_t i = 0; i < tail_parts1.size(); i++) {
-            //   tail_part *tp = &tail_parts1[i];
-            //   printf("[%.*s]\n", tp->part_len, tp->part);
-            // }
-          }
-        }
-        cur_node = ni.next();
-      }
-      gen::gen_printf("Parts count: %lu\n", tail_parts.size());
-      if (tail_parts.size() == 0)
-        return;
-      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
-        return gen::compare(lhs.part, lhs.part_len, rhs.part, rhs.part_len) < 0;
-      });
-      tail_part *prev_tp = &tail_parts[0];
-      uintxx_t freq_count = 0;
-      uintxx_t uniq_arr_idx = 0;
-      for (size_t i = 0; i < tail_parts.size(); i++) {
-        tail_part *tp = &tail_parts[i];
-        tp->uniq_arr_idx = uniq_arr_idx;
-        int cmp = gen::compare(tp->part, tp->part_len, prev_tp->part, prev_tp->part_len);
-        if (cmp == 0) {
-          freq_count++;
-        } else {
-          tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
-          uniq_arr_idx++;
-          freq_count = 1;
-        }
-        prev_tp = tp;
-      }
-      tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
-      std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
-        return lhs.part > rhs.part;
-      });
-      gen::gen_printf("Uniq Parts count: %lu\n", tail_uniq_parts.size());
-      // std::sort(tail_uniq_parts.begin(), tail_uniq_parts.end(), [](const tail_uniq_part& lhs, const tail_uniq_part& rhs) -> bool {
-      //   return lhs.freq_count > rhs.freq_count;
-      // });
-      // for (size_t i = 0; i < tail_uniq_parts.size(); i++) {
-      //   tail_uniq_part *tup = &tail_uniq_parts[i];
-      //   printf("%u\t[%.*s]\n", tup->freq_count, (int) tup->uniq_part_len, tup->uniq_part);
-      // }
-      memtrie::node new_node;
-      memtrie::node_set_handler new_nsh(memtrie.all_node_sets, 0);
-      memtrie::node_set_handler nsh(memtrie.all_node_sets, 0);
-      for (size_t i = 0; i < tail_parts.size(); i++) {
-        tail_part *tp = &tail_parts[i];
-        tail_uniq_part *utp = &tail_uniq_parts[tp->uniq_arr_idx];
-        // if (utp->freq_count > 1) {
-          nsh.set_pos(tp->ns_id);
-          cur_node = nsh[tp->node_idx];
-          uint8_t *tail = (*memtrie.all_tails)[cur_node.get_tail()];
-          size_t vlen;
-          uintxx_t tail_len = gen::read_vint32(tail, &vlen);
-          uintxx_t orig_tail_new_len = tp->part - tail - vlen;
-          uintxx_t new_tail_len = tail_len - orig_tail_new_len;
-          gen::copy_vint32(orig_tail_new_len, tail, vlen);
-          //printf("Tail: [%.*s], pos: %u, len: %u, new len: %u, Part: [%.*s], len: %u\n", (int) tail_len, tail + vlen, cur_node.get_tail(), tail_len, orig_tail_new_len, (int) tp->part_len, tp->part, new_tail_len);
-          size_t new_tail_pos = memtrie.all_tails->push_back_with_vlen(tp->part, new_tail_len);
-          uintxx_t new_ns_pos = memtrie::node_set_handler::create_node_set(memtrie.all_node_sets, 1);
-          new_nsh.set_pos(new_ns_pos);
-          new_node = new_nsh.first_node();
-          new_node.set_flags(cur_node.get_flags() | NFLAG_TERM);
-          new_node.set_child(cur_node.get_child());
-          new_node.set_col_val(cur_node.get_col_val());
-          new_node.set_byte(*tp->part);
-          //printf("New tail pos: %lu\n", new_tail_pos);
-          new_node.set_tail(new_tail_pos);
-          cur_node.set_flags((cur_node.get_flags() | NFLAG_CHILD) & ~NFLAG_LEAF);
-          cur_node.set_child(new_ns_pos);
-          cur_node.set_col_val(0);
-          memtrie.node_set_count++;
-          memtrie.node_count++;
-        // }
-      }
-      gen::gen_printf("New NS count: %lu\n", memtrie.all_node_sets.size());
-      gen::print_time_taken(t, "Time taken for tail split: ");
     }
 
     void sort_nodes_on_freq(memtrie::node_set_handler& nsh) {
@@ -786,7 +654,7 @@ class static_trie_builder : public virtual trie_builder_fwd {
 
         if (pk_col_count > 0) {
         if (get_opts()->split_tails_method > 0)
-          split_tails();
+          memtrie.split_tails();
         sort_node_sets();
         set_node_id();
         set_level(1, 1);
@@ -957,23 +825,23 @@ class static_trie_builder : public virtual trie_builder_fwd {
           leap_frog.write_sec_cache(tp.min_stats, tp.sec_cache_size);
         // if (!get_opts()->dessicate) {
           if (trie_level > 0) {
-            write_louds_select_lt(tp.louds_sel1_lt_sz);
-            write_louds_rank_lt(tp.louds_rank_lt_sz);
+            rs_builder.write_louds_select_lt(tp.louds_sel1_lt_sz, louds);
+            rs_builder.write_louds_rank_lt(tp.louds_rank_lt_sz, louds);
           } else {
-            write_bv_select_lt(BV_LT_TYPE_CHILD, tp.child_select_lt_sz);
-            write_bv_select_lt(BV_LT_TYPE_TERM, tp.term_select_lt_sz);
-            // write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL),
+            rs_builder.write_bv_select_lt(BV_LT_TYPE_CHILD, tp.child_select_lt_sz);
+            rs_builder.write_bv_select_lt(BV_LT_TYPE_TERM, tp.term_select_lt_sz);
+            // rs_builder.write_bv_rank_lt(BV_LT_TYPE_TERM | BV_LT_TYPE_CHILD | (tp.tail_rank_lt_sz == 0 ? 0 : BV_LT_TYPE_TAIL),
             //     tp.term_rank_lt_sz + tp.child_rank_lt_sz + tp.tail_rank_lt_sz);
-            write_bv_rank_lt(BV_LT_TYPE_TERM, tp.term_rank_lt_sz);
-            write_bv_rank_lt(BV_LT_TYPE_CHILD, tp.child_rank_lt_sz);
+            rs_builder.write_bv_rank_lt(BV_LT_TYPE_TERM, tp.term_rank_lt_sz);
+            rs_builder.write_bv_rank_lt(BV_LT_TYPE_CHILD, tp.child_rank_lt_sz);
             if (tp.tail_rank_lt_sz > 0)
-              write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
+              rs_builder.write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
           }
         // }
         if (trie_level > 0) {
           output.write_bytes((const uint8_t *) louds.raw_data()->data(), louds.raw_data()->size() * sizeof(uint64_t));
           if (tp.tail_rank_lt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
+            rs_builder.write_bv_rank_lt(BV_LT_TYPE_TAIL, tp.tail_rank_lt_sz);
         } else
           output.write_bytes(trie_flags.data(), trie_flags.size());
 
@@ -981,183 +849,12 @@ class static_trie_builder : public virtual trie_builder_fwd {
 
         // if (!get_opts()->dessicate) {
           if (trie_level == 0 && tp.leaf_rank_lt_sz > 0)
-            write_bv_rank_lt(BV_LT_TYPE_LEAF, tp.leaf_rank_lt_sz);
+            rs_builder.write_bv_rank_lt(BV_LT_TYPE_LEAF, tp.leaf_rank_lt_sz);
           output.write_bytes(trie_flags_tail.data(), trie_flags_tail.size());
           if (get_opts()->leaf_lt && get_opts()->trie_leaf_count > 0)
-            write_bv_select_lt(BV_LT_TYPE_LEAF, tp.leaf_select_lt_sz);
+            rs_builder.write_bv_select_lt(BV_LT_TYPE_LEAF, tp.leaf_select_lt_sz);
         // }
       }
-    }
-
-    void write_bv_n(uintxx_t node_id, bool to_write, uintxx_t& count, uintxx_t& count_n, uint16_t *bit_counts_n, uint8_t& pos_n) {
-      if (!to_write)
-        return;
-      size_t u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      if (node_id && (node_id % nodes_per_bv_block) == 0) {
-        output.write_u32(count);
-        for (size_t i = nodes_per_bv_block == 256 ? 1: 0; i < u8_arr_count; i++) {
-          output.write_byte(bit_counts_n[i]);
-        }
-        if (nodes_per_bv_block == 512) {
-          for (size_t i = 1; i < pos_n; i++)
-            count += bit_counts_n[i];
-        }
-        count += count_n;
-        count_n = 0;
-        memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
-        bit_counts_n[0] = 0x1E;
-        pos_n = 1;
-      } else if (node_id && (node_id % nodes_per_bv_block_n) == 0) {
-        bit_counts_n[pos_n] = count_n & 0xFF;
-        // uint8_t b0_mask = (0x100 >> pos_n);
-        // bit_counts_n[0] &= ~b0_mask;
-        // if (count_n > 255)
-        //   bit_counts_n[0] |= ((count_n & 0x100) >> pos_n);
-        if (nodes_per_bv_block == 512)
-          count_n = 0;
-        pos_n++;
-      }
-    }
-
-    void write_bv_rank_lt(uint8_t which, size_t rank_lt_sz) {
-      uintxx_t node_id = 0;
-      size_t u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      uintxx_t count_tail = 0;
-      uintxx_t count_term = 0;
-      uintxx_t count_child = 0;
-      uintxx_t count_leaf = 0;
-      uintxx_t count_tail_n = 0;
-      uintxx_t count_term_n = 0;
-      uintxx_t count_child_n = 0;
-      uintxx_t count_leaf_n = 0;
-      uint16_t bit_counts_tail_n[u8_arr_count];
-      uint16_t bit_counts_term_n[u8_arr_count];
-      uint16_t bit_counts_child_n[u8_arr_count];
-      uint16_t bit_counts_leaf_n[u8_arr_count];
-      uint8_t pos_tail_n = 1;
-      uint8_t pos_term_n = 1;
-      uint8_t pos_child_n = 1;
-      uint8_t pos_leaf_n = 1;
-      memset(bit_counts_tail_n,  0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_term_n,  0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_child_n, 0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_leaf_n,  0xFF, u8_arr_count * sizeof(uint16_t));
-      bit_counts_tail_n[0] = 0x1E;
-      bit_counts_term_n[0] = 0x1E;
-      bit_counts_child_n[0] = 0x1E;
-      bit_counts_leaf_n[0] = 0x1E;
-      memtrie::node_iterator ni(memtrie.all_node_sets, 0);
-      memtrie::node cur_node = ni.next();
-      while (cur_node != nullptr) {
-        uint8_t cur_node_flags = 0;
-        if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
-          cur_node_flags = cur_node.get_flags();
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
-        count_tail_n += (cur_node_flags & NFLAG_TAIL ? 1 : 0);
-        count_term_n += (cur_node_flags & NFLAG_TERM ? 1 : 0);
-        count_child_n += (cur_node_flags & NFLAG_CHILD ? 1 : 0);
-        count_leaf_n += (cur_node_flags & NFLAG_LEAF ? 1 : 0);
-        node_id++;
-        cur_node = ni.next();
-      }
-      node_id = nodes_per_bv_block; // just to make it write the last blocks
-      for (size_t i = 0; i < 2; i++) {
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
-      }
-      output.write_align8(rank_lt_sz);
-    }
-
-    void write_louds_rank_lt(size_t rank_lt_sz) {
-      uintxx_t count = 0;
-      uintxx_t count_n = 0;
-      int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      uint16_t bit_counts_n[u8_arr_count];
-      uint8_t pos_n = 1;
-      memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
-      bit_counts_n[0] = 0x1E;
-      size_t bit_count = louds.get_highest() + 1;
-      for (size_t i = 0; i < bit_count; i++) {
-        write_bv_n(i, true, count, count_n, bit_counts_n, pos_n);
-        count_n += (louds[i] ? 1 : 0);
-      }
-      bit_count = nodes_per_bv_block; // just to make it write last blocks
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
-      output.write_align8(rank_lt_sz);
-    }
-
-    bool node_qualifies_for_select(memtrie::node *cur_node, uint8_t cur_node_flags, int which) {
-      switch (which) {
-        case BV_LT_TYPE_TERM:
-          return (cur_node_flags & NFLAG_TERM) > 0;
-        case BV_LT_TYPE_LEAF:
-          return (cur_node_flags & NFLAG_LEAF) > 0;
-        case BV_LT_TYPE_CHILD:
-          return (cur_node_flags & NFLAG_CHILD) > 0;
-      }
-      return false;
-    }
-
-    void write_bv_select_lt(int which, size_t sel_lt_sz) {
-      uintxx_t node_id = 0;
-      uintxx_t one_count = 0;
-      output.write_u24(0);
-      memtrie::node_iterator ni(memtrie.all_node_sets, 0);
-      memtrie::node cur_node = ni.next();
-      while (cur_node != nullptr) {
-        uint8_t cur_node_flags = 0;
-        if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
-          cur_node_flags = cur_node.get_flags();
-        if (node_qualifies_for_select(&cur_node, cur_node_flags, which)) {
-          one_count++;
-          if (one_count && (one_count % sel_divisor) == 0) {
-            uintxx_t val_to_write = node_id / nodes_per_bv_block;
-            output.write_u24(val_to_write);
-            if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
-          }
-        }
-        node_id++;
-        cur_node = ni.next();
-      }
-      output.write_u24(memtrie.node_count/nodes_per_bv_block);
-      output.write_align8(sel_lt_sz);
-    }
-
-    void write_louds_select_lt(size_t sel_lt_sz) {
-      uintxx_t one_count = 0;
-      output.write_u24(0);
-      size_t bit_count = louds.get_highest() + 1;
-      for (size_t i = 0; i < bit_count; i++) {
-        if (louds[i]) {
-          one_count++;
-          if (one_count && (one_count % sel_divisor) == 0) {
-            uintxx_t val_to_write = i / nodes_per_bv_block;
-            output.write_u24(val_to_write);
-            if (val_to_write > (1 << 24))
-              gen::gen_printf("WARNING: %u\t%u\n", one_count, val_to_write);
-          }
-        }
-      }
-      output.write_u24(bit_count / nodes_per_bv_block);
-      output.write_align8(sel_lt_sz);
-    }
-
-    uniq_info_base *get_ti(memtrie::node *n) {
-      tail_val_maps *tm = &tail_maps;
-      uniq_info_vec *uniq_tails_rev = tm->get_ui_vec();
-      return (*uniq_tails_rev)[n->get_tail()];
-    }
-
-    uintxx_t get_tail_ptr(memtrie::node *cur_node) {
-      uniq_info_base *ti = get_ti(cur_node);
-      return ti->ptr;
     }
 
 };
