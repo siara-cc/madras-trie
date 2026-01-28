@@ -105,6 +105,11 @@ Sorted? : 0
 {"name": "MARISA", "build_ns_per_key": "830.664230", "lookup_ns_per_query": "1312.578833", "best_lookup_ns_per_query": "1309.555460", "decode_ns_per_query": "1034.026410", "best_decode_ns_per_query": "1026.003610", "memory_in_bytes": "127310376"}
 arundale@arun-12:~/git/fast_succinct_trie/bench/build$ ./bench_madras ~/Downloads/enwik_shuf.txt
 {"name": "MADRAS", "build_ns_per_key": "3030.244111", "lookup_ns_per_query": "1259.520840", "best_lookup_ns_per_query": "1258.044760", "decode_ns_per_query": "926.138569", "best_decode_ns_per_query": "924.122480", "memory_in_bytes": "127680072"}
+
+arundale@arun-12:~/git/fast_succinct_trie/bench/build$ ./bench_marisa ~/Downloads/enwik_shuf.txt -a true
+{"name": "MARISA", "build_ns_per_key": "810.446903", "lookup_ns_per_query": "1544.127193", "best_lookup_ns_per_query": "1541.595090", "decode_ns_per_query": "1024.778756", "best_decode_ns_per_query": "1015.905960", "memory_in_bytes": "127310376"}
+arundale@arun-12:~/git/fast_succinct_trie/bench/build$ ./bench_madras ~/Downloads/enwik_shuf.txt -a true
+{"name": "MADRAS", "build_ns_per_key": "2959.379386", "lookup_ns_per_query": "1363.080079", "best_lookup_ns_per_query": "1362.069500", "decode_ns_per_query": "937.697275", "best_decode_ns_per_query": "936.146640", "memory_in_bytes": "128726088"}
 arundale@arun-12:~/git/fast_succinct_trie/bench/build$ ./bench_art ~/Downloads/enwik_shuf.txt
 {"name": "ART", "build_ns_per_key": "676.161294", "lookup_ns_per_query": "728.328470", "best_lookup_ns_per_query": "716.053920", "memory_in_bytes": "938888792"}
 
