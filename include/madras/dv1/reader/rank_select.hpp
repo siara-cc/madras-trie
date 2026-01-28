@@ -122,7 +122,7 @@ class bvlt_rank {
     __fq1 __fq2 inline bool is_set1(size_t pos) {
       return ((bm_loc[pos / 64] >> (pos % 64)) & 1) != 0;
     }
-    __fq1 __fq2 uintxx_t rank1(uintxx_t bv_pos) {
+    __fq1 __fq2 inline uintxx_t rank1(uintxx_t bv_pos) {
       uint8_t *rank_ptr = lt_rank_loc + bv_pos / nodes_per_bv_block * width_of_bv_block;
       uintxx_t rank = cmn::read_uint32(rank_ptr);
       #if nodes_per_bv_block == 512

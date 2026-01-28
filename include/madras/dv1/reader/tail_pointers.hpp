@@ -87,13 +87,13 @@ class tail_ptr_map {
     }
     __fq1 __fq2 inline bool compare_tail_data(uint8_t *data, uintxx_t tail_ptr, input_ctx& in_ctx) {
       uint8_t *tail = data + tail_ptr;
-      if (*tail < 15 || *tail > 31) {
+      if ((uint8_t)(*tail - 15) > 16) { // faster than `(*tail < 15 || *tail > 31)`
         do {
           if (in_ctx.key_pos >= in_ctx.key_len || *tail != in_ctx.key[in_ctx.key_pos])
             return false;
           tail++;
           in_ctx.key_pos++;
-        } while (*tail < 15 || *tail > 31);
+        } while ((uint8_t)(*tail - 15) > 16);
         if (*tail == 15)
           return true;
         return compare_suffix(data, tail_ptr, tail, in_ctx);
@@ -102,13 +102,13 @@ class tail_ptr_map {
     }
     __fq1 __fq2 inline void get_tail_data(uint8_t *data, uintxx_t tail_ptr, gen::byte_str& tail_str) {
       uint8_t *t = data + tail_ptr;
-      if (*t < 15 || *t > 31) {
+      if ((uint8_t)(*t - 15) > 16) { // faster than (*t < 15 || *t > 31)
         uint8_t byt = *t;
         do {
           t++;
           tail_str.append(byt);
           byt = *t;
-        } while (byt < 15 || byt > 31);
+        } while ((uint8_t)(byt - 15) > 16);
         if (byt == 15)
           return;
         uintxx_t sfx_len = read_len(t);
@@ -160,18 +160,18 @@ class tail_ptr_flat_map : public tail_ptr_map {
         data = tail_loc + cmn::read_uint64(data_idx_start);
       }
     }
-    __fq1 __fq2 uintxx_t get_tail_ptr(uintxx_t node_id, uintxx_t& ptr_bit_count) {
+    __fq1 __fq2 inline uintxx_t get_tail_ptr(uintxx_t node_id, uintxx_t& ptr_bit_count) {
       if (ptr_bit_count == UINTXX_MAX)
         ptr_bit_count = tail_lt->rank1(node_id);
       return (int_ptr_bv[ptr_bit_count++] << 8) | trie_loc[node_id];
     }
-    __fq1 __fq2 bool compare_tail(uintxx_t node_id, input_ctx& in_ctx, uintxx_t& ptr_bit_count) {
+    __fq1 __fq2 inline bool compare_tail(uintxx_t node_id, input_ctx& in_ctx, uintxx_t& ptr_bit_count) {
       uintxx_t tail_ptr = get_tail_ptr(node_id, ptr_bit_count);
       if (inner_trie != nullptr)
         return inner_trie->compare_trie_tail(tail_ptr, in_ctx);
       return compare_tail_data(data, tail_ptr, in_ctx);
     }
-    __fq1 __fq2 void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) {
+    __fq1 __fq2 inline void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) {
       uintxx_t tail_ptr = UINTXX_MAX; // avoid a stack entry
       tail_ptr = get_tail_ptr(node_id, tail_ptr);
       if (inner_trie != nullptr) {

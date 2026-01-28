@@ -265,7 +265,7 @@ class static_trie : public inner_trie {
       return true;
     }
 
-    __fq1 __fq2 void reverse_byte_str(uint8_t *str, size_t len) {
+    __fq1 __fq2 inline void reverse_byte_str(uint8_t *str, size_t len) {
       size_t i = len / 2;
       while (i--) {
         uint8_t b = str[i];
