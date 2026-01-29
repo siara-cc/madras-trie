@@ -253,6 +253,7 @@ x Verify date/time data types with data fusion
 - Fix insert API
 - CTAS for duckdb
 - Implement RAII (unique_ptr) for builders
+- in_size_out_key_len ??
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit

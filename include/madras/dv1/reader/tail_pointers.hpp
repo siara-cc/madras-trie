@@ -15,10 +15,8 @@ class tail_ptr_map {
   public:
     __fq1 __fq2 tail_ptr_map() {
     }
-    __fq1 __fq2 virtual ~tail_ptr_map() {
+    __fq1 __fq2 ~tail_ptr_map() {
     }
-    __fq1 __fq2 virtual bool compare_tail(uintxx_t node_id, input_ctx& in_ctx, uintxx_t& ptr_bit_count) = 0;
-    __fq1 __fq2 virtual void get_tail_str(uintxx_t node_id, gen::byte_str& tail_str) = 0;
     __fq1 __fq2 static uintxx_t read_len(uint8_t *t) {
       do {
         t++;
@@ -72,6 +70,17 @@ class tail_ptr_map {
         in_ctx.key_pos++;
       return false;
     }
+    __fq1 __fq2 void get_tail_suffix(uint8_t *t, uint8_t *data, uintxx_t tail_ptr, gen::byte_str& tail_str) {
+      uintxx_t sfx_len = read_len(t);
+      read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
+      tail_str.set_length(tail_str.length() + sfx_len);
+    }
+    __fq1 __fq2 void get_bin_data(uint8_t *t, gen::byte_str &tail_str) {
+      uintxx_t bin_len;
+      read_len_bw(t++, bin_len);
+      while (bin_len--)
+        tail_str.append(*t++);
+    }
     __fq1 __fq2 bool compare_suffix(uint8_t *data, uintxx_t tail_ptr, uint8_t *tail, input_ctx& in_ctx) {
       uintxx_t sfx_len = read_len(tail);
       uint8_t stack_buf[FAST_STACK_BUF];
@@ -111,15 +120,10 @@ class tail_ptr_map {
         } while ((uint8_t)(byt - 15) > 16);
         if (byt == 15)
           return;
-        uintxx_t sfx_len = read_len(t);
-        read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
-        tail_str.set_length(tail_str.length() + sfx_len);
-      } else {
-        uintxx_t bin_len;
-        read_len_bw(t++, bin_len);
-        while (bin_len--)
-          tail_str.append(*t++);
+        get_tail_suffix(t, data, tail_ptr, tail_str);
+        return;
       }
+      get_bin_data(t, tail_str);
     }
 };
 
@@ -136,7 +140,7 @@ class tail_ptr_flat_map : public tail_ptr_map {
     __fq1 __fq2 tail_ptr_flat_map() {
       inner_trie = nullptr;
     }
-    __fq1 __fq2 virtual ~tail_ptr_flat_map() {
+    __fq1 __fq2 ~tail_ptr_flat_map() {
       if (inner_trie != nullptr)
         delete inner_trie;
     }

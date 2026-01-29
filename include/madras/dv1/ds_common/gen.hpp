@@ -540,10 +540,10 @@ class byte_str {
   public:
     __fq1 __fq2 byte_str() {
     }
-    __fq1 __fq2 byte_str(uint8_t *_buf, size_t _max_len) {
+    __fq1 __fq2 inline byte_str(uint8_t *_buf, size_t _max_len) {
       set_buf_max_len(_buf, _max_len);
     }
-    __fq1 __fq2 void set_buf_max_len(uint8_t *_buf, size_t _max_len) {
+    __fq1 __fq2 inline void set_buf_max_len(uint8_t *_buf, size_t _max_len) {
       len = 0;
       buf = _buf;
       max_len = _max_len;
@@ -556,13 +556,13 @@ class byte_str {
       if (limit > max_len) limit = max_len;
       while (len < limit) buf[len++] = *b++;
     }
-    __fq1 __fq2 uint8_t *data() {
+    __fq1 __fq2 inline uint8_t *data() {
       return buf;
     }
     __fq1 __fq2 uint8_t operator[](size_t idx) const {
       return buf[idx];
     }
-    __fq1 __fq2 size_t length() {
+    __fq1 __fq2 inline size_t length() {
       return len;
     }
     __fq1 __fq2 void set_length(size_t _len) {

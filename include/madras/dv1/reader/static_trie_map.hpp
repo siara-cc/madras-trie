@@ -292,7 +292,7 @@ class col_trie_retriever : public value_retriever<pri_key> {
       uint8_t val_loc[16];
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN)
         vctx.val->txt_bin = val_loc;
-      ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val->txt_bin, true);
+      ((static_trie *) Parent::col_trie)->reverse_lookup_from_node_id(col_trie_node_id, vctx.val_len, vctx.val->txt_bin);
       if (Parent::data_type != MST_TEXT && Parent::data_type != MST_BIN) {
         cmn::convert_back(Parent::data_type, vctx.val->txt_bin, *vctx.val, vctx.val_len);
       }
@@ -378,7 +378,7 @@ class words_retriever : public value_retriever<pri_key> {
         vctx.ptr_bit_count += code_len;
         uintxx_t it_leaf_id = Parent::ptr_reader.read(vctx.ptr_bit_count, bit_len - code_len);
         ((static_trie *) Parent::inner_tries[grp_no])->reverse_lookup(it_leaf_id, &word_len,
-            vctx.val->txt_bin + *vctx.val_len, true);
+            vctx.val->txt_bin + *vctx.val_len);
         *vctx.val_len += word_len;
       }
       return Parent::skip_to_next_leaf(vctx);
