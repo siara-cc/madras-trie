@@ -2,7 +2,7 @@
 #define __DV1_BUILDER_COLTRIE__
 
 #include "builder_interfaces.hpp"
-#include "madras/dv1/builder/tail_val_maps.hpp"
+#include "madras/dv1/builder/trie/tail_val_maps.hpp"
 #include "madras/dv1/builder/trie/memtrie/in_mem_trie.hpp"
 
 namespace madras { namespace dv1 {

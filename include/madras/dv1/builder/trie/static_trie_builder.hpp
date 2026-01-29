@@ -4,9 +4,9 @@
 #include "madras/dv1/common.hpp"
 
 #include "madras/dv1/builder/output_writer.hpp"
-#include "madras/dv1/builder/pointer_groups.hpp"
 #include "madras/dv1/builder/builder_interfaces.hpp"
 
+#include "pointer_groups.hpp"
 #include "leapfrog_builder.hpp"
 #include "trie_cache_builder.hpp"
 #include "rank_select_builder.hpp"
@@ -714,9 +714,9 @@ class static_trie_builder : public virtual trie_builder_fwd {
           tp.leaf_rank_lt_sz = 0;
         }
 
-        tp.fwd_cache_loc = tp.opts_loc + tp.opts_size;
-        tp.rev_cache_loc = tp.fwd_cache_loc + tp.fwd_cache_size;
-        tp.sec_cache_loc = tp.rev_cache_loc + gen::size_align8(tp.rev_cache_size);
+        tp.rev_cache_loc = tp.opts_loc + tp.opts_size;
+        tp.fwd_cache_loc = tp.rev_cache_loc + gen::size_align8(tp.rev_cache_size);
+        tp.sec_cache_loc = tp.fwd_cache_loc + gen::size_align8(tp.fwd_cache_size);
 
         if (trie_level == 0) {
           tp.child_select_lkup_loc = tp.sec_cache_loc + tp.sec_cache_size;
@@ -819,8 +819,8 @@ class static_trie_builder : public virtual trie_builder_fwd {
       output.write_bytes((const uint8_t *) opts, tp.opts_size);
 
       if (pk_col_count > 0) {
-        cache_builder.write_fwd_cache(tp.fwd_cache_count);
         cache_builder.write_rev_cache(tp.rev_cache_count, tp.rev_cache_size);
+        cache_builder.write_fwd_cache(tp.fwd_cache_count);
         if (tp.sec_cache_size > 0)
           leap_frog.write_sec_cache(tp.min_stats, tp.sec_cache_size);
         // if (!get_opts()->dessicate) {

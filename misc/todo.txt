@@ -219,20 +219,21 @@ madras_flutter todos
 ? Fix Scroll Issue
 ? 1.58101e-322 census.db
 - index dropdowns per window
-- Combined words search
-- Word split interface
 - API for nid_shift_bits for T and W
 - Search on date not working
 - Sqlite/DuckDB version
 - Find on PK not working for partial matches
 - Find not working after 64-bit
 
++ Combined words search
++ Word split interface
 + web_bridge
 + SQL interface (duckdb)
 * JDBC driver (duckdb)
 - Implement 64 bit
 * CSV/NDJSON/XML export? (duckdb)
 x Rust / Go / Python / Java / .Net bindings
+x Verify date/time data types with data fusion
 - ESP32 version
 
 - Fix grouping logic
@@ -245,12 +246,13 @@ x Rust / Go / Python / Java / .Net bindings
 - Standardise limits and format
 - Check release and leaks
 - Check null and empty values consistency
-x Verify date/time data types with data fusion
 
 - Use same format as duckdb for null bitmaps
 - Align to duckdb for date time format and types
 - Use 64 values (leaf id) for PK types?
+- Fix insert API
 - CTAS for duckdb
+- Implement RAII (unique_ptr) for builders
 
 Integer codec with ALP
 - allflic48 - adaptive lossless floating point and integer compression 32 and 64 bit
@@ -270,6 +272,7 @@ doubles:
 Issues:
 - ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/babynames.db . gendered_names 2+3 ittiti1 vuuvuvd MISMATCHES: per_100k_in_state: (119296),
 - bit_len = 0: 
-- Infinite loop: ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT 1
++ Infinite loop: ./export_sqlite sqlite3 b ~/git2/sqlite_dbs/archive/allCountries.db . countries 0 it----------------- TWWWTTTTTTTTTTTTTTT 1
 - Aaliyahmarie not found select count(*) from read_madras('/Users/arun/git2/sqlite_dbs/babynames_pk.db.mdsi', no_index=true) where state ='US' and primary_sex='M';
 - ./run_tests misc/word_freq_sorted.txt 1 0 0 1 0 1
+- min_word_len 3 seg fault for W

@@ -3,8 +3,8 @@
 
 #include "madras/dv1/common.hpp"
 
-#include "output_writer.hpp"
-#include "builder_interfaces.hpp"
+#include "madras/dv1/builder/output_writer.hpp"
+#include "madras/dv1/builder/builder_interfaces.hpp"
 
 namespace madras { namespace dv1 {
 
