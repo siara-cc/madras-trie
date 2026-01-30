@@ -33,7 +33,8 @@ tex/*.out
 tex/*.aux
 test*
 /export_sqlite*
-emscripten/*.js
-emscripten/*.wasm
+emscripten/dv1/*.js
+emscripten/dv1/*.wasm
+emscripten/dv1/test
 prgs/duckdb_arrow
 

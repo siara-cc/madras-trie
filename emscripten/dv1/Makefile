@@ -1,7 +1,7 @@
 C = emcc
 CXX = em++
 CXXFLAGS = -std=c++11
-INCLUDES = -I../src
+INCLUDES = -I../../include
 L_FLAGS = -lnodefs.js
 M_FLAGS =
 
@@ -21,5 +21,5 @@ clean:
 	rm madras_lookup
 	rm -rf madras_lookup.dSYM
 
-madras_lookup: madras_lookup.cpp ../src/common_dv1.hpp ../src/madras_dv1.hpp ../../ds_common/src/*.hpp
+madras_lookup: madras_lookup.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) madras_lookup.cpp -o madras_lookup.js $(L_FLAGS) $(M_FLAGS) -sALLOW_MEMORY_GROWTH

@@ -3,7 +3,7 @@
 #endif
 
 #include <stdio.h>
-#include "madras_dv1.hpp"
+#include "madras/dv1/reader/static_trie_map.hpp"
 
 int main(int argc, char *argv[]) {
 
@@ -34,9 +34,9 @@ int main(int argc, char *argv[]) {
   }
   fclose(fp);
 
-  madras_dv1::static_trie_map st;
+  madras::dv1::static_trie_map st;
   st.load(argv[2]);
-  madras_dv1::input_ctx in_ctx;
+  madras::dv1::input_ctx in_ctx;
   in_ctx.key = (const uint8_t *) argv[3];
   in_ctx.key_len = strlen(argv[3]);
   in_ctx.node_id = 0;
