@@ -1,7 +1,7 @@
 C = nvcc
 CXX = nvcc
-CXXFLAGS = -std=c++17 -arch=sm_61
-INCLUDES = -I../src -I../../ds_common/src -I../../flavic48/src
+CXXFLAGS = -std=c++11 -arch=sm_61
+INCLUDES = -I../../include
 L_FLAGS = 
 M_FLAGS = 
 #OBJS = build/imain.o
@@ -21,5 +21,5 @@ asan: cuda_bench
 clean:
 	rm cuda_bench
 
-cuda_bench: cuda_bench_dv1.cu ../src/*.hpp ../../ds_common/src/*.hpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -std=c++17 cuda_bench_dv1.cu -o cuda_bench $(L_FLAGS) $(M_FLAGS)
+cuda_bench: cuda_bench.cu
+	$(CXX) $(CXXFLAGS) $(INCLUDES) cuda_bench.cu -o cuda_bench $(L_FLAGS) $(M_FLAGS)

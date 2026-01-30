@@ -358,15 +358,15 @@ constexpr std::size_t FAST_STACK_BUF = 64;
 template <typename T>
 struct BufferGuard {
     T* ptr;
-    explicit BufferGuard(T* p = nullptr) : ptr(p) {}
-    ~BufferGuard() {
+    __fq1 __fq2 explicit BufferGuard(T* p = nullptr) : ptr(p) {}
+    __fq1 __fq2 ~BufferGuard() {
         delete[] ptr;
     }
-    BufferGuard(const BufferGuard&) = delete;
-    BufferGuard& operator=(const BufferGuard&) = delete;
+    __fq1 __fq2 BufferGuard(const BufferGuard&) = delete;
+    __fq1 __fq2 BufferGuard& operator=(const BufferGuard&) = delete;
 };
 template <typename T>
-inline T* get_fast_buffer(std::size_t required_len, T* stack_buf, T*& heap_buf) {
+__fq1 __fq2 inline T* get_fast_buffer(std::size_t required_len, T* stack_buf, T*& heap_buf) {
     if (required_len <= FAST_STACK_BUF) {
         heap_buf = nullptr;
         return stack_buf;

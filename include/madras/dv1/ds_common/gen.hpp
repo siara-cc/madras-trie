@@ -458,7 +458,7 @@ static uint64_t read_uint40(uint8_t *ptr) {
 #endif
 }
 
-static inline uint64_t read_uint64(uint8_t *t) {
+__fq1 __fq2 static inline uint64_t read_uint64(uint8_t *t) {
 #ifndef __CUDA_ARCH__
   uint64_t tmp;
   memcpy(&tmp, t, sizeof(tmp));

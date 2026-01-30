@@ -171,12 +171,12 @@ private:
     size_t bit_len;
 
 public:
-    int_bv_reader() : base(nullptr), bit_len(0) {}
-    void init(uint8_t* _int_bv, size_t _bit_len) {
+    __fq1 __fq2 int_bv_reader() : base(nullptr), bit_len(0) {}
+    __fq1 __fq2 void init(uint8_t* _int_bv, size_t _bit_len) {
         base = (uint64_t *) _int_bv;
         bit_len = _bit_len;
     }
-    inline uint64_t operator[](size_t pos) const noexcept {
+    __fq1 __fq2 inline uint64_t operator[](size_t pos) const noexcept {
       if (bit_len == 0) return 0;
       uint64_t bit = pos * bit_len;
       size_t w = bit >> 6;

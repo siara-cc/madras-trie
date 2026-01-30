@@ -1,7 +1,7 @@
 C = gcc
 CXX = g++
-CXXFLAGS = -std=c++17 -march=native
-INCLUDES = -I../src -I../../ds_common/src -I../../flavic48/src
+CXXFLAGS = -std=c++11 -march=native
+INCLUDES = -I../../include
 L_FLAGS = 
 M_FLAGS = -mbmi2 -mpopcnt
 #OBJS = build/imain.o
@@ -21,6 +21,6 @@ asan: mt_bench
 clean:
 	rm mt_bench
 
-mt_bench: madras_bench_mt_dv1.cpp ./common_mt_dv1.hpp ../src/*.hpp ../../ds_common/src/*.hpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) madras_bench_mt_dv1.cpp -o mt_bench $(L_FLAGS) $(M_FLAGS)
+mt_bench: madras_bench_mt.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) madras_bench_mt.cpp -o mt_bench $(L_FLAGS) $(M_FLAGS)
 

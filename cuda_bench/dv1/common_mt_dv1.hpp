@@ -126,9 +126,9 @@ uint8_t *load_lines(const char *file_name, std::vector<key_ctx> &lines, size_t& 
 
 uint8_t *load_mdx_file(const char *file_name, size_t& mdx_file_size) {
 
-  char mdx_file_name[strlen(file_name) + 5];
+  char mdx_file_name[strlen(file_name) + 16];
   strcpy(mdx_file_name, file_name);
-  strcat(mdx_file_name, ".mdx");
+  strcat(mdx_file_name, ".mdsi");
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(mdx_file_name, &file_stat);
