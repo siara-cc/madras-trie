@@ -70,17 +70,6 @@ class tail_ptr_map {
         in_ctx.key_pos++;
       return false;
     }
-    __fq1 __fq2 void get_tail_suffix(uint8_t *t, uint8_t *data, uintxx_t tail_ptr, gen::byte_str& tail_str) {
-      uintxx_t sfx_len = read_len(t);
-      read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
-      tail_str.set_length(tail_str.length() + sfx_len);
-    }
-    __fq1 __fq2 void get_bin_data(uint8_t *t, gen::byte_str &tail_str) {
-      uintxx_t bin_len;
-      read_len_bw(t++, bin_len);
-      while (bin_len--)
-        tail_str.append(*t++);
-    }
     __fq1 __fq2 bool compare_suffix(uint8_t *data, uintxx_t tail_ptr, uint8_t *tail, input_ctx& in_ctx) {
       uintxx_t sfx_len = read_len(tail);
       uint8_t stack_buf[FAST_STACK_BUF];
@@ -120,10 +109,15 @@ class tail_ptr_map {
         } while ((uint8_t)(byt - 15) > 16);
         if (byt == 15)
           return;
-        get_tail_suffix(t, data, tail_ptr, tail_str);
-        return;
+        uintxx_t sfx_len = read_len(t);
+        read_suffix(tail_str.data() + tail_str.length(), data + tail_ptr - 1, sfx_len);
+        tail_str.set_length(tail_str.length() + sfx_len);
+      } else {
+        uintxx_t bin_len;
+        read_len_bw(t++, bin_len);
+        while (bin_len--)
+          tail_str.append(*t++);
       }
-      get_bin_data(t, tail_str);
     }
 };
 
