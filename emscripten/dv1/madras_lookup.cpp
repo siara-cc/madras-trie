@@ -8,7 +8,9 @@
 int main(int argc, char *argv[]) {
 
   if (argc < 4) {
-    printf("Usage: node madras_lookup.js <NODEFS_PATH> <MDX_NAME> <lookup_key>");
+    printf("Usage: node madras_lookup.js <NODEFS_PATH> <MDSI_FILE_NAME> <lookup_key>\n");
+    printf("  Create a folder for nodefs_path and copy the mdsi file inside it\n");
+    printf("  Example: node madras_lookup.js test test/enwiki-latest-all-titles-in-ns0.mdsi Hello_World\n");
     return 0;
   }
 
