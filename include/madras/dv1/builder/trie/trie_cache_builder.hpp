@@ -64,8 +64,8 @@ class trie_cache_builder {
         r_cache = new nid_cache[cache_count + 1]();
         r_cache_freq = new uintxx_t[cache_count]();
       }
-      uint8_t tail_buf[memtrie.max_key_len];
-      gen::byte_str tail_from0(tail_buf, memtrie.max_key_len);
+      std::vector<uint8_t> tail_buf(memtrie.max_key_len);
+      gen::byte_str tail_from0(tail_buf.data(), memtrie.max_key_len);
       build_cache(which, 1, 0, cache_count - 1, tail_from0);
       max_node_id = 0;
       int sum_freq = 0;

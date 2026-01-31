@@ -26,7 +26,7 @@ class uniq_maker {
           uint8_t *pos = sic.get_data_and_len(n, len, type);
           if (pos != NULL || len == 1) {
             // printf("%d, [%.*s]\n", len, len, pos);
-            nodes_for_sort.push_back((struct node_data) { pos, len, i, (uint8_t) k});
+            nodes_for_sort.push_back(node_data{ pos, len, i, (uint8_t) k});
           }
           n.next();
         }

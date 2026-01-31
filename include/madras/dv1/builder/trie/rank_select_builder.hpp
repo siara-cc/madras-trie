@@ -58,18 +58,18 @@ class rank_select_builder {
       uintxx_t count_term_n = 0;
       uintxx_t count_child_n = 0;
       uintxx_t count_leaf_n = 0;
-      uint16_t bit_counts_tail_n[u8_arr_count];
-      uint16_t bit_counts_term_n[u8_arr_count];
-      uint16_t bit_counts_child_n[u8_arr_count];
-      uint16_t bit_counts_leaf_n[u8_arr_count];
+      std::vector<uint16_t> bit_counts_tail_n(u8_arr_count);
+      std::vector<uint16_t> bit_counts_term_n(u8_arr_count);
+      std::vector<uint16_t> bit_counts_child_n(u8_arr_count);
+      std::vector<uint16_t> bit_counts_leaf_n(u8_arr_count);
       uint8_t pos_tail_n = 1;
       uint8_t pos_term_n = 1;
       uint8_t pos_child_n = 1;
       uint8_t pos_leaf_n = 1;
-      memset(bit_counts_tail_n,  0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_term_n,  0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_child_n, 0xFF, u8_arr_count * sizeof(uint16_t));
-      memset(bit_counts_leaf_n,  0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_tail_n.data(),  0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_term_n.data(),  0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_child_n.data(), 0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_leaf_n.data(),  0xFF, u8_arr_count * sizeof(uint16_t));
       bit_counts_tail_n[0] = 0x1E;
       bit_counts_term_n[0] = 0x1E;
       bit_counts_child_n[0] = 0x1E;
@@ -80,10 +80,10 @@ class rank_select_builder {
         uint8_t cur_node_flags = 0;
         if ((cur_node.get_flags() & NODE_SET_LEAP) == 0)
           cur_node_flags = cur_node.get_flags();
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n.data(), pos_term_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n.data(), pos_child_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n.data(), pos_leaf_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n.data(), pos_tail_n);
         count_tail_n += (cur_node_flags & NFLAG_TAIL ? 1 : 0);
         count_term_n += (cur_node_flags & NFLAG_TERM ? 1 : 0);
         count_child_n += (cur_node_flags & NFLAG_CHILD ? 1 : 0);
@@ -93,10 +93,10 @@ class rank_select_builder {
       }
       node_id = nodes_per_bv_block; // just to make it write the last blocks
       for (size_t i = 0; i < 2; i++) {
-        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n, pos_term_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n, pos_child_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n, pos_leaf_n);
-        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n, pos_tail_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TERM, count_term, count_term_n, bit_counts_term_n.data(), pos_term_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_CHILD, count_child, count_child_n, bit_counts_child_n.data(), pos_child_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_LEAF, count_leaf, count_leaf_n, bit_counts_leaf_n.data(), pos_leaf_n);
+        write_bv_n(node_id, which & BV_LT_TYPE_TAIL, count_tail, count_tail_n, bit_counts_tail_n.data(), pos_tail_n);
       }
       output.write_align8(rank_lt_sz);
     }
@@ -143,18 +143,18 @@ class rank_select_builder {
       uintxx_t count = 0;
       uintxx_t count_n = 0;
       int u8_arr_count = (nodes_per_bv_block / nodes_per_bv_block_n);
-      uint16_t bit_counts_n[u8_arr_count];
+      std::vector<uint16_t> bit_counts_n(u8_arr_count);
       uint8_t pos_n = 1;
-      memset(bit_counts_n, 0xFF, u8_arr_count * sizeof(uint16_t));
+      memset(bit_counts_n.data(), 0xFF, u8_arr_count * sizeof(uint16_t));
       bit_counts_n[0] = 0x1E;
       size_t bit_count = louds.get_highest() + 1;
       for (size_t i = 0; i < bit_count; i++) {
-        write_bv_n(i, true, count, count_n, bit_counts_n, pos_n);
+        write_bv_n(i, true, count, count_n, bit_counts_n.data(), pos_n);
         count_n += (louds[i] ? 1 : 0);
       }
       bit_count = nodes_per_bv_block; // just to make it write last blocks
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
-      write_bv_n(bit_count, true, count, count_n, bit_counts_n, pos_n);
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n.data(), pos_n);
+      write_bv_n(bit_count, true, count, count_n, bit_counts_n.data(), pos_n);
       output.write_align8(rank_lt_sz);
     }
 

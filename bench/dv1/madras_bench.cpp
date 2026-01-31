@@ -1,5 +1,7 @@
 #include <iostream>
 #include <string>
+#include <chrono>
+#include <cstdio>
 #include <sys/stat.h>
 #include <fcntl.h>
 
@@ -18,17 +20,21 @@ typedef struct {
   };
 } key_ctx;
 
-double time_taken_in_secs(struct timespec t) {
-  struct timespec t_end;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t_end);
-  return (t_end.tv_sec - t.tv_sec) + (t_end.tv_nsec - t.tv_nsec) / 1e9;
+using steady_clock_t = std::chrono::steady_clock;
+using time_point_t  = steady_clock_t::time_point;
+
+double time_taken_in_secs(time_point_t start)
+{
+    auto end = steady_clock_t::now();
+    std::chrono::duration<double> elapsed = end - start;
+    return elapsed.count();
 }
 
-struct timespec print_time_taken(struct timespec t, const char *msg) {
-  double time_taken = time_taken_in_secs(t); // in seconds
-  printf("%s %lf\n", msg, time_taken);
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
-  return t;
+time_point_t print_time_taken(time_point_t start, const char* msg)
+{
+    double time_taken = time_taken_in_secs(start);
+    std::printf("%s %lf\n", msg, time_taken);
+    return steady_clock_t::now();
 }
 
 bool nodes_sorted_on_freq;
@@ -39,8 +45,7 @@ madras::dv1::static_trie *bench_build(int argc, char *argv[], std::vector<uint8_
   int leapfrog = argc > 5 ? atoi(argv[5]) : 0;
   int sfx_coding = argc > 8 ? atoi(argv[8]) : 1;
 
-  struct timespec t;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
+  auto t = steady_clock_t::now();
 
   size_t line_count = lines.size();
   madras::dv1::builder *sb;
@@ -104,8 +109,7 @@ bool bench_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_re
 
   madras::dv1::input_ctx in_ctx;
 
-  struct timespec t;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
+  auto t = steady_clock_t::now();
 
   key_ctx *kc;
   size_t line_count = lines.size();
@@ -133,19 +137,18 @@ bool bench_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_re
 bool bench_rev_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   size_t out_key_len = 0;
-  uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
+  std::vector<uint8_t> out_key_buf(trie_reader->get_max_key_len() + 1);
 
-  struct timespec t;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
+  auto t = steady_clock_t::now();
 
   key_ctx *kc;
   size_t line_count = lines.size();
   for (size_t i = 0; i < line_count; i++) {
 
     kc = &lines[i];
-    if (!trie_reader->reverse_lookup(kc->leaf_id, &out_key_len, out_key_buf))
+    if (!trie_reader->reverse_lookup(kc->leaf_id, &out_key_len, out_key_buf.data()))
       return false;
-    if (kc->key_len != out_key_len || memcmp(kc->key, out_key_buf, kc->key_len) != 0)
+    if (kc->key_len != out_key_len || memcmp(kc->key, out_key_buf.data(), kc->key_len) != 0)
       return false;
 
   }
@@ -159,12 +162,11 @@ bool bench_rev_lookup(std::vector<key_ctx>& lines, madras::dv1::static_trie *tri
 bool bench_next(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_reader, double& time_taken, double& keys_per_sec) {
 
   size_t out_key_len = 0;
-  uint8_t out_key_buf[trie_reader->get_max_key_len() + 1];
+  std::vector<uint8_t> out_key_buf(trie_reader->get_max_key_len() + 1);
   madras::dv1::iter_ctx dict_ctx;
   dict_ctx.init(trie_reader->get_max_key_len(), trie_reader->get_max_level());
 
-  struct timespec t;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
+  auto t = steady_clock_t::now();
 
   key_ctx *kc;
   size_t line_count = lines.size();
@@ -172,8 +174,8 @@ bool bench_next(std::vector<key_ctx>& lines, madras::dv1::static_trie *trie_read
 
     kc = &lines[i];
 
-    out_key_len = trie_reader->next(dict_ctx, out_key_buf);
-    if (kc->key_len != out_key_len || memcmp(kc->key, out_key_buf, kc->key_len) != 0)
+    out_key_len = trie_reader->next(dict_ctx, out_key_buf.data());
+    if (kc->key_len != out_key_len || memcmp(kc->key, out_key_buf.data(), kc->key_len) != 0)
       return false;
 
   }
@@ -230,7 +232,7 @@ int main(int argc, char *argv[]) {
       int key_len = line_len;
       if (gen::compare(key, key_len, prev_line, gen::min(prev_line_len, key_len)) < 0)
         is_sorted = false;
-      lines.push_back((key_ctx) {line, (uint32_t) line_len, 0});
+      lines.push_back(key_ctx{line, (uint32_t) line_len, 0});
       prev_line = line;
       prev_line_len = line_len;
       line_count++;
@@ -266,7 +268,7 @@ int main(int argc, char *argv[]) {
       printf("Build fail\n");
       return 1;
     }
-    printf("%lu\t%lf\t", trie_size, keys_per_sec);
+    printf("%zu\t%lf\t", trie_size, keys_per_sec);
     bool is_success = bench_lookup(lines, trie_reader, time_taken, keys_per_sec);
     if (!is_success) {
       printf("Lookup fail\n");

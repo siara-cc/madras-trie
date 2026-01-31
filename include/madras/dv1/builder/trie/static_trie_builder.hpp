@@ -368,11 +368,11 @@ class static_trie_builder : public virtual trie_builder_fwd {
       tail_trie_builder = new static_trie_builder(1, 1, 0, trie_level + 1, &tt_opts);
       for (size_t i = 0; i < uniq_tails_rev.size(); i++) {
         uniq_info_base *ti = uniq_tails_rev[i];
-        uint8_t rev[ti->len];
+        std::vector<uint8_t> rev(ti->len);
         uint8_t *ti_data = uniq_tails[ti->pos];
         for (uintxx_t j = 0; j < ti->len; j++)
           rev[j] = ti_data[ti->len - j - 1];
-        tail_trie_builder->insert(rev, ti->len, i);
+        tail_trie_builder->insert(rev.data(), ti->len, i);
       }
       memtrie::node_iterator ni_freq(tail_trie_builder->get_memtrie()->all_node_sets, 0);
       memtrie::node cur_node = ni_freq.next();

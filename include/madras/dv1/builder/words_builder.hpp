@@ -162,7 +162,7 @@ class word_tries_builder {
       uintxx_t cumu_freq_idx = val_maps.make_uniq_freq(uniq_words_vec, uniq_words_freq, tot_freq, last_data_len, start_bits, grp_no, true);
 
       ptr_grps.set_idx_info(start_bits, grp_no, 3);
-      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0}, true);
+      ptr_grps.add_freq_grp(freq_grp{0, 0, 0, 0, 0, 0, 0, 0}, true);
 
       grp_no = 1;
       len_grp_no = grp_no;
@@ -184,7 +184,7 @@ class word_tries_builder {
       trie_builder_fwd *cur_word_trie = create_word_trie_builder(encoding_type, rev_col_vals);
       ptr_grps.inner_tries.push_back(cur_word_trie);
       ptr_grps.inner_trie_start_grp = grp_no;
-      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0}, true);
+      ptr_grps.add_freq_grp(freq_grp{grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0}, true);
       while (freq_idx < uniq_words_freq.size()) {
         uniq_info_base *vi = uniq_words_freq[freq_idx];
         freq_idx++;
@@ -348,7 +348,7 @@ class word_tries_builder {
         word_ptrs.push_back(0);
         uintxx_t word_len = word_positions[i + 1] - word_positions[i];
         // printf("Word: %.*s, len: %zu\n", word_len, word_str + word_positions[i], word_len);
-        words_for_sort.push_back((word_refs) {word_str + word_positions[i], word_len, ref_id, node_id});
+        words_for_sort.push_back(word_refs{word_str + word_positions[i], word_len, ref_id, node_id});
       }
       if (max_word_count < sr.word_count)
         max_word_count = sr.word_count;

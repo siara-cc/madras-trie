@@ -619,11 +619,11 @@ class builder : public static_trie_builder, public trie_map_builder_fwd {
             data_len = (v_end - v64);
             data_pos = (*new_vals)[new_vals->push_back(v64, data_len)];
             n.set_col_val(data_pos - (*new_vals)[0]);
-            nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
+            nodes_for_sort.push_back(node_data{data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
             // printf("Key: %u, %u, [%.*s]\n", col_val, data_len, (int) data_len, data_pos);
           } break;
           default:
-            nodes_for_sort.push_back((struct node_data) {data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
+            nodes_for_sort.push_back(node_data{data_pos, data_len, ni.get_cur_nsh_id(), ni.get_cur_sib_id(), (uint8_t) len_len});
           // printf("RecNo: %lu, Pos: %u, data_len: %u, vlen: %lu\n", rec_no, pos, data_len, vlen);
         }
         if (max_len < data_len)
@@ -681,7 +681,7 @@ class builder : public static_trie_builder, public trie_map_builder_fwd {
           printf("rpt enable perc: %d, actual perc: %zu\n", get_opts()->rpt_enable_perc, (size_t) (rpt_count * 100 / memtrie.node_count));
           if (get_opts()->rpt_enable_perc < (rpt_count * 100 / memtrie.node_count))
             process_repeats(true, max_repeats);
-          printf("Max col len: %" PRIuXX ", Rpt count: %lu, max: %d\n", max_len, rpt_count, max_repeats);
+          printf("Max col len: %" PRIuXX ", Rpt count: %zu, max: %d\n", max_len, rpt_count, max_repeats);
 
           if (data_type == MST_TEXT)
             val_maps.build_tail_val_maps(false, memtrie.all_node_sets, uniq_vals_fwd, uniq_vals, tot_freq_count, max_len, max_repeats);
@@ -857,7 +857,7 @@ class builder : public static_trie_builder, public trie_map_builder_fwd {
       if (!output.output_to_file() && trie_level > 0)
         actual_trie_size = tp.total_idx_size;
       if (tp.total_idx_size != actual_trie_size)
-        printf("WARNING: Trie size not matching: %lu, ^%lld, lvl: %d -----------------------------------------------------------------------------------------------------------\n", actual_trie_size, (long long) actual_trie_size - tp.total_idx_size, trie_level);
+        printf("WARNING: Trie size not matching: %zu, ^%lld, lvl: %d -----------------------------------------------------------------------------------------------------------\n", actual_trie_size, (long long) actual_trie_size - tp.total_idx_size, trie_level);
 
       return tp.total_idx_size;
 

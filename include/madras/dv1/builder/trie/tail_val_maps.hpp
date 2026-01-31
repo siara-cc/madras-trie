@@ -318,8 +318,8 @@ class tail_val_maps {
       freq_idx = 0;
       grp_no = 1;
       uintxx_t cur_limit = pow(2, start_bits);
-      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp(freq_grp{0, 0, 0, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp(freq_grp{grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       uintxx_t savings_full = 0;
       uintxx_t savings_count_full = 0;
       uintxx_t savings_partial = 0;
@@ -435,7 +435,7 @@ class tail_val_maps {
       if (ptr_grps.rpt_ui.pos == UINTXX_MAX) { // repeats
         ptr_grps.rpt_ui.freq_count = ptr_grps.rpt_ui.repeat_freq;
         max_repeats++;
-        ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
+        ptr_grps.add_freq_grp(freq_grp{++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
         ptr_grps.set_grp_nos(0, grp_no, 0);
         ptr_grps.append_text(grp_no, (const uint8_t *) "", 1);
         ptr_grps.rpt_ui.grp_no = grp_no;
@@ -449,11 +449,11 @@ class tail_val_maps {
         ptr_grps.inner_tries.push_back(inner_trie);
         while (freq_idx < uniq_info_arr_freq.size()) {
           uniq_info *ti = (uniq_info *) uniq_info_arr_freq[freq_idx];
-          uint8_t rev[ti->len];
+          std::vector<uint8_t> rev(ti->len);
           uint8_t *ti_data = uniq_data[ti->pos];
           for (uintxx_t j = 0; j < ti->len; j++)
             rev[j] = ti_data[ti->len - j - 1];
-          inner_trie->insert(rev, ti->len, freq_idx);
+          inner_trie->insert(rev.data(), ti->len, freq_idx);
           ptr_grps.update_current_grp(grp_no, 1, ti->freq_count);
           ti->grp_no = grp_no;
           trie_entry_idx++;
@@ -564,8 +564,8 @@ class tail_val_maps {
       uintxx_t cur_limit = pow(2, start_bits);
       grp_no = 1;
       // gen::word_matcher wm(uniq_vals);
-      ptr_grps.add_freq_grp((freq_grp) {0, 0, 0, 0, 0, 0, 0, 0});
-      ptr_grps.add_freq_grp((freq_grp) {grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp(freq_grp{0, 0, 0, 0, 0, 0, 0, 0});
+      ptr_grps.add_freq_grp(freq_grp{grp_no, start_bits, cur_limit, 0, 0, 0, 0, 0});
       while (freq_idx < uniq_vals_freq.size()) {
         uniq_info_base *vi = uniq_vals_freq[freq_idx];
         freq_idx++;
@@ -588,7 +588,7 @@ class tail_val_maps {
       if (ptr_grps.rpt_ui.pos == UINTXX_MAX) { // repeats
         ptr_grps.rpt_ui.freq_count = ptr_grps.rpt_ui.repeat_freq;
         max_repeats++;
-        ptr_grps.add_freq_grp((freq_grp) {++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
+        ptr_grps.add_freq_grp(freq_grp{++grp_no, 0, max_repeats, ptr_grps.rpt_ui.len, ptr_grps.rpt_ui.freq_count, max_repeats, 0, 0}, true);
         ptr_grps.set_grp_nos(0, grp_no, 0);
         ptr_grps.append_text(grp_no, (const uint8_t *) "", 1);
         ptr_grps.rpt_ui.grp_no = grp_no;

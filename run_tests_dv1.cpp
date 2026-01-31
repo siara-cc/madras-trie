@@ -4,6 +4,8 @@
 #include <inttypes.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <chrono>
+#include <cstdio>
 
 #include "madras/dv1/reader/static_trie_map.hpp"
 #include "madras/dv1/builder/madras_builder.hpp"
@@ -12,17 +14,21 @@
 
 using namespace std;
 
-double time_taken_in_secs(struct timespec t) {
-  struct timespec t_end;
-  clock_gettime(CLOCK_REALTIME, &t_end);
-  return (t_end.tv_sec - t.tv_sec) + (t_end.tv_nsec - t.tv_nsec) / 1e9;
+using steady_clock_t = std::chrono::steady_clock;
+using time_point_t  = steady_clock_t::time_point;
+
+double time_taken_in_secs(time_point_t start)
+{
+    auto end = steady_clock_t::now();
+    std::chrono::duration<double> elapsed = end - start;
+    return elapsed.count();
 }
 
-struct timespec print_time_taken(struct timespec t, const char *msg) {
-  double time_taken = time_taken_in_secs(t); // in seconds
-  printf("%s %lf\n", msg, time_taken);
-  clock_gettime(CLOCK_REALTIME, &t);
-  return t;
+time_point_t print_time_taken(time_point_t start, const char* msg)
+{
+    double time_taken = time_taken_in_secs(start);
+    std::printf("%s %lf\n", msg, time_taken);
+    return steady_clock_t::now();
 }
 
 int main(int argc, char *argv[]) {
@@ -61,10 +67,9 @@ int main(int argc, char *argv[]) {
   else if (what == 2) // Insert key as value to compare trie and prefix coding
     sb = new madras::dv1::builder(argv[1], "kv_table,Key,Value", 2, "tt", "uu", 0, 1, &bldr_opts);
   sb->set_print_enabled(true);
-  vector<pair<uint8_t *, uint32_t>> lines;
+  vector<pair<uint8_t *, size_t>> lines;
 
-  struct timespec t;
-  clock_gettime(CLOCK_REALTIME, &t);
+  auto t = steady_clock_t::now();
   struct stat file_stat;
   memset(&file_stat, '\0', sizeof(file_stat));
   stat(argv[1], &file_stat);
@@ -174,15 +179,15 @@ int main(int argc, char *argv[]) {
 
   size_t out_key_len = 0;
   size_t out_val_len = 0;
-  uint8_t key_buf[trie_reader.get_max_key_len() + 1];
-  uint8_t val_buf[trie_reader.get_max_val_len() + 1];
+  std::vector<uint8_t> key_buf(trie_reader.get_max_key_len() + 1);
+  std::vector<uint8_t> val_buf(trie_reader.get_max_val_len() + 1);
   madras::dv1::mdx_val mv;
-  mv.txt_bin = val_buf;
+  mv.txt_bin = val_buf.data();
   madras::dv1::iter_ctx dict_ctx;
   dict_ctx.init(trie_reader.get_max_key_len(), trie_reader.get_max_level());
 
   if (!is_sorted) {
-    std::sort(lines.begin(), lines.end(), [as_int](const pair<uint8_t *, int> lhs, const pair<uint8_t *, int> rhs) -> bool {
+    std::sort(lines.begin(), lines.end(), [as_int](const pair<uint8_t *, size_t> lhs, const pair<uint8_t *, size_t> rhs) -> bool {
       if (as_int)
         return atoll((const char *) lhs.first) < atoll((const char *) rhs.first);
       return gen::compare(lhs.first, lhs.second, rhs.first, rhs.second) < 0;
@@ -233,26 +238,26 @@ int main(int argc, char *argv[]) {
     // }
 
     if (is_sorted && !nodes_sorted_on_freq) {
-      out_key_len = trie_reader.next(dict_ctx, key_buf);
+      out_key_len = trie_reader.next(dict_ctx, key_buf.data());
       if (out_key_len != in_ctx.key_len) {
-        printf("%lu: Len mismatch: [%.*s], [%.*s], %" PRIuXX ", %d, %d\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len, (int) out_key_len, (int) out_val_len);
+        printf("%zu: Len mismatch: [%.*s], [%.*s], %" PRIuXX ", %d, %d\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf.data(), in_ctx.key_len, (int) out_key_len, (int) out_val_len);
         err_count++;
       } else {
-        if (memcmp(in_ctx.key, key_buf, in_ctx.key_len) != 0) {
+        if (memcmp(in_ctx.key, key_buf.data(), in_ctx.key_len) != 0) {
           err_count++;
-          printf("%lu: Key mismatch: E:[%.*s], A:[%.*s], %" PRIuXX "\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf, in_ctx.key_len);
+          printf("%zu: Key mismatch: E:[%.*s], A:[%.*s], %" PRIuXX "\n", i, (int) in_ctx.key_len, in_ctx.key, (int) out_key_len, key_buf.data(), in_ctx.key_len);
           if (as_int)
-            printf("E: %s, A: %" PRId64 "\n", lines[i].first, gen::read_svint60(key_buf));
+            printf("E: %s, A: %" PRId64 "\n", lines[i].first, gen::read_svint60(key_buf.data()));
         }
         if (what == 0 || what == 2) {
           in_ctx.node_id = dict_ctx.node_path[dict_ctx.cur_idx];
           trie_reader.get_col_val(in_ctx.node_id, 1, &out_val_len, mv);
-          if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
-            printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+          if (what == 2 && memcmp(in_ctx.key, val_buf.data(), out_val_len) != 0) {
+            printf("n2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf.data());
             err_count++;
           }
-          if (what == 0 && memcmp(val, val_buf, out_val_len) != 0) {
-            printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+          if (what == 0 && memcmp(val, val_buf.data(), out_val_len) != 0) {
+            printf("Val mismatch: [%.*s], [%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf.data());
             err_count++;
           }
         }
@@ -265,24 +270,24 @@ int main(int argc, char *argv[]) {
       err_count++;
     } else {
       uint32_t leaf_id = trie_reader.leaf_rank1(in_ctx.node_id);
-      bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf);
+      bool success = trie_reader.reverse_lookup(leaf_id, &out_key_len, key_buf.data());
       key_buf[out_key_len] = 0;
-      if (strncmp((const char *) in_ctx.key, (const char *) key_buf, in_ctx.key_len) != 0) {
-        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, (int) in_ctx.key_len, key_buf);
+      if (strncmp((const char *) in_ctx.key, (const char *) key_buf.data(), in_ctx.key_len) != 0) {
+        printf("Reverse lookup fail - e:[%s], a:[%.*s]\n", in_ctx.key, (int) in_ctx.key_len, key_buf.data());
         err_count++;
       }
     }
 
-    mv.txt_bin = val_buf;
+    mv.txt_bin = val_buf.data();
     success = trie_reader.get(in_ctx, &out_val_len, mv);
     if (success) {
       val_buf[out_val_len] = 0;
-      if (what == 0 && strncmp((const char *) val, (const char *) val_buf, val_len) != 0) {
-        printf("key: [%.*s], val: [%.*s]\n", (int) out_key_len, in_ctx.key, (int) out_val_len, val_buf);
+      if (what == 0 && strncmp((const char *) val, (const char *) val_buf.data(), val_len) != 0) {
+        printf("key: [%.*s], val: [%.*s]\n", (int) out_key_len, in_ctx.key, (int) out_val_len, val_buf.data());
         err_count++;
       }
-      if (what == 2 && memcmp(in_ctx.key, val_buf, out_val_len) != 0) {
-        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf);
+      if (what == 2 && memcmp(in_ctx.key, val_buf.data(), out_val_len) != 0) {
+        printf("g2:Val mismatch: E:[%.*s], A:[%.*s]\n", (int) val_len, val, (int) out_val_len, val_buf.data());
         err_count++;
       }
     } else {
@@ -322,7 +327,7 @@ int main(int argc, char *argv[]) {
   //   printf("Expected Eof: [%.*s], %d\n", out_key_len, key_buf, out_key_len);
 
   printf("\nKeys per sec: %lf\n", line_count / time_taken_in_secs(t) / 1000);
-  printf("Error count: %lu\n", err_count);
+  printf("Error count: %zu\n", err_count);
   t = print_time_taken(t, "Time taken for retrieve: ");
 
   free(file_buf);

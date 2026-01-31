@@ -2,7 +2,6 @@
 #define LEOPARD_H
 
 #include <fcntl.h>
-#include <unistd.h>
 #include <stdarg.h>
 #include <cstring>
 #include <algorithm>
@@ -651,7 +650,7 @@ class in_mem_trie {
                   break;
                 }
                 if (i > last_word_len)
-                  tail_parts1.push_back((tail_part) {tail + i - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+                  tail_parts1.push_back(tail_part{tail + i - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
                 last_word_len = 0;
               }
               is_prev_non_word = false;
@@ -661,7 +660,7 @@ class in_mem_trie {
             last_word_len++;
           }
           if (last_word_len < tail_len)
-            tail_parts1.push_back((tail_part) {tail + tail_len - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
+            tail_parts1.push_back(tail_part{tail + tail_len - last_word_len, 0, (uintxx_t) ni.get_cur_nsh_id(), (uint16_t) last_word_len, ni.get_cur_sib_id()});
           if (tail_parts1.size() > 0) {
             tail_parts.insert(tail_parts.end(), tail_parts1.begin(), tail_parts1.end());
             // printf("Tail: [%.*s]\n", (int) tail_len, tail);
@@ -689,13 +688,13 @@ class in_mem_trie {
         if (cmp == 0) {
           freq_count++;
         } else {
-          tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+          tail_uniq_parts.push_back(tail_uniq_part{prev_tp->part, freq_count, prev_tp->part_len});
           uniq_arr_idx++;
           freq_count = 1;
         }
         prev_tp = tp;
       }
-      tail_uniq_parts.push_back((tail_uniq_part) {prev_tp->part, freq_count, prev_tp->part_len});
+      tail_uniq_parts.push_back(tail_uniq_part{prev_tp->part, freq_count, prev_tp->part_len});
       std::sort(tail_parts.begin(), tail_parts.end(), [](const tail_part& lhs, const tail_part& rhs) -> bool {
         return lhs.part > rhs.part;
       });

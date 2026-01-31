@@ -508,8 +508,8 @@ class ptr_groups {
       size_t pos4 = 0;
       size_t u16_arr_count = (nodes_per_ptr_block / nodes_per_ptr_block_n);
       u16_arr_count--;
-      uintxx_t bit_counts[u16_arr_count + 1];
-      memset(bit_counts, '\0', u16_arr_count * 4 + 4);
+      std::vector<uintxx_t> bit_counts(u16_arr_count + 1);
+      memset(bit_counts.data(), '\0', u16_arr_count * 4 + 4);
       ptr_lookup_tbl.clear();
       append_plt_count(bit_count);
       memtrie::node_iterator ni(all_node_sets, pk_col_count == 0 ? 1 : 0);
@@ -528,12 +528,12 @@ class ptr_groups {
           pos4++;
         }
         if (node_id && (node_id % nodes_per_ptr_block) == 0) {
-          append_plt_count16(bit_counts, u16_arr_count, encoding_type);
+          append_plt_count16(bit_counts.data(), u16_arr_count, encoding_type);
           bit_count += bit_counts[u16_arr_count];
           append_plt_count(bit_count);
           bit_count4 = 0;
           pos4 = 0;
-          memset(bit_counts, '\0', u16_arr_count * 4 + 4);
+          memset(bit_counts.data(), '\0', u16_arr_count * 4 + 4);
         }
         if (cur_node_flags & (is_tail ? NFLAG_TAIL : NFLAG_LEAF)) {
           if (encoding_type == MSE_WORDS || encoding_type == MSE_WORDS_2WAY || encoding_type == MSE_STORE || encoding_type == MSE_VINTGB) {
@@ -557,10 +557,10 @@ class ptr_groups {
       }
       bit_counts[pos4] = bit_count4;
       bit_count += bit_count4;
-      append_plt_count16(bit_counts, u16_arr_count, encoding_type);
+      append_plt_count16(bit_counts.data(), u16_arr_count, encoding_type);
       bit_count += bit_counts[u16_arr_count];
       append_plt_count(bit_count);
-      append_plt_count16(bit_counts, u16_arr_count, encoding_type);
+      append_plt_count16(bit_counts.data(), u16_arr_count, encoding_type);
     }
     void write_ptrs_data(bool is_tail) {
       //size_t ftell_start = ftell(fp);

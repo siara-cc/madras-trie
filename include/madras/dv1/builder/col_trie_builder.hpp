@@ -148,7 +148,7 @@ class ct_builder {
             } break;
           }
           if (!col_trie_builder->lookup_memtrie_after_build(data_pos, data_len, nsv))
-            printf("Col trie value not found: %lu, [%.*s]!!\n", data_len, (int) data_len, data_pos);
+            printf("Col trie value not found: %zu, [%.*s]!!\n", data_len, (int) data_len, data_pos);
           memtrie::node_set_handler ct_nsh(col_trie_builder->get_memtrie()->all_node_sets, nsv.node_set_pos);
           // printf("CT NSH: %u, node idx: %d, size: %lu\n", nsv.node_set_pos, nsv.cur_node_idx, memtrie->all_node_sets.size());
           memtrie::node ct_node = ct_nsh[nsv.cur_node_idx];
@@ -194,7 +194,7 @@ class ct_builder {
           n.next();
         }
       }
-      printf("Node map count: %lu\n", node_map_count);
+      printf("Node map count: %zu\n", node_map_count);
       if (encoding_type == MSE_TRIE_2WAY) {
         col_trie_builder->set_all_vals(&col_trie_vals);
       }
