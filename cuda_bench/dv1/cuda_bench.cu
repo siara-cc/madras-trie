@@ -130,17 +130,17 @@ int main(int argc, const char *argv[]) {
   // -----------------------------
 
   // GPU resident
-  // uint8_t *d_file_buf_lines;
-  // cudaMalloc(&d_file_buf_lines, file_size + 1);
-  // cudaMemcpy(d_file_buf_lines, file_buf,
-  //            file_size + 1, cudaMemcpyHostToDevice);
+  uint8_t *d_file_buf_lines;
+  cudaMalloc(&d_file_buf_lines, file_size + 1);
+  cudaMemcpy(d_file_buf_lines, file_buf,
+             file_size + 1, cudaMemcpyHostToDevice);
 
   // Zero copy
-  uint8_t *h_file_buf_lines;
-  uint8_t *d_file_buf_lines;
-  cudaHostAlloc(&h_file_buf_lines, file_size + 1, cudaHostAllocMapped);
-  memcpy(h_file_buf_lines, file_buf, file_size + 1);
-  cudaHostGetDevicePointer(&d_file_buf_lines, h_file_buf_lines, 0);
+  // uint8_t *h_file_buf_lines;
+  // uint8_t *d_file_buf_lines;
+  // cudaHostAlloc(&h_file_buf_lines, file_size + 1, cudaHostAllocMapped);
+  // memcpy(h_file_buf_lines, file_buf, file_size + 1);
+  // cudaHostGetDevicePointer(&d_file_buf_lines, h_file_buf_lines, 0);
 
   // GPU resident
   // uint8_t *d_file_buf_mdx;
@@ -224,7 +224,7 @@ int main(int argc, const char *argv[]) {
   cudaFree(d_query_status);
 
   // Zero copy
-  cudaFreeHost(h_file_buf_lines);
+  // cudaFreeHost(h_file_buf_lines);
   cudaFreeHost(h_file_buf_mdx);
 
   delete[] file_buf;
